@@ -15,6 +15,11 @@ frontend/.vite/
 *.tsbuildinfo
 frontend/package.json.md5
 
+# Local agent planning artifacts (as in SpotiDownloader)
+docs/superpowers/
+.superpowers/
+tmp/
+
 # IDE / OS
 .vscode/
 .idea/
