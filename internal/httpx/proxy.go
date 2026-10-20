@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,8 +49,18 @@ func manualProxyString() string {
 	return ""
 }
 
+// isLoopback reports whether host is localhost or a loopback IP; such traffic never uses a proxy.
+func isLoopback(host string) bool {
+	ip := net.ParseIP(host)
+	return strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
+}
+
 // proxyFor resolves the proxy for req: manual, then environment, then OS settings.
+// Loopback is always direct.
 func proxyFor(req *http.Request) (*url.URL, error) {
+	if isLoopback(req.URL.Hostname()) {
+		return nil, nil
+	}
 	if u := manualProxy.Load(); u != nil {
 		return u, nil
 	}

@@ -86,3 +86,14 @@ func TestPickWindowsProxyServer(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestLoopbackBypassesProxy(t *testing.T) {
+	SetManualProxy("http://manual:2")
+	defer SetManualProxy("")
+	for _, raw := range []string{"http://127.0.0.1:1/", "http://localhost/", "http://[::1]/"} {
+		req, _ := http.NewRequest("GET", raw, nil)
+		if u, _ := proxyFor(req); u != nil {
+			t.Fatalf("%s: got proxy %v", raw, u)
+		}
+	}
+}
