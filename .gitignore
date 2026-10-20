@@ -1,0 +1,23 @@
+# Wails
+build/bin/
+frontend/wailsjs/
+
+# Go
+*.exe
+*.test
+*.out
+
+# Node / Frontend
+node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/.vite/
+*.tsbuildinfo
+frontend/package.json.md5
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
