@@ -34,6 +34,7 @@ export const en = {
     "search.fetchMode": "Fetch Mode",
     "search.searchMode": "Search Mode",
     "search.aria": "Search {service}",
+    "search.service": "Search service",
     "search.clear": "Clear search",
     "search.paste": "Paste a {service} link",
     "search.fetch": "Fetch",

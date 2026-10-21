@@ -33,6 +33,7 @@
     "search.fetchMode": "Режим ссылки",
     "search.searchMode": "Режим поиска",
     "search.aria": "Искать в {service}",
+    "search.service": "Сервис поиска",
     "search.clear": "Очистить поиск",
     "search.paste": "Вставьте ссылку {service}",
     "search.fetch": "Получить",

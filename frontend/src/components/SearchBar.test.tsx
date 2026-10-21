@@ -3,12 +3,12 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SearchBar } from "./SearchBar";
 import { TooltipProvider } from "./ui/tooltip";
-import { SearchSpotify, SearchSpotifyByType } from "../../wailsjs/go/main/App";
+import { SearchAmazon, SearchSpotify, SearchSpotifyByType } from "../../wailsjs/go/main/App";
 import { model } from "../../wailsjs/go/models";
 import type { history } from "../../wailsjs/go/models";
 import { mount, change, button, deferred } from "../test/render";
 
-vi.mock("../../wailsjs/go/main/App", () => ({ SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn() }));
+vi.mock("../../wailsjs/go/main/App", () => ({ SearchAmazon: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn() }));
 vi.mock("@/hooks/useTypingEffect", () => ({ useTypingEffect: (texts: string[]) => texts[0] }));
 
 function result(name: string) {
@@ -256,6 +256,43 @@ describe("modes and recent fetches", () => {
         await act(async () => button(view.container, "Load More").click());
         expect(view.container.textContent).toContain("Tracks (50)");
         expect(button(view.container, "Load More").disabled).toBe(false);
+    });
+});
+
+describe("search service switch", () => {
+    const pick = (label: string) => act(async () => button(view.container, label).click());
+
+    it("searches Amazon Music through SearchAmazon, without load more", async () => {
+        vi.mocked(SearchAmazon).mockResolvedValue(response("Amazon hit", 50));
+        await pick("Amazon Music");
+        await start("olivia");
+        expect(SearchAmazon).toHaveBeenCalledWith({ query: "olivia" });
+        expect(SearchSpotify).not.toHaveBeenCalled();
+        expect(view.container.textContent).toContain("Amazon hit 0");
+        expect(view.container.textContent).not.toContain("Load More");
+        expect(view.container.querySelector("#spotify-search")!.getAttribute("aria-label")).toBe("Search Amazon Music");
+    });
+
+    it("remembers the choice after a remount", async () => {
+        await pick("Amazon Music");
+        expect(localStorage.getItem("sonar_search_service")).toBe("amazon");
+        await view.unmount();
+        view = await mount(<TooltipProvider><SearchBar {...props}/></TooltipProvider>);
+        expect(button(view.container, "Amazon Music").getAttribute("aria-checked")).toBe("true");
+        expect(button(view.container, "Spotify").getAttribute("aria-checked")).toBe("false");
+    });
+
+    it("keeps Amazon results when a late Spotify response arrives after switching", async () => {
+        const late = deferred<model.SearchResponse>();
+        vi.mocked(SearchSpotify).mockReturnValue(late.promise);
+        vi.mocked(SearchAmazon).mockResolvedValue(response("Amazon"));
+        await start("olivia");
+        await pick("Amazon Music");
+        await act(async () => vi.advanceTimersByTimeAsync(400));
+        expect(view.container.textContent).toContain("Amazon 0");
+        await act(async () => late.resolve(response("Late spotify")));
+        expect(view.container.textContent).toContain("Amazon 0");
+        expect(view.container.textContent).not.toContain("Late spotify");
     });
 });
 

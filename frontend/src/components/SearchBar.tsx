@@ -5,13 +5,14 @@ import { XCircle, Link, Search, X, ChevronDown, ArrowLeft } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { FetchHistory } from "@/components/FetchHistory";
-import { SearchSpotify, SearchSpotifyByType } from "../../wailsjs/go/main/App";
+import { SearchAmazon, SearchSpotify, SearchSpotifyByType } from "../../wailsjs/go/main/App";
 import type { history } from "../../wailsjs/go/models";
 import { model } from "../../wailsjs/go/models";
 import { cn, errorMessage } from "@/lib/utils";
 import { useTypingEffect } from "@/hooks/useTypingEffect";
 import { t as translate, useI18n } from "@/lib/i18n";
 import { linkServices, serviceLabels } from "@/components/ServiceBadge";
+import type { Service } from "@/types/api";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 const FETCH_LINKS = [
     "https://open.spotify.com/track/...",
@@ -22,7 +23,6 @@ const FETCH_LINKS = [
     "https://music.amazon.com/playlists/...",
     "https://music.amazon.com/artists/..."
 ];
-const service = serviceLabels.spotify;
 const SEARCH_PLACEHOLDERS = [
     "Golden",
     "Taylor Swift",
@@ -33,6 +33,7 @@ const SEARCH_PLACEHOLDERS = [
 ];
 type ResultTab = "tracks" | "albums" | "artists" | "playlists";
 const RECENT_SEARCHES_KEY = "sonar_recent_searches";
+const SEARCH_SERVICE_KEY = "sonar_search_service";
 const MAX_RECENT_SEARCHES = 8;
 const SEARCH_LIMIT = 50;
 // Spotify's pages overlap and can repeat ids, so keep only ids not already seen.
@@ -56,6 +57,14 @@ interface SearchBarProps {
 }
 export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, history, onHistorySelect, onHistoryRemove, hasResult, searchMode, onSearchModeChange, canGoBack, onBack, }: SearchBarProps) {
     const { t, language } = useI18n();
+    const [searchService, setSearchService] = useState<Service>(() => {
+        try {
+            return localStorage.getItem(SEARCH_SERVICE_KEY) === "amazon" ? "amazon" : "spotify";
+        }
+        catch {
+            return "spotify";
+        }
+    });
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<model.SearchResponse | null>(null);
     const [searchStatus, setSearchStatus] = useState<"idle" | "debouncing" | "loading" | "success" | "empty" | "error">("idle");
@@ -142,6 +151,15 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         invalidateSearch();
         onSearchModeChange(mode);
     };
+    const changeService = (next: Service) => {
+        setSearchService(next);
+        try {
+            localStorage.setItem(SEARCH_SERVICE_KEY, next);
+        }
+        catch (error) {
+            console.error("Failed to save search service:", error);
+        }
+    };
     const changeTab = (tab: ResultTab) => {
         pageGeneration.current++;
         setIsLoadingMore(false);
@@ -163,7 +181,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             if (generation !== searchGeneration.current) return;
             setSearchStatus("loading");
             try {
-                const raw = await SearchSpotify({ query, limit: SEARCH_LIMIT });
+                const raw = searchService === "amazon" ? await SearchAmazon({ query }) : await SearchSpotify({ query, limit: SEARCH_LIMIT });
                 if (generation !== searchGeneration.current) return;
                 rawOffset.current = { tracks: raw.tracks.length, albums: raw.albums.length, artists: raw.artists.length, playlists: raw.playlists.length };
                 const results = new model.SearchResponse({
@@ -176,11 +194,13 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                 setLastSearchedQuery(query);
                 saveRecentSearch(query);
                 setSearchStatus(results.tracks.length || results.albums.length || results.artists.length || results.playlists.length ? "success" : "empty");
+                // Amazon's search has no paging, so it never offers load more.
+                const more = (items: unknown[]) => searchService === "spotify" && items.length === SEARCH_LIMIT;
                 setHasMore({
-                    tracks: raw.tracks.length === SEARCH_LIMIT,
-                    albums: raw.albums.length === SEARCH_LIMIT,
-                    artists: raw.artists.length === SEARCH_LIMIT,
-                    playlists: raw.playlists.length === SEARCH_LIMIT,
+                    tracks: more(raw.tracks),
+                    albums: more(raw.albums),
+                    artists: more(raw.artists),
+                    playlists: more(raw.playlists),
                 });
                 if (results.tracks.length > 0)
                     setActiveTab("tracks");
@@ -201,7 +221,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             clearTimeout(timeout);
             invalidateRequests();
         };
-    }, [searchQuery, searchMode, retry, saveRecentSearch, invalidateRequests]);
+    }, [searchQuery, searchMode, searchService, retry, saveRecentSearch, invalidateRequests]);
     const handleLoadMore = async () => {
         if (!searchResults || !lastSearchedQuery || isLoadingMore)
             return;
@@ -337,12 +357,18 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
                         </>) : (<>
-                            <InputWithContext id="spotify-search" aria-label={t("search.aria", { service })} placeholder={placeholderText} value={searchQuery} onChange={(e) => changeQuery(e.target.value)} className="pr-8"/>
+                            <InputWithContext id="spotify-search" aria-label={t("search.aria", { service: serviceLabels[searchService] })} placeholder={placeholderText} value={searchQuery} onChange={(e) => changeQuery(e.target.value)} className="pr-8"/>
                             {searchQuery && (<button type="button" aria-label={t("search.clear")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => changeQuery("")}>
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
                         </>)}
                 </div>
+
+                {searchMode && (<div role="radiogroup" aria-label={t("search.service")} className="flex shrink-0 rounded-md border">
+                        {(["spotify", "amazon"] as const).map((option) => (<Button key={option} type="button" role="radio" aria-checked={searchService === option} variant={searchService === option ? "secondary" : "ghost"} onClick={() => changeService(option)}>
+                                {serviceLabels[option]}
+                            </Button>))}
+                    </div>)}
 
                 {!searchMode && (<Button onClick={handleFetchWithValidation} disabled={loading}>
                         {loading ? (<>
