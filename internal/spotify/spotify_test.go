@@ -154,3 +154,18 @@ func TestLive(t *testing.T) {
 		t.Error("search returned no tracks")
 	}
 }
+
+func TestCanonicalURLIgnoresPastedForm(t *testing.T) {
+	for _, in := range []string{
+		"spotify:album:6N9PS4QXF1D0OWPk0Sxtb4",
+		"https://open.spotify.com/intl-de/album/6N9PS4QXF1D0OWPk0Sxtb4?si=abc",
+	} {
+		p, err := parseSpotifyURI(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := canonicalURL(p.Type, p.ID); got != "https://open.spotify.com/album/6N9PS4QXF1D0OWPk0Sxtb4" {
+			t.Errorf("%q -> %q", in, got)
+		}
+	}
+}

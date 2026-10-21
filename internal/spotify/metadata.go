@@ -216,13 +216,20 @@ func GetMetadata(ctx context.Context, rawURL string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return c.formatAlbumData(raw)
+		payload, err := c.formatAlbumData(raw)
+		if err != nil {
+			return nil, err
+		}
+		payload.AlbumInfo.ExternalURL = canonicalURL(parsed.Type, parsed.ID)
+		return payload, nil
 	case "playlist":
 		raw, err := c.fetchPlaylist(ctx, parsed.ID)
 		if err != nil {
 			return nil, err
 		}
-		return c.formatPlaylistData(raw), nil
+		payload := c.formatPlaylistData(raw)
+		payload.PlaylistInfo.ExternalURL = canonicalURL(parsed.Type, parsed.ID)
+		return payload, nil
 	case "artist", "artist_discography":
 		raw, err := c.fetchArtistDiscography(ctx, parsed)
 		if err != nil {
@@ -232,6 +239,12 @@ func GetMetadata(ctx context.Context, rawURL string) (any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported Spotify type: %s", parsed.Type)
 	}
+}
+
+// canonicalURL is the https link for a parsed id, whatever form (spotify: URI,
+// ?si= share link) the user pasted.
+func canonicalURL(kind, id string) string {
+	return "https://open.spotify.com/" + kind + "/" + id
 }
 
 func (c *metadataClient) fetchTrack(ctx context.Context, trackID string) (*apiTrackResponse, error) {
@@ -901,6 +914,7 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 	allTracks := make([]model.AlbumTrackMetadata, 0)
 
 	type fetchResult struct {
+		idx    int
 		tracks []model.AlbumTrackMetadata
 		err    error
 	}
@@ -913,7 +927,7 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 		return nil, err
 	}
 
-	for _, alb := range raw.Discography.All {
+	for albumIdx, alb := range raw.Discography.All {
 		albumList = append(albumList, model.DiscographyAlbumMetadata{
 			ID:          alb.ID,
 			Name:        alb.Name,
@@ -925,7 +939,7 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 			ExternalURL: fmt.Sprintf("https://open.spotify.com/album/%s", alb.ID),
 		})
 
-		go func(albumID string, albumName string) {
+		go func(albumIdx int, albumID string, albumName string) {
 			sem <- struct{}{}
 
 			time.Sleep(100 * time.Millisecond)
@@ -933,7 +947,7 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 
 			select {
 			case <-ctx.Done():
-				resultsChan <- fetchResult{err: ctx.Err()}
+				resultsChan <- fetchResult{idx: albumIdx, err: ctx.Err()}
 				return
 			default:
 			}
@@ -941,7 +955,7 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 			albumData, err := c.fetchAlbumWithClient(ctx, sharedClient, albumID)
 			if err != nil {
 				log.Printf("spotify: tracks for album %s: %v", albumName, err)
-				resultsChan <- fetchResult{tracks: []model.AlbumTrackMetadata{}}
+				resultsChan <- fetchResult{idx: albumIdx}
 				return
 			}
 
@@ -989,16 +1003,21 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 					IsExplicit:  tr.IsExplicit,
 				})
 			}
-			resultsChan <- fetchResult{tracks: tracks}
-		}(alb.ID, alb.Name)
+			resultsChan <- fetchResult{idx: albumIdx, tracks: tracks}
+		}(albumIdx, alb.ID, alb.Name)
 	}
 
-	for i := 0; i < len(raw.Discography.All); i++ {
+	// Goroutines finish in any order; flatten in discography order.
+	byAlbum := make([][]model.AlbumTrackMetadata, len(raw.Discography.All))
+	for range raw.Discography.All {
 		res := <-resultsChan
 		if res.err != nil {
 			return nil, res.err
 		}
-		allTracks = append(allTracks, res.tracks...)
+		byAlbum[res.idx] = res.tracks
+	}
+	for _, tracks := range byAlbum {
+		allTracks = append(allTracks, tracks...)
 	}
 
 	return &model.ArtistDiscographyPayload{

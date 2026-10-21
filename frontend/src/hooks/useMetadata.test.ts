@@ -274,6 +274,18 @@ describe("useMetadata async source identity", () => {
         expect(doubles.toastError).toHaveBeenCalledWith(regionBlock);
     });
 
+    it("stores the canonical link in history for a pasted spotify: URI", async () => {
+        const canonical = "https://open.spotify.com/album/6N9PS4QXF1D0OWPk0Sxtb4";
+        const data = albumMetadata("A");
+        if ("album_info" in data) data.album_info.external_urls = canonical;
+        doubles.fetchMetadata.mockResolvedValue(data);
+
+        const hook = MetadataHookHarness();
+        await hook.handleFetchMetadata("spotify:album:6N9PS4QXF1D0OWPk0Sxtb4");
+
+        expect(doubles.addFetchHistory).toHaveBeenCalledWith(expect.objectContaining({ url: canonical, type: "album" }));
+    });
+
     it("retains the prior successful pair when a current album request fails", async () => {
         const metadataA = playlistMetadata("Collection A");
         const albumUrl = "https://open.spotify.com/album/b";

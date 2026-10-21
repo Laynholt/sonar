@@ -76,9 +76,11 @@ export function useMetadata() {
                 image = data.artist_info.images;
             }
             const jsonStr = JSON.stringify(data);
+            // Album/playlist payloads carry the canonical link; a pasted spotify: URI or ?si= form must not persist.
+            const canonicalUrl = ("album_info" in data && data.album_info.external_urls) || ("playlist_info" in data && data.playlist_info.external_urls) || url;
             await AddFetchHistory({
                 id: crypto.randomUUID(),
-                url: url,
+                url: canonicalUrl,
                 type: type,
                 name: name,
                 info: info,

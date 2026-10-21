@@ -77,6 +77,7 @@ type AlbumInfoMetadata struct {
 	Batch       string `json:"batch,omitempty"`
 	ArtistID    string `json:"artist_id,omitempty"`
 	ArtistURL   string `json:"artist_url,omitempty"`
+	ExternalURL string `json:"external_urls"`
 }
 
 type AlbumResponsePayload struct {
@@ -100,6 +101,7 @@ type PlaylistInfoMetadata struct {
 	Cover       string `json:"cover,omitempty"`
 	Description string `json:"description,omitempty"`
 	Batch       string `json:"batch,omitempty"`
+	ExternalURL string `json:"external_urls"`
 }
 
 type PlaylistResponsePayload struct {

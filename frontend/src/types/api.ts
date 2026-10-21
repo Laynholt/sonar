@@ -44,6 +44,7 @@ export interface AlbumInfo {
     batch?: string;
     artist_id?: string;
     artist_url?: string;
+    external_urls?: string; // canonical link; absent in history cached before it existed
 }
 export interface AlbumResponse {
     service: Service;
@@ -65,6 +66,7 @@ export interface PlaylistInfo {
     cover?: string;
     description?: string;
     batch?: string;
+    external_urls?: string;
 }
 export interface PlaylistResponse {
     service: Service;
