@@ -6,6 +6,7 @@ import { TerminalIcon } from "@/components/ui/terminal";
 import { BadgeAlertIcon } from "@/components/ui/badge-alert";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 export type PageType = "main" | "history" | "settings" | "debug" | "about";
 interface SidebarProps {
@@ -13,17 +14,19 @@ interface SidebarProps {
     onPageChange: (page: PageType) => void;
 }
 
-type Item = { page: PageType; label: string; icon: ReactNode };
+type Item = { page: PageType; label: MessageKey; icon: ReactNode };
 const topItems: Item[] = [
-    { page: "main", label: "Home", icon: <HomeIcon size={20}/> },
-    { page: "history", label: "History", icon: <HistoryIcon size={20}/> },
-    { page: "debug", label: "Debug Logs", icon: <TerminalIcon size={20} loop={true}/> },
-    { page: "settings", label: "Settings", icon: <SettingsIcon size={20}/> },
+    { page: "main", label: "nav.home", icon: <HomeIcon size={20}/> },
+    { page: "history", label: "nav.history", icon: <HistoryIcon size={20}/> },
+    { page: "debug", label: "nav.debug", icon: <TerminalIcon size={20} loop={true}/> },
+    { page: "settings", label: "nav.settings", icon: <SettingsIcon size={20}/> },
 ];
-const aboutItem: Item = { page: "about", label: "About", icon: <BadgeAlertIcon size={20}/> };
+const aboutItem: Item = { page: "about", label: "nav.about", icon: <BadgeAlertIcon size={20}/> };
 
 export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
-    const item = ({ page, label, icon }: Item) => {
+    const { t } = useI18n();
+    const item = ({ page, label: key, icon }: Item) => {
+        const label = t(key);
         const active = currentPage === page;
         return (<Tooltip key={page} delayDuration={0}>
         <TooltipTrigger asChild>

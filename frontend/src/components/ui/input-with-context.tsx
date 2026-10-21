@@ -2,10 +2,12 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, } from "@/components/ui/context-menu";
 import { Scissors, Copy, Clipboard, Type } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 export interface InputWithContextProps extends React.InputHTMLAttributes<HTMLInputElement> {
     onValueChange?: (value: string) => void;
 }
 const InputWithContext = React.forwardRef<HTMLInputElement, InputWithContextProps>(({ className, type, onValueChange, onChange, ...props }, ref) => {
+    const { t } = useI18n();
     const inputRef = React.useRef<HTMLInputElement>(null);
     const [hasSelection, setHasSelection] = React.useState(false);
     const [hasValue, setHasValue] = React.useState(() => Boolean(props.value || props.defaultValue));
@@ -136,23 +138,23 @@ const InputWithContext = React.forwardRef<HTMLInputElement, InputWithContextProp
         <ContextMenuContent className="w-48">
           <ContextMenuItem onSelect={handleCut} disabled={!hasSelection || props.disabled || props.readOnly}>
             <Scissors className="mr-2 h-4 w-4"/>
-            Cut
+            {t("edit.cut")}
             <span className="ml-auto text-xs text-muted-foreground">Ctrl+X</span>
           </ContextMenuItem>
           <ContextMenuItem onSelect={handleCopy} disabled={!hasSelection || props.disabled}>
             <Copy className="mr-2 h-4 w-4"/>
-            Copy
+            {t("edit.copy")}
             <span className="ml-auto text-xs text-muted-foreground">Ctrl+C</span>
           </ContextMenuItem>
           <ContextMenuItem onSelect={handlePaste} disabled={!canPaste || props.disabled || props.readOnly}>
             <Clipboard className="mr-2 h-4 w-4"/>
-            Paste
+            {t("edit.paste")}
             <span className="ml-auto text-xs text-muted-foreground">Ctrl+V</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={handleSelectAll} disabled={!hasValue || props.disabled}>
             <Type className="mr-2 h-4 w-4"/>
-            Select All
+            {t("edit.selectAll")}
             <span className="ml-auto text-xs text-muted-foreground">Ctrl+A</span>
           </ContextMenuItem>
         </ContextMenuContent>

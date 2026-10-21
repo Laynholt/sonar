@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ExternalLink, XCircle } from "lucide-react";
 import type { TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import { AlbumLink, ArtistLinks, type AlbumRef, type ArtistRef } from "./ArtistLinks";
 import { CoverPreview } from "./CoverPreview";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
@@ -16,6 +17,7 @@ interface TrackInfoProps {
     onAlbumClick?: (album: AlbumRef) => void;
 }
 export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: TrackInfoProps) {
+    const { t } = useI18n();
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
         const seconds = Math.floor((ms % 60000) / 1000);
@@ -28,14 +30,14 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: Track
         return num.toLocaleString();
     };
     const details = [
-        ["Release Date", track.release_date],
-        ["Plays", track.plays && formatPlays(track.plays)],
-        ["Duration", formatDuration(track.duration_ms)],
-        ["Copyright", track.copyright],
+        [t("track.releaseDate"), track.release_date],
+        [t("track.plays"), track.plays && formatPlays(track.plays)],
+        [t("track.duration"), formatDuration(track.duration_ms)],
+        [t("track.copyright"), track.copyright],
     ].filter(([, value]) => value);
     return (<Card className="relative">
     {onBack && (<div className="absolute top-4 right-4 z-10">
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label="Back">
+        <Button variant="ghost" size="icon" onClick={onBack} aria-label={t("common.back")}>
             <XCircle className="h-5 w-5"/>
         </Button>
     </div>)}
@@ -48,7 +50,7 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: Track
               <ServiceBadge service={track.service}/>
               <div className="flex items-center gap-3">
                 <h1 className="text-3xl font-bold wrap-break-word">{track.name}</h1>
-                {track.is_explicit && (<span className="inline-flex items-center justify-center bg-red-600 text-white text-[10px] h-4 w-4 rounded shrink-0" title="Explicit">E</span>)}
+                {track.is_explicit && (<span className="inline-flex items-center justify-center bg-red-600 text-white text-[10px] h-4 w-4 rounded shrink-0" title={t("track.explicit")}>E</span>)}
               </div>
               <p className="text-lg text-muted-foreground">
                 <ArtistLinks track={track} onArtistClick={onArtistClick}/> · <AlbumLink track={track} onAlbumClick={onAlbumClick}/>
@@ -57,7 +59,7 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: Track
             <div>
               <Button onClick={() => openExternal(track.external_urls)} variant="outline">
                 <ExternalLink className="h-4 w-4"/>
-                Open in {serviceLabels[track.service]}
+                {t("service.open", { service: serviceLabels[track.service] })}
               </Button>
             </div>
           </div>

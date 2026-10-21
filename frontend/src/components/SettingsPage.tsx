@@ -8,14 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { Switch } from "@/components/ui/switch";
 import { getSettings, saveSettings, applyThemeMode, applyFont, FONT_OPTIONS, type Settings as SettingsType, type FontFamily } from "@/lib/settings";
 import { themes, applyTheme } from "@/lib/themes";
-import { availableLanguages, setLanguage } from "@/lib/i18n";
+import { availableLanguages, setLanguage, t as translate, useI18n, type MessageKey } from "@/lib/i18n";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 
 const SECTIONS = [
-    { id: "general", label: "General" },
-    { id: "appearance", label: "Appearance" },
-    { id: "network", label: "Network" },
-] as const;
+    { id: "general", label: "settings.general" },
+    { id: "appearance", label: "settings.appearance" },
+    { id: "network", label: "settings.network" },
+] as const satisfies readonly { id: string; label: MessageKey }[];
 type SectionId = typeof SECTIONS[number]["id"];
 
 function Row({ id, label, description, children, wide }: { id: string; label: string; description?: string; children: ReactNode; wide?: boolean }) {
@@ -34,6 +34,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: SettingsPageProps) {
+    const { t } = useI18n();
     const [savedSettings, setSavedSettings] = useState<SettingsType>(getSettings());
     const [tempSettings, setTempSettings] = useState<SettingsType>(savedSettings);
     const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'));
@@ -82,63 +83,63 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
         try {
             await saveSettings(tempSettings);
             setSavedSettings(getSettings());
-            toast.success("Settings saved");
+            toast.success(translate("settings.saved"));
         }
         catch (error) {
             // tempSettings stays as typed, so a bad proxy can be corrected in place.
-            toast.error(`Failed to save settings: ${error}`);
+            toast.error(translate("settings.saveFailed", { error: String(error) }));
         }
         finally { setIsSaving(false); }
     };
     return (<div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Settings</h1>
+        <h1 className="text-2xl font-bold">{t("nav.settings")}</h1>
         <Button onClick={handleSave} disabled={isSaving} className="gap-1.5">
           <Save className="h-4 w-4"/>
-          Save Changes
+          {t("settings.save")}
         </Button>
       </div>
 
       <div className="flex gap-8">
         <nav className="flex w-40 shrink-0 flex-col gap-1">
-          {SECTIONS.map(({ id, label }) => (<Button key={id} variant={section === id ? "secondary" : "ghost"} className="justify-start" onClick={() => setSection(id)}>{label}</Button>))}
+          {SECTIONS.map(({ id, label }) => (<Button key={id} variant={section === id ? "secondary" : "ghost"} className="justify-start" onClick={() => setSection(id)}>{t(label)}</Button>))}
         </nav>
 
         <div className="min-w-0 flex-1">
           {section === "general" && (<>
-            <Row id="language" label="Language" description="Interface language">
+            <Row id="language" label={t("settings.language")} description={t("settings.languageDesc")}>
               <Select value={tempSettings.language} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, language: value }))}>
                 <SelectTrigger id="language">
-                  <SelectValue placeholder="Select a language"/>
+                  <SelectValue placeholder={t("settings.languagePlaceholder")}/>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">System</SelectItem>
+                  <SelectItem value="auto">{t("settings.system")}</SelectItem>
                   {availableLanguages().map(({ code, name }) => (<SelectItem key={code} value={code}>{name}</SelectItem>))}
                 </SelectContent>
               </Select>
             </Row>
-            <Row id="sfx-enabled" label="Sound Effects" description="Play sounds with notifications">
+            <Row id="sfx-enabled" label={t("settings.sfx")} description={t("settings.sfxDesc")}>
               <Switch id="sfx-enabled" checked={tempSettings.sfxEnabled} onCheckedChange={(checked) => setTempSettings(prev => ({ ...prev, sfxEnabled: checked }))}/>
             </Row>
           </>)}
 
           {section === "appearance" && (<>
-            <Row id="theme-mode" label="Mode" description="Light, dark or follow the system">
+            <Row id="theme-mode" label={t("settings.mode")} description={t("settings.modeDesc")}>
               <Select value={tempSettings.themeMode} onValueChange={(value: "auto" | "light" | "dark") => setTempSettings((prev) => ({ ...prev, themeMode: value }))}>
                 <SelectTrigger id="theme-mode">
-                  <SelectValue placeholder="Select theme mode"/>
+                  <SelectValue placeholder={t("settings.modePlaceholder")}/>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">Auto</SelectItem>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="auto">{t("settings.auto")}</SelectItem>
+                  <SelectItem value="light">{t("settings.light")}</SelectItem>
+                  <SelectItem value="dark">{t("settings.dark")}</SelectItem>
                 </SelectContent>
               </Select>
             </Row>
-            <Row id="theme" label="Accent" description="Highlight color">
+            <Row id="theme" label={t("settings.accent")} description={t("settings.accentDesc")}>
               <Select value={tempSettings.theme} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, theme: value }))}>
                 <SelectTrigger id="theme">
-                  <SelectValue placeholder="Select a theme"/>
+                  <SelectValue placeholder={t("settings.accentPlaceholder")}/>
                 </SelectTrigger>
                 <SelectContent>
                   {themes.map((theme) => (<SelectItem key={theme.name} value={theme.name}>
@@ -152,10 +153,10 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
                 </SelectContent>
               </Select>
             </Row>
-            <Row id="font" label="Font" description="Interface font">
+            <Row id="font" label={t("settings.font")} description={t("settings.fontDesc")}>
               <Select value={tempSettings.fontFamily} onValueChange={(value: FontFamily) => setTempSettings((prev) => ({ ...prev, fontFamily: value }))}>
                 <SelectTrigger id="font">
-                  <SelectValue placeholder="Select a font"/>
+                  <SelectValue placeholder={t("settings.fontPlaceholder")}/>
                 </SelectTrigger>
                 <SelectContent>
                   {FONT_OPTIONS.map((font) => (<SelectItem key={font.value} value={font.value}>
@@ -167,8 +168,8 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
           </>)}
 
           {section === "network" && (
-            <Row id="proxy" label="Proxy" wide description="Leave empty to use HTTPS_PROXY or the system proxy. Examples: http://127.0.0.1:10808, socks5://127.0.0.1:10808">
-              <Input id="proxy" value={tempSettings.proxy} onChange={(e) => setTempSettings((prev) => ({ ...prev, proxy: e.target.value }))} placeholder="Auto (system proxy)"/>
+            <Row id="proxy" label={t("settings.proxy")} wide description={t("settings.proxyDesc")}>
+              <Input id="proxy" value={tempSettings.proxy} onChange={(e) => setTempSettings((prev) => ({ ...prev, proxy: e.target.value }))} placeholder={t("settings.proxyPlaceholder")}/>
             </Row>
           )}
         </div>

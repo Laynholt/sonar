@@ -24,7 +24,8 @@ export function resolveLanguage(setting: string, preferred: readonly string[], l
 
 export function translate(lang: string, key: MessageKey, params?: Params, locales: Record<string, Locale> = LOCALES): string {
     const entry = pick(locales[lang]?.[key], lang, params) ?? pick(locales.en[key], "en", params) ?? key;
-    return entry.replace(/\{(\w+)\}/g, (match, name: string) => (params && name in params ? String(params[name]) : match));
+    // {count} gets the language's digit grouping (1,234 / 1 234).
+    return entry.replace(/\{(\w+)\}/g, (match, name: string) => (params && name in params ? (name === "count" ? Number(params[name]).toLocaleString(lang) : String(params[name])) : match));
 }
 
 function pick(entry: Entry | undefined, lang: string, params?: Params): string | undefined {
@@ -51,5 +52,5 @@ const subscribe = (listener: () => void) => {
 };
 
 export function useI18n(): { t: typeof t; language: string } {
-    return { t, language: useSyncExternalStore(subscribe, getLanguage) };
+    return { t, language: useSyncExternalStore(subscribe, getLanguage, getLanguage) };
 }

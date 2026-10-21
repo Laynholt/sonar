@@ -1,23 +1,26 @@
 import type { history } from "../../wailsjs/go/models";
 import { X, Music2, Disc3, ListMusic, UserRound } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
+import { historyInfo } from "@/lib/history-info";
 interface FetchHistoryProps {
     history: history.FetchItem[];
     onSelect: (item: history.FetchItem) => void;
     onRemove: (id: string) => void;
 }
 export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistoryProps) {
+    const { t } = useI18n();
     if (items.length === 0)
         return null;
     const getTypeLabel = (type: string) => {
         switch (type) {
             case "track":
-                return "Track";
+                return t("type.track");
             case "album":
-                return "Album";
+                return t("type.album");
             case "playlist":
-                return "Playlist";
+                return t("type.playlist");
             case "artist":
-                return "Artist";
+                return t("type.artist");
             default:
                 return type;
         }
@@ -51,10 +54,10 @@ export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistor
         }
     };
     return (<div className="space-y-2">
-      <span className="text-sm text-muted-foreground">{items.length === 1 ? "Recent Fetch" : "Recent Fetches"}</span>
+      <span className="text-sm text-muted-foreground">{t("recent.title", { count: items.length })}</span>
       <div className="flex gap-2 overflow-x-auto pb-2 pt-2">
         {items.map((item) => (<div key={item.id} className="relative shrink-0 w-[130px] group cursor-pointer rounded-lg border bg-card hover:bg-accent transition-colors overflow-visible" onClick={() => onSelect(item)}>
-            <button type="button" aria-label={`Remove ${item.name} from recent fetches`} className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-sm" onClick={(e) => {
+            <button type="button" aria-label={t("recent.remove", { name: item.name })} className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-sm" onClick={(e) => {
                 e.stopPropagation();
                 onRemove(item.id);
             }}>
@@ -63,15 +66,15 @@ export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistor
             <div className="p-2">
               <div className="aspect-square w-full rounded-md overflow-hidden mb-2 bg-muted">
                 {item.image ? (<img src={item.image} alt={item.name} className="w-full h-full object-cover"/>) : (<div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
-                    No Image
+                    {t("recent.noImage")}
                   </div>)}
               </div>
               <div className="space-y-0.5">
                 <p className="text-xs font-medium truncate" title={item.name}>
                   {item.name}
                 </p>
-                <p className="text-xs text-muted-foreground truncate" title={item.info}>
-                  {item.info}
+                <p className="text-xs text-muted-foreground truncate" title={historyInfo(item)}>
+                  {historyInfo(item)}
                 </p>
                 {(() => {
                 const IconComponent = getTypeIcon(item.type);

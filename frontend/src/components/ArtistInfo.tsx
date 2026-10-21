@@ -7,6 +7,7 @@ import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
 import { useState } from "react";
+import { useI18n } from "@/lib/i18n";
 import type { AlbumRef, ArtistRef } from "./ArtistLinks";
 interface ArtistInfoProps {
     service: Service;
@@ -45,6 +46,7 @@ interface ArtistInfoProps {
     onBack?: () => void;
 }
 export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, }: ArtistInfoProps) {
+    const { t } = useI18n();
     const [activeTab, setActiveTab] = useState<"albums" | "tracks" | "gallery">("albums");
     const hasGallery = artistInfo.gallery && artistInfo.gallery.length > 0;
     return (<div className="space-y-6">
@@ -65,7 +67,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                         </div>)}
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-white/80">Artist</p>
+                      <p className="text-sm font-medium text-white/80">{t("type.artist")}</p>
                       <ServiceBadge service={service}/>
                     </div>
                     <div className="flex items-center gap-2">
@@ -75,23 +77,23 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                     {artistInfo.biography && (<p className="text-sm text-white/90 line-clamp-4">{artistInfo.biography}</p>)}
                     <div className="flex items-center gap-2 text-sm flex-wrap text-white/90">
                       {artistInfo.rank && (<>
-                          <span>#{artistInfo.rank} rank</span>
+                          <span>{t("artist.rank", { rank: artistInfo.rank })}</span>
                           <span>•</span>
                         </>)}
-                      <span>{artistInfo.followers.toLocaleString()} {artistInfo.followers === 1 ? "follower" : "followers"}</span>
+                      <span>{t("count.followers", { count: artistInfo.followers })}</span>
                       {artistInfo.listeners && (<>
                           <span>•</span>
-                          <span>{artistInfo.listeners.toLocaleString()} {artistInfo.listeners === 1 ? "listener" : "listeners"}</span>
+                          <span>{t("count.listeners", { count: artistInfo.listeners })}</span>
                         </>)}
                     </div>
                     <div className="flex items-center gap-2 text-sm flex-wrap text-white/90">
-                      <span>{albumList.length} {albumList.length === 1 ? "album" : "albums"}</span>
+                      <span>{t("count.albums", { count: albumList.length })}</span>
                       <span>•</span>
-                      <span>{trackList.length} {trackList.length === 1 ? "track" : "tracks"}</span>
+                      <span>{t("count.tracks", { count: trackList.length })}</span>
                     </div>
                     <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline" className="bg-white/10 hover:bg-white/20 text-white border-white/20">
                       <ExternalLink className="h-4 w-4"/>
-                      Open in {serviceLabels[service]}
+                      {t("service.open", { service: serviceLabels[service] })}
                     </Button>
                   </div>
                 </div>
@@ -109,7 +111,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                 </div>)}
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-medium">Artist</p>
+                <p className="text-sm font-medium">{t("type.artist")}</p>
                 <ServiceBadge service={service}/>
               </div>
                 <div className="flex items-center gap-2">
@@ -119,23 +121,23 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                 {artistInfo.biography && (<p className="text-sm text-muted-foreground line-clamp-4">{artistInfo.biography}</p>)}
               <div className="flex items-center gap-2 text-sm flex-wrap">
                 {artistInfo.rank && (<>
-                    <span>#{artistInfo.rank} rank</span>
+                    <span>{t("artist.rank", { rank: artistInfo.rank })}</span>
                     <span>•</span>
                   </>)}
-                <span>{artistInfo.followers.toLocaleString()} {artistInfo.followers === 1 ? "follower" : "followers"}</span>
+                <span>{t("count.followers", { count: artistInfo.followers })}</span>
                 {artistInfo.listeners && (<>
                     <span>•</span>
-                    <span>{artistInfo.listeners.toLocaleString()} {artistInfo.listeners === 1 ? "listener" : "listeners"}</span>
+                    <span>{t("count.listeners", { count: artistInfo.listeners })}</span>
                   </>)}
               </div>
               <div className="flex items-center gap-2 text-sm flex-wrap">
-                <span>{albumList.length} {albumList.length === 1 ? "album" : "albums"}</span>
+                <span>{t("count.albums", { count: albumList.length })}</span>
                 <span>•</span>
-                <span>{trackList.length} {trackList.length === 1 ? "track" : "tracks"}</span>
+                <span>{t("count.tracks", { count: trackList.length })}</span>
               </div>
               <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline">
                       <ExternalLink className="h-4 w-4"/>
-                      Open in {serviceLabels[service]}
+                      {t("service.open", { service: serviceLabels[service] })}
                     </Button>
             </div>
           </div>
@@ -145,28 +147,28 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
       <div className="border-b">
         <div className="flex gap-6">
             <button onClick={() => setActiveTab("albums")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "albums" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
-                Albums
+                {t("artist.albums")}
             </button>
             <button onClick={() => setActiveTab("tracks")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "tracks" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
-                All Tracks
+                {t("artist.allTracks")}
             </button>
             {hasGallery && (<button onClick={() => setActiveTab("gallery")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "gallery" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
-                Gallery
+                {t("artist.gallery")}
             </button>)}
         </div>
       </div>
 
       {activeTab === "gallery" && hasGallery && (<div className="space-y-4">
-          <h3 className="text-2xl font-bold">Gallery ({artistInfo.gallery!.length})</h3>
+          <h3 className="text-2xl font-bold">{t("artist.galleryCount", { count: artistInfo.gallery!.length })}</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {artistInfo.gallery!.map((imageUrl, index) => (<div key={index} className="relative aspect-square rounded-md overflow-hidden shadow-md">
-                <img src={imageUrl} alt={`${artistInfo.name} gallery ${index + 1}`} className="w-full h-full object-cover"/>
+                <img src={imageUrl} alt={t("artist.galleryAlt", { name: artistInfo.name, n: index + 1 })} className="w-full h-full object-cover"/>
               </div>))}
           </div>
         </div>)}
 
       {activeTab === "albums" && albumList.length > 0 && (<div className="space-y-4">
-          <h3 className="text-2xl font-bold">Discography</h3>
+          <h3 className="text-2xl font-bold">{t("artist.discography")}</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {albumList.map((album) => (<div key={album.id} className="group cursor-pointer relative" onClick={() => onAlbumClick({
                     id: album.id,
@@ -186,7 +188,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                     <span>{album.release_date?.split("-")[0]}</span>
                     {album.total_tracks && (<>
                             <span>•</span>
-                            <span>{album.total_tracks} {album.total_tracks === 1 ? "track" : "tracks"}</span>
+                            <span>{t("count.tracks", { count: album.total_tracks })}</span>
                         </>)}
                 </div>
               </div>))}
@@ -194,7 +196,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
         </div>)}
 
       {activeTab === "tracks" && trackList.length > 0 && (<div className="space-y-4">
-          <h3 className="text-2xl font-bold">All Tracks</h3>
+          <h3 className="text-2xl font-bold">{t("artist.allTracks")}</h3>
           <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
           <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
         </div>)}

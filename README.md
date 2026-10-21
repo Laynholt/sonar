@@ -17,6 +17,14 @@ Settings has a Proxy field (`host:port` or a full `http://`, `https://`, `socks5
 
 A proxy set in Settings is never bypassed: if it is unreachable, the request fails with a "proxy ... is unreachable" error instead of retrying direct.
 
+## Languages
+
+English is built in; Russian ships as `frontend/src/locales/ru.json`. Settings > Language lists every `frontend/src/locales/*.json` it finds, and "System" follows the OS language.
+
+To add a language: copy `frontend/src/locales/ru.json` to `<code>.json` (for example `de.json`), translate the values, set `"$name"` to the language's own name, and rebuild. No code changes are needed. Keys missing from a file fall back to English. Plural strings use the CLDR forms of the language (`one`, `few`, `many`, `other`).
+
+Go error texts and Spotify data (titles, playlist descriptions) are not translated.
+
 ## Roadmap
 
 - Stage 2: Amazon Music.

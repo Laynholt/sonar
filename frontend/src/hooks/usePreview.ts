@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { GetPreviewURL } from "@/../wailsjs/go/main/App";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { errorMessage } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 // One preview for the whole app: state lives here, not in a component.
 let state: {
     loadingPreview: string | null;
@@ -43,8 +44,8 @@ async function playPreview(trackId: string, trackName: string) {
         const previewURL = await GetPreviewURL(trackId);
         if (request !== requestId) return;
         if (!previewURL) {
-            toast.error("Preview not available", {
-                description: `No preview found for "${trackName}"`,
+            toast.error(t("preview.unavailable"), {
+                description: t("preview.notFound", { track: trackName }),
             });
             setState({ loadingPreview: null });
             return;
@@ -61,8 +62,8 @@ async function playPreview(trackId: string, trackName: string) {
         });
         audio.addEventListener("error", () => {
             if (audio !== currentAudio) return;
-            toast.error("Failed to play preview", {
-                description: `Could not play preview for "${trackName}"`,
+            toast.error(t("preview.playFailed"), {
+                description: t("preview.cannotPlay", { track: trackName }),
             });
             currentAudio = null;
             setState({ loadingPreview: null, playingTrack: null });
@@ -73,8 +74,8 @@ async function playPreview(trackId: string, trackName: string) {
     catch (error) {
         if (request !== requestId) return;
         console.error("Preview error:", error);
-        toast.error("Preview not available", {
-            description: errorMessage(error, `Could not load preview for "${trackName}"`),
+        toast.error(t("preview.unavailable"), {
+            description: errorMessage(error, t("preview.cannotLoad", { track: trackName })),
         });
         setState({ loadingPreview: null, playingTrack: null });
     }

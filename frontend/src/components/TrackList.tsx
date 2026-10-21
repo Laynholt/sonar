@@ -7,6 +7,7 @@ import { AlbumLink, ArtistLinks, type AlbumRef, type ArtistRef } from "./ArtistL
 import { CoverPreview } from "./CoverPreview";
 import { openExternal } from "@/lib/utils";
 import { serviceLabels } from "./ServiceBadge";
+import { useI18n } from "@/lib/i18n";
 interface TrackListProps {
     tracks: TrackMetadata[];
     searchQuery: string;
@@ -20,6 +21,7 @@ interface TrackListProps {
     onTrackClick?: (track: TrackMetadata) => void;
 }
 export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPage, hideAlbumColumn = false, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
+    const { t } = useI18n();
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
             return true;
@@ -124,19 +126,19 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
                 #
               </th>
               <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">
-                Title
+                {t("table.title")}
               </th>
               {!hideAlbumColumn && (<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden md:table-cell w-1/4">
-                Album
+                {t("type.album")}
               </th>)}
               <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell w-24">
-                Duration
+                {t("track.duration")}
               </th>
               <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell w-32">
-                Plays
+                {t("track.plays")}
               </th>
               <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground w-32">
-                Actions
+                {t("table.actions")}
               </th>
             </tr>
           </thead>
@@ -165,7 +167,7 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
                       {onTrackClick ? (<span className="font-medium cursor-pointer hover:underline" onClick={() => onTrackClick(track)}>
                         {track.name}
                       </span>) : (<span className="font-medium">{track.name}</span>)}
-                      {track.is_explicit && (<span className="inline-flex items-center justify-center bg-red-600 text-white text-[10px] h-4 w-4 rounded shrink-0" title="Explicit">E</span>)}
+                      {track.is_explicit && (<span className="inline-flex items-center justify-center bg-red-600 text-white text-[10px] h-4 w-4 rounded shrink-0" title={t("track.explicit")}>E</span>)}
                     </div>
                     <ArtistLinks track={track} onArtistClick={onArtistClick} className="text-sm text-muted-foreground"/>
                   </div>
@@ -184,12 +186,12 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
                 <div className="flex items-center justify-center gap-1">
                   {track.external_urls && (<Tooltip>
                     <TooltipTrigger asChild>
-                      <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label={`Open in ${serviceLabels[track.service]}`}>
+                      <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label={t("service.open", { service: serviceLabels[track.service] })}>
                         <ExternalLink className="h-4 w-4"/>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Open in {serviceLabels[track.service]}</p>
+                      <p>{t("service.open", { service: serviceLabels[track.service] })}</p>
                     </TooltipContent>
                   </Tooltip>)}
                 </div>

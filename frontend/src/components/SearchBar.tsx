@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { InputWithContext } from "@/components/ui/input-with-context";
 import { XCircle, Link, Search, X, ChevronDown, ArrowLeft } from "lucide-react";
@@ -10,14 +10,16 @@ import type { history } from "../../wailsjs/go/models";
 import { model } from "../../wailsjs/go/models";
 import { cn, errorMessage } from "@/lib/utils";
 import { useTypingEffect } from "@/hooks/useTypingEffect";
+import { t as translate, useI18n } from "@/lib/i18n";
+import { serviceLabels } from "@/components/ServiceBadge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
-const FETCH_PLACEHOLDERS = [
-    "Paste a Spotify link",
+const FETCH_LINKS = [
     "https://open.spotify.com/track/...",
     "https://open.spotify.com/album/...",
     "https://open.spotify.com/playlist/...",
     "https://open.spotify.com/artist/..."
 ];
+const service = serviceLabels.spotify;
 const SEARCH_PLACEHOLDERS = [
     "Golden",
     "Taylor Swift",
@@ -50,6 +52,7 @@ interface SearchBarProps {
     onBack: () => void;
 }
 export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, history, onHistorySelect, onHistoryRemove, hasResult, searchMode, onSearchModeChange, canGoBack, onBack, }: SearchBarProps) {
+    const { t, language } = useI18n();
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<model.SearchResponse | null>(null);
     const [searchStatus, setSearchStatus] = useState<"idle" | "debouncing" | "loading" | "success" | "empty" | "error">("idle");
@@ -77,7 +80,8 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         pageGeneration.current++;
     }, []);
     const isSearching = searchStatus === "loading" || searchStatus === "debouncing";
-    const placeholders = searchMode ? SEARCH_PLACEHOLDERS : FETCH_PLACEHOLDERS;
+    // Stable between renders: useTypingEffect restarts whenever the array changes.
+    const placeholders = useMemo(() => searchMode ? SEARCH_PLACEHOLDERS : [translate("search.paste", { service }), ...FETCH_LINKS], [searchMode, language]);
     const placeholderText = useTypingEffect(placeholders);
     useEffect(() => {
         try {
@@ -186,7 +190,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             }
             catch (error) {
                 if (generation !== searchGeneration.current) return;
-                setSearchError(errorMessage(error, "Search failed"));
+                setSearchError(errorMessage(error, translate("search.failedFallback")));
                 setSearchStatus("error");
             }
         }, 400);
@@ -239,7 +243,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             }));
         }
         catch (error) {
-            if (isCurrent()) setLoadMoreError(errorMessage(error, "Load failed"));
+            if (isCurrent()) setLoadMoreError(errorMessage(error, translate("search.loadFailedFallback")));
         }
         finally {
             if (isCurrent()) setIsLoadingMore(false);
@@ -301,24 +305,24 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         key: ResultTab;
         label: string;
     }[] = [
-        { key: "tracks", label: "Tracks" },
-        { key: "albums", label: "Albums" },
-        { key: "artists", label: "Artists" },
-        { key: "playlists", label: "Playlists" },
+        { key: "tracks", label: t("types.tracks") },
+        { key: "albums", label: t("types.albums") },
+        { key: "artists", label: t("types.artists") },
+        { key: "playlists", label: t("types.playlists") },
     ];
     return (<div className="space-y-4">
             <div className="flex gap-2">
-                <Button variant={canGoBack ? "default" : "outline"} size="icon" aria-label="Back" className="shrink-0" disabled={!canGoBack} onClick={onBack}>
+                <Button variant={canGoBack ? "default" : "outline"} size="icon" aria-label={t("common.back")} className="shrink-0" disabled={!canGoBack} onClick={onBack}>
                     <ArrowLeft className="h-4 w-4"/>
                 </Button>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="outline" size="icon" aria-label={searchMode ? "Switch to fetch mode" : "Switch to search mode"} className="shrink-0" onClick={() => changeMode(!searchMode)}>
+                        <Button variant="outline" size="icon" aria-label={searchMode ? t("search.toFetch") : t("search.toSearch")} className="shrink-0" onClick={() => changeMode(!searchMode)}>
                             {searchMode ? (<Link className="h-4 w-4"/>) : (<Search className="h-4 w-4"/>)}
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                        <p>{searchMode ? "Fetch Mode" : "Search Mode"}</p>
+                        <p>{searchMode ? t("search.fetchMode") : t("search.searchMode")}</p>
                     </TooltipContent>
                 </Tooltip>
 
@@ -329,8 +333,8 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
                         </>) : (<>
-                            <InputWithContext id="spotify-search" aria-label="Search Spotify" placeholder={placeholderText} value={searchQuery} onChange={(e) => changeQuery(e.target.value)} className="pr-8"/>
-                            {searchQuery && (<button type="button" aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => changeQuery("")}>
+                            <InputWithContext id="spotify-search" aria-label={t("search.aria", { service })} placeholder={placeholderText} value={searchQuery} onChange={(e) => changeQuery(e.target.value)} className="pr-8"/>
+                            {searchQuery && (<button type="button" aria-label={t("search.clear")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => changeQuery("")}>
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
                         </>)}
@@ -339,10 +343,10 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                 {!searchMode && (<Button onClick={handleFetchWithValidation} disabled={loading}>
                         {loading ? (<>
                                 <Spinner />
-                                Fetching...
+                                {t("search.fetching")}
                             </>) : (<>
                                 <Search className="h-4 w-4"/>
-                                Fetch
+                                {t("search.fetch")}
                             </>)}
                     </Button>)}
             </div>
@@ -351,7 +355,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
 
             {searchMode && (<div className="space-y-4">
                     {!searchQuery && !searchResults && recentSearches.length > 0 && (<div className="space-y-2">
-                            <p className="text-sm text-muted-foreground">Recent Searches</p>
+                            <p className="text-sm text-muted-foreground">{t("search.recent")}</p>
                             <div className="flex flex-wrap gap-2">
                                 {recentSearches.map((query) => (<div key={query} className="group relative flex items-center px-3 py-1.5 bg-muted hover:bg-accent rounded-full text-sm cursor-pointer transition-colors" onClick={() => changeQuery(query)}>
                                         <span>{query}</span>
@@ -367,15 +371,15 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
 
                     {isSearching && (<div className="flex items-center justify-center py-8">
                             <Spinner />
-                            <span className="ml-2 text-muted-foreground" role="status">{searchStatus === "debouncing" ? "Waiting to search..." : "Searching..."}</span>
+                            <span className="ml-2 text-muted-foreground" role="status">{searchStatus === "debouncing" ? t("search.waiting") : t("search.searching")}</span>
                         </div>)}
 
                     {searchStatus === "error" && (<div className="text-center py-8 space-y-2">
-                            <p role="alert">Search failed: {searchError}</p>
-                            <Button variant="outline" onClick={() => { invalidateSearch(); setRetry((value) => value + 1); }}>Retry search</Button>
+                            <p role="alert">{t("search.failed", { error: searchError })}</p>
+                            <Button variant="outline" onClick={() => { invalidateSearch(); setRetry((value) => value + 1); }}>{t("search.retry")}</Button>
                         </div>)}
                     {searchStatus === "empty" && (<div className="text-center py-8 text-muted-foreground">
-                            No results found for "{searchQuery}"
+                            {t("search.noResults", { query: searchQuery })}
                         </div>)}
 
                     {!isSearching && hasAnyResults && (<>
@@ -399,7 +403,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-1.5 min-w-0">
                                                     <p className="font-medium truncate">{track.name}</p>
-                                                    {track.is_explicit && (<span className="flex items-center justify-center min-w-[16px] h-[16px] rounded bg-red-600 text-[10px] font-bold text-white leading-none shrink-0" title="Explicit">
+                                                    {track.is_explicit && (<span className="flex items-center justify-center min-w-[16px] h-[16px] rounded bg-red-600 text-[10px] font-bold text-white leading-none shrink-0" title={t("track.explicit")}>
                                                             E
                                                         </span>)}
                                                 </div>
@@ -431,7 +435,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                             {artist.images ? (<img src={artist.images} alt="" className="w-12 h-12 rounded-full object-cover shrink-0"/>) : (<div className="w-12 h-12 rounded-full bg-muted shrink-0"/>)}
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium truncate">{artist.name}</p>
-                                                <p className="text-sm text-muted-foreground">Artist</p>
+                                                <p className="text-sm text-muted-foreground">{t("type.artist")}</p>
                                             </div>
                                         </button>))}
 
@@ -447,15 +451,15 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                         </button>))}
                             </div>
 
-                            {loadMoreError && <p role="alert" className="text-center">Could not load more results: {loadMoreError}</p>}
+                            {loadMoreError && <p role="alert" className="text-center">{t("search.loadFailed", { error: loadMoreError })}</p>}
                             {hasMore[activeTab] && (<div className="flex justify-center pt-2">
                                     <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
                                         {isLoadingMore ? (<>
                                                 <Spinner />
-                                                Loading...
+                                                {t("search.loading")}
                                             </>) : (<>
                                                 <ChevronDown className="h-4 w-4"/>
-                                                {loadMoreError ? "Retry loading more" : "Load More"}
+                                                {loadMoreError ? t("search.retryMore") : t("search.loadMore")}
                                             </>)}
                                     </Button>
                                 </div>)}
@@ -465,9 +469,9 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             <Dialog open={showInvalidUrlDialog} onOpenChange={setShowInvalidUrlDialog}>
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
-                        <DialogTitle>Invalid URL</DialogTitle>
+                        <DialogTitle>{t("search.invalidTitle")}</DialogTitle>
                         <DialogDescription>
-                            Only Spotify links are allowed in Fetch mode.
+                            {t("search.invalidBody", { service })}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -480,14 +484,14 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             setShowInvalidUrlDialog(false);
             setInvalidUrl("");
         }}>
-                            Cancel
+                            {t("common.cancel")}
                         </Button>
                         <Button onClick={() => {
             changeMode(true);
             setShowInvalidUrlDialog(false);
             setInvalidUrl("");
         }}>
-                            Switch to Search
+                            {t("search.switchToSearch")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

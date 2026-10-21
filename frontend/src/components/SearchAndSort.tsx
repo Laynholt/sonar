@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { Search, ArrowUpDown, XCircle } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 interface SearchAndSortProps {
     searchQuery: string;
     sortBy: string;
@@ -8,10 +9,11 @@ interface SearchAndSortProps {
     onSortChange: (value: string) => void;
 }
 export function SearchAndSort({ searchQuery, sortBy, onSearchChange, onSortChange, }: SearchAndSortProps) {
+    const { t } = useI18n();
     return (<div className="flex gap-2">
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
-        <Input placeholder="Search tracks..." value={searchQuery} onChange={(e) => onSearchChange(e.target.value)} className="pl-10 pr-8"/>
+        <Input placeholder={t("list.search")} value={searchQuery} onChange={(e) => onSearchChange(e.target.value)} className="pl-10 pr-8"/>
         {searchQuery && (<button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => onSearchChange("")}>
             <XCircle className="h-4 w-4"/>
           </button>)}
@@ -19,18 +21,18 @@ export function SearchAndSort({ searchQuery, sortBy, onSearchChange, onSortChang
       <Select value={sortBy} onValueChange={onSortChange}>
         <SelectTrigger className="w-[200px] gap-1.5">
           <ArrowUpDown className="h-4 w-4"/>
-          <SelectValue placeholder="Sort by"/>
+          <SelectValue placeholder={t("list.sortBy")}/>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="default">Default</SelectItem>
-          <SelectItem value="title-asc">Title (A-Z)</SelectItem>
-          <SelectItem value="title-desc">Title (Z-A)</SelectItem>
-          <SelectItem value="artist-asc">Artist (A-Z)</SelectItem>
-          <SelectItem value="artist-desc">Artist (Z-A)</SelectItem>
-          <SelectItem value="duration-asc">Duration (Short)</SelectItem>
-          <SelectItem value="duration-desc">Duration (Long)</SelectItem>
-          <SelectItem value="plays-asc">Plays (Low)</SelectItem>
-          <SelectItem value="plays-desc">Plays (High)</SelectItem>
+          <SelectItem value="default">{t("sort.default")}</SelectItem>
+          <SelectItem value="title-asc">{t("sort.titleAsc")}</SelectItem>
+          <SelectItem value="title-desc">{t("sort.titleDesc")}</SelectItem>
+          <SelectItem value="artist-asc">{t("sort.artistAsc")}</SelectItem>
+          <SelectItem value="artist-desc">{t("sort.artistDesc")}</SelectItem>
+          <SelectItem value="duration-asc">{t("sort.durationAsc")}</SelectItem>
+          <SelectItem value="duration-desc">{t("sort.durationDesc")}</SelectItem>
+          <SelectItem value="plays-asc">{t("sort.playsAsc")}</SelectItem>
+          <SelectItem value="plays-desc">{t("sort.playsDesc")}</SelectItem>
         </SelectContent>
       </Select>
     </div>);

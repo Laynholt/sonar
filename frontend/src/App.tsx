@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getSettings, getSettingsLoadError, loadSettings, applyThemeMode, applyFont } from "@/lib/settings";
-import { setLanguage } from "@/lib/i18n";
+import { setLanguage, t, useI18n } from "@/lib/i18n";
 import { applyTheme } from "@/lib/themes";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { TitleBar } from "@/components/TitleBar";
@@ -40,6 +40,7 @@ function applySavedAppearance() {
 }
 
 function App() {
+    useI18n();
     const [currentPage, setCurrentPage] = useState<PageType>("main");
     const [hasUnsavedSettings, setHasUnsavedSettings] = useState(false);
     const [pendingPageChange, setPendingPageChange] = useState<PageType | null>(null);
@@ -59,7 +60,7 @@ function App() {
             applySavedAppearance();
             const loadError = getSettingsLoadError();
             if (loadError) {
-                toast.error("Settings file could not be read; using the last local copy", { description: String(loadError) });
+                toast.error(t("settings.readError"), { description: String(loadError) });
             }
         });
         const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -95,7 +96,7 @@ function App() {
             setRecentFetches(((await GetFetchHistory()) || []).slice(0, RECENT_FETCHES));
         }
         catch (err) {
-            toast.error("Could not load recent fetches", { description: errorMessage(err, "Unknown error") });
+            toast.error(t("recent.loadFailed"), { description: errorMessage(err, t("recent.unknownError")) });
         }
     }, []);
     // Refreshes on mount, after each stored fetch, and when returning from the History page.
@@ -105,7 +106,7 @@ function App() {
             await DeleteFetchHistoryItem(id);
         }
         catch (err) {
-            toast.error(errorMessage(err, "Failed to delete history entry"));
+            toast.error(errorMessage(err, t("history.deleteFailed")));
         }
         await loadRecentFetches();
     };
@@ -121,7 +122,7 @@ function App() {
             openCached(await GetFetchHistoryData(id), sourceUrl);
         }
         catch (err) {
-            toast.error(errorMessage(err, "Could not open history entry"));
+            toast.error(errorMessage(err, t("history.openFailed")));
         }
     };
     const loaded = metadata.loadedMetadata;
@@ -167,7 +168,7 @@ function App() {
         }
         const artistID = extractArtistID(artist.id) || extractArtistID(artist.external_urls || "");
         if (!artistID) {
-            toast.error("Failed to open artist");
+            toast.error(t("artist.openFailed"));
             return;
         }
         void chainFetch(`https://open.spotify.com/artist/${artistID}/discography/all`);
@@ -223,17 +224,17 @@ function App() {
             <Dialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
                 <DialogContent className="sm:max-w-[425px] [&>button]:hidden">
                     <DialogHeader>
-                        <DialogTitle>Unsaved Changes</DialogTitle>
+                        <DialogTitle>{t("unsaved.title")}</DialogTitle>
                         <DialogDescription>
-                            You have unsaved changes in Settings. Are you sure you want to leave? Your changes will be lost.
+                            {t("unsaved.body")}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={handleCancelNavigation}>
-                            Cancel
+                            {t("common.cancel")}
                         </Button>
                         <Button variant="destructive" onClick={handleDiscardChanges}>
-                            Discard Changes
+                            {t("unsaved.discard")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

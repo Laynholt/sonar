@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LoadedMetadata, MetadataResponse } from "@/types/api";
+import type { MetadataResponse } from "@/types/api";
 
 const hookState = vi.hoisted(() => {
     let state: unknown[] = [];

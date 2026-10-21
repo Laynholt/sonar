@@ -9,7 +9,7 @@ vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { error: vi.fn() } }));
 
 const played: string[] = [];
-const audios: Audio[] = [];
+const audios: HTMLAudioElement[] = [];
 const listeners: Record<string, () => void> = {};
 let api: ReturnType<typeof usePreview>;
 function Probe() { api = usePreview(); return null; }
@@ -24,7 +24,7 @@ beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("Audio", class {
         pauses = 0;
-        constructor(public src: string) { audios.push(this as unknown as Audio); }
+        constructor(public src: string) { audios.push(this as unknown as HTMLAudioElement); }
         addEventListener(name: string, fn: () => void) { listeners[name] = fn; }
         pause() { this.pauses++; }
         currentTime = 0;

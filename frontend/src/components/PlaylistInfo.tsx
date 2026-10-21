@@ -6,6 +6,7 @@ import { TrackList } from "./TrackList";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import type { AlbumRef, ArtistRef } from "./ArtistLinks";
 interface PlaylistInfoProps {
     service: Service;
@@ -58,6 +59,7 @@ function decodeHtmlEntities(value?: string): string {
     return textarea.value;
 }
 export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onAlbumClick, onArtistClick, onTrackClick, onBack, }: PlaylistInfoProps) {
+    const { t } = useI18n();
     const decodedDescription = decodeHtmlEntities(playlistInfo.description);
     return (<div className="space-y-6">
       <Card className="relative">
@@ -72,7 +74,7 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
             <div className="flex-1 space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium">Playlist</p>
+                  <p className="text-sm font-medium">{t("type.playlist")}</p>
                   <ServiceBadge service={service}/>
                 </div>
                 <h2 className="text-4xl font-bold">{playlistInfo.owner.name}</h2>
@@ -84,16 +86,16 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
                   </div>
                   <span>•</span>
                   <span>
-                    {playlistInfo.tracks.total.toLocaleString()} {playlistInfo.tracks.total === 1 ? "track" : "tracks"}
+                    {t("count.tracks", { count: playlistInfo.tracks.total })}
                   </span>
                   <span>•</span>
-                  <span>{playlistInfo.followers.total.toLocaleString()} {playlistInfo.followers.total === 1 ? "follower" : "followers"}</span>
+                  <span>{t("count.followers", { count: playlistInfo.followers.total })}</span>
                 </div>
               </div>
               <div className="flex gap-2">
                 <Button onClick={() => openExternal(sourceUrl)} variant="outline">
                   <ExternalLink className="h-4 w-4"/>
-                  Open in {serviceLabels[service]}
+                  {t("service.open", { service: serviceLabels[service] })}
                 </Button>
               </div>
             </div>

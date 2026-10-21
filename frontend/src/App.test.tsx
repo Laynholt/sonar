@@ -220,9 +220,31 @@ describe("unsaved language", () => {
         });
         expect(getLanguage()).toBe("ru");
 
-        await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="History"]')!.click(); });
-        await act(async () => { [...document.querySelectorAll("button")].find((b) => b.textContent === "Discard Changes")!.click(); });
+        // The previewed language is already Russian, so the labels are too.
+        await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="История"]')!.click(); });
+        await act(async () => { [...document.querySelectorAll("button")].find((b) => b.textContent === "Отбросить изменения")!.click(); });
 
         expect(getLanguage()).toBe("en");
+    });
+});
+
+describe("translation", () => {
+    it("shows Russian sidebar labels after the language is switched", async () => {
+        await mountApp();
+        expect(container!.querySelector('button[aria-label="Home"]')).not.toBeNull();
+
+        await act(async () => { setLanguage("ru"); });
+
+        expect(container!.querySelector('button[aria-label="Главная"]')).not.toBeNull();
+        expect(container!.querySelector('button[aria-label="Настройки"]')).not.toBeNull();
+        expect(container!.querySelector('button[aria-label="Home"]')).toBeNull();
+    });
+
+    it("stores the bare track count for a new playlist fetch", async () => {
+        await mountApp();
+        await act(async () => { setValue(container!.querySelector("#spotify-url")!, playlistUrl); });
+        await act(async () => { [...container!.querySelectorAll("button")].find((b) => b.textContent === "Fetch")!.click(); });
+
+        expect(vi.mocked(AddFetchHistory).mock.lastCall![0]).toMatchObject({ type: "playlist", info: "60" });
     });
 });

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Trash2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logger, type LogEntry } from "@/lib/logger";
+import { useI18n } from "@/lib/i18n";
 const levelColors: Record<string, string> = {
     info: "text-blue-500",
     success: "text-green-500",
@@ -18,6 +19,7 @@ function formatTime(date: Date): string {
     });
 }
 export function DebugLoggerPage() {
+    const { t } = useI18n();
     const [logs, setLogs] = useState<LogEntry[]>(() => logger.getLogs());
     const [copied, setCopied] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -52,21 +54,21 @@ export function DebugLoggerPage() {
     };
     return (<div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Debug Logs</h1>
+        <h1 className="text-2xl font-bold">{t("nav.debug")}</h1>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCopy} disabled={logs.length === 0}>
             {copied ? <Check className="h-4 w-4"/> : <Copy className="h-4 w-4"/>}
-            Copy
+            {t("debug.copy")}
           </Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={handleClear} disabled={logs.length === 0}>
             <Trash2 className="h-4 w-4"/>
-            Clear
+            {t("debug.clear")}
           </Button>
         </div>
       </div>
 
       <div ref={scrollRef} className="h-[calc(100vh-220px)] overflow-y-auto bg-muted/50 rounded-lg p-4 font-mono text-xs">
-        {logs.length === 0 ? (<p className="text-muted-foreground lowercase">no logs yet...</p>) : (logs.map((log, i) => (<div key={i} className="flex gap-2 py-0.5">
+        {logs.length === 0 ? (<p className="text-muted-foreground lowercase">{t("debug.empty")}</p>) : (logs.map((log, i) => (<div key={i} className="flex gap-2 py-0.5">
               <span className="text-muted-foreground shrink-0">
                 [{formatTime(log.timestamp)}]
               </span>

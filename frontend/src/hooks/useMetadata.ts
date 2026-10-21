@@ -3,6 +3,8 @@ import { fetchMetadata } from "@/lib/api";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
 import { errorMessage } from "@/lib/utils";
+import { t } from "@/lib/i18n";
+import { serviceLabels } from "@/components/ServiceBadge";
 import { extractArtistID } from "@/lib/spotify-url";
 import { AddFetchHistory } from "../../wailsjs/go/main/App";
 import type { MetadataResponse } from "@/types/api";
@@ -49,19 +51,19 @@ export function useMetadata() {
             else if ("album_info" in data) {
                 type = "album";
                 name = data.album_info.name;
-                info = `${data.track_list.length} tracks`;
+                info = String(data.track_list.length);
                 image = data.album_info.images;
             }
             else if ("playlist_info" in data) {
                 type = "playlist";
                 name = data.playlist_info.owner.name;
-                info = `${data.playlist_info.tracks.total} tracks`;
+                info = String(data.playlist_info.tracks.total);
                 image = data.playlist_info.cover || "";
             }
             else if ("artist_info" in data) {
                 type = "artist";
                 name = data.artist_info.name;
-                info = `${data.artist_info.total_albums || data.album_list.length} albums`;
+                info = String(data.artist_info.total_albums || data.album_list.length);
                 image = data.artist_info.images;
             }
             const jsonStr = JSON.stringify(data);
@@ -96,7 +98,7 @@ export function useMetadata() {
             if (!isCurrentGeneration(generation)) return false;
             if (!isKnownMetadataResponse(data)) {
                 logger.error(`unknown metadata payload for url: ${url}`);
-                toast.error("Failed to parse metadata response");
+                toast.error(t("meta.parseFailed"));
                 return false;
             }
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -104,7 +106,7 @@ export function useMetadata() {
                 const playlistInfo = data.playlist_info;
                 if (!playlistInfo.owner.name && playlistInfo.tracks.total === 0 && data.track_list.length === 0) {
                     logger.warning("playlist appears to be empty or private");
-                    toast.error("Playlist not found or may be private");
+                    toast.error(t("meta.playlistMissing"));
                     return false;
                 }
             }
@@ -112,7 +114,7 @@ export function useMetadata() {
                 const albumInfo = data.album_info;
                 if (!albumInfo.name && albumInfo.total_tracks === 0 && data.track_list.length === 0) {
                     logger.warning("album appears to be empty or not found");
-                    toast.error("Album not found or may be private");
+                    toast.error(t("meta.albumMissing"));
                     return false;
                 }
             }
@@ -135,12 +137,12 @@ export function useMetadata() {
                 logger.debug(`${data.album_list.length} albums, ${data.track_list.length} tracks`);
             }
             logger.info(`fetch completed in ${elapsed}s`);
-            toast.success("Metadata fetched successfully");
+            toast.success(t("meta.fetched"));
             return true;
         }
         catch (err) {
             if (!isCurrentGeneration(generation)) return false;
-            const errorMsg = errorMessage(err, "Failed to fetch metadata");
+            const errorMsg = errorMessage(err, t("meta.fetchFailed"));
             logger.error(`fetch failed: ${errorMsg}`);
             toast.error(errorMsg);
             return false;
@@ -157,11 +159,11 @@ export function useMetadata() {
         try {
             const data = JSON.parse(cachedData) as MetadataResponse;
             dispatch({ type: "open", entry: { data, sourceUrl } });
-            toast.success("Loaded from cache");
+            toast.success(t("meta.cacheLoaded"));
         }
         catch (err) {
             console.error("Failed to load from cache:", err);
-            toast.error("Failed to load from cache");
+            toast.error(t("meta.cacheFailed"));
         }
     };
     const handleFetchMetadata = async (url: string, view?: View) => {
@@ -169,7 +171,7 @@ export function useMetadata() {
         if (!url.trim()) {
             setLoading(false);
             logger.warning("empty url provided");
-            toast.error("Please enter a Spotify URL");
+            toast.error(t("meta.enterUrl", { service: serviceLabels.spotify }));
             return;
         }
         let urlToFetch = url.trim();
@@ -179,7 +181,7 @@ export function useMetadata() {
             if (!artistID) {
                 setLoading(false);
                 logger.error(`invalid artist url: ${urlToFetch}`);
-                toast.error("Invalid artist URL");
+                toast.error(t("meta.invalidArtist"));
                 return;
             }
             urlToFetch = `https://open.spotify.com/artist/${artistID}/discography/all`;

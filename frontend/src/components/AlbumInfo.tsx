@@ -6,6 +6,7 @@ import { TrackList } from "./TrackList";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import type { ArtistRef } from "./ArtistLinks";
 interface AlbumInfoProps {
     service: Service;
@@ -32,6 +33,7 @@ interface AlbumInfoProps {
     onBack?: () => void;
 }
 export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onArtistClick, onTrackClick, onBack, }: AlbumInfoProps) {
+    const { t } = useI18n();
     const resolvedAlbumArtist = (() => {
         if (albumInfo.artist_id && albumInfo.artist_url) {
             return {
@@ -77,7 +79,7 @@ export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuer
             <div className="flex-1 space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium">Album</p>
+                  <p className="text-sm font-medium">{t("type.album")}</p>
                   <ServiceBadge service={service}/>
                 </div>
                 <h2 className="text-4xl font-bold">{albumInfo.name}</h2>
@@ -93,14 +95,14 @@ export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuer
                   <span>{albumInfo.release_date}</span>
                   <span>•</span>
                   <span>
-                    {albumInfo.total_tracks.toLocaleString()} {albumInfo.total_tracks === 1 ? "track" : "tracks"}
+                    {t("count.tracks", { count: albumInfo.total_tracks })}
                   </span>
                 </div>
               </div>
               <div className="flex gap-2">
                 <Button onClick={() => openExternal(sourceUrl)} variant="outline">
                   <ExternalLink className="h-4 w-4"/>
-                  Open in {serviceLabels[service]}
+                  {t("service.open", { service: serviceLabels[service] })}
                 </Button>
               </div>
             </div>
