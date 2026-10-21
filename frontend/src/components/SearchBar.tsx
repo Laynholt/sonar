@@ -30,6 +30,10 @@ type ResultTab = "tracks" | "albums" | "artists" | "playlists";
 const RECENT_SEARCHES_KEY = "sonar_recent_searches";
 const MAX_RECENT_SEARCHES = 8;
 const SEARCH_LIMIT = 50;
+// Spotify's pages overlap and can repeat ids, so keep only ids not already seen.
+const uniqueById = <T extends {
+    id: string;
+}>(items: T[], seen = new Set<string>()) => items.filter((item) => !seen.has(item.id) && seen.add(item.id));
 interface SearchBarProps {
     url: string;
     loading: boolean;
@@ -64,6 +68,8 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
     const [invalidUrl, setInvalidUrl] = useState("");
     const searchGeneration = useRef(0);
     const pageGeneration = useRef(0);
+    // Items received from the API per tab (before dedupe): the real position of the next page.
+    const rawOffset = useRef<Record<ResultTab, number>>({ tracks: 0, albums: 0, artists: 0, playlists: 0 });
     const invalidateRequests = useCallback(() => {
         searchGeneration.current++;
         pageGeneration.current++;
@@ -148,17 +154,24 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             if (generation !== searchGeneration.current) return;
             setSearchStatus("loading");
             try {
-                const results = await SearchSpotify({ query, limit: SEARCH_LIMIT });
+                const raw = await SearchSpotify({ query, limit: SEARCH_LIMIT });
                 if (generation !== searchGeneration.current) return;
+                rawOffset.current = { tracks: raw.tracks.length, albums: raw.albums.length, artists: raw.artists.length, playlists: raw.playlists.length };
+                const results = new model.SearchResponse({
+                    tracks: uniqueById(raw.tracks),
+                    albums: uniqueById(raw.albums),
+                    artists: uniqueById(raw.artists),
+                    playlists: uniqueById(raw.playlists),
+                });
                 setSearchResults(results);
                 setLastSearchedQuery(query);
                 saveRecentSearch(query);
                 setSearchStatus(results.tracks.length || results.albums.length || results.artists.length || results.playlists.length ? "success" : "empty");
                 setHasMore({
-                    tracks: results.tracks.length === SEARCH_LIMIT,
-                    albums: results.albums.length === SEARCH_LIMIT,
-                    artists: results.artists.length === SEARCH_LIMIT,
-                    playlists: results.playlists.length === SEARCH_LIMIT,
+                    tracks: raw.tracks.length === SEARCH_LIMIT,
+                    albums: raw.albums.length === SEARCH_LIMIT,
+                    artists: raw.artists.length === SEARCH_LIMIT,
+                    playlists: raw.playlists.length === SEARCH_LIMIT,
                 });
                 if (results.tracks.length > 0)
                     setActiveTab("tracks");
@@ -189,7 +202,6 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             artists: "artist",
             playlists: "playlist",
         };
-        const currentCount = getTabCount(activeTab);
         const generation = searchGeneration.current;
         const page = ++pageGeneration.current;
         const tab = activeTab;
@@ -201,16 +213,15 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                 query: lastSearchedQuery,
                 search_type: typeMap[activeTab],
                 limit: SEARCH_LIMIT,
-                offset: currentCount,
+                offset: rawOffset.current[tab],
             });
             if (!isCurrent()) return;
+            rawOffset.current[tab] += moreResults.length;
             if (moreResults.length > 0) {
                 setSearchResults((prev) => {
                     if (!prev || !isCurrent())
                         return prev;
-                    // Spotify's pages overlap, so keep only ids not already listed (and not repeated in this page).
-                    const seen = new Set(prev[tab].map((item) => item.id));
-                    const fresh = moreResults.filter((item) => !seen.has(item.id) && seen.add(item.id));
+                    const fresh = uniqueById(moreResults, new Set(prev[tab].map((item) => item.id)));
                     const updated = new model.SearchResponse({
                         tracks: tab === "tracks" ? [...prev.tracks, ...fresh] : prev.tracks,
                         albums: tab === "albums" ? [...prev.albums, ...fresh] : prev.albums,

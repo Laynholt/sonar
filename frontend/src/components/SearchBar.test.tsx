@@ -27,6 +27,8 @@ beforeEach(async () => {
     view = await mount(<TooltipProvider><SearchBar {...props}/></TooltipProvider>);
 });
 afterEach(async () => { await view.unmount(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+// React 19 passes console.error a different number of args per message, so scan them all.
+const loggedSameKey = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.some((args) => args.some((arg) => String(arg).includes("same key")));
 async function query(value: string) {
     await act(async () => change(view.container.querySelector<HTMLInputElement>("#spotify-search")!, value));
 }
@@ -201,8 +203,27 @@ describe("modes and recent fetches", () => {
         expect(new Set(rows).size).toBe(51);
         expect(rows.at(-1)).toBe("Fresh");
         expect(button(view.container, "Tracks (51)")).toBeTruthy();
-        expect(errors).not.toHaveBeenCalledWith(expect.stringContaining("same key"), expect.anything(), expect.anything());
+        expect(loggedSameKey(errors)).toBe(false);
         errors.mockRestore();
+    });
+
+    it("renders a duplicated id in the first page once", async () => {
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.mocked(SearchSpotify).mockResolvedValue(new model.SearchResponse({ tracks: [result("Dup"), result("Dup"), result("Other")], albums: [], artists: [], playlists: [] }));
+        await start("first");
+        const rows = [...view.container.querySelectorAll("button.bg-card")].map((row) => row.querySelector("p")!.textContent);
+        expect(rows).toEqual(["Dup", "Other"]);
+        expect(loggedSameKey(errors)).toBe(false);
+        errors.mockRestore();
+    });
+
+    it("advances Load More by the raw API offset after an all-duplicate page", async () => {
+        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50));
+        vi.mocked(SearchSpotifyByType).mockResolvedValue(Array.from({ length: 50 }, (_, index) => result(`Initial ${index}`)));
+        await start("first");
+        await act(async () => button(view.container, "Load More").click());
+        await act(async () => button(view.container, "Load More").click());
+        expect(vi.mocked(SearchSpotifyByType).mock.calls.map(([request]) => request.offset)).toEqual([50, 100]);
     });
 
     it("keeps Load More when a full page was all duplicates", async () => {
