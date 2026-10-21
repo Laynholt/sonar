@@ -1,4 +1,4 @@
-package main
+package amazon
 
 import (
 	"bytes"
@@ -12,20 +12,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
 
-const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+	"sonar/internal/httpx"
+	"sonar/internal/match"
+)
 
 func httpDo(ctx context.Context, method, u string, body []byte, hdr map[string]string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", httpx.UserAgent)
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpx.Client().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -36,13 +37,14 @@ func httpDo(ctx context.Context, method, u string, body []byte, hdr map[string]s
 	return io.ReadAll(resp.Body)
 }
 
-func amazonSearchURL(query string) string {
+// SearchURL is the Amazon search page for manual lookup.
+func SearchURL(query string) string {
 	return "https://music.amazon.com/search/" + url.PathEscape(query)
 }
 
-// searchAmazon uses the web player's guest search: no account needed.
+// Search uses the web player's guest search: no account needed.
 // shortcut: unofficial API, US catalog only; breaks if Amazon changes the web player.
-func searchAmazon(ctx context.Context, query string) ([]Item, error) {
+func Search(ctx context.Context, query string) ([]match.Item, error) {
 	raw, err := httpDo(ctx, "POST", "https://music.amazon.com/config.json?skipToken=false&clientApplication=skyfire", nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("amazon config: %w", err)
@@ -70,7 +72,7 @@ func searchAmazon(ctx context.Context, query string) ([]Item, error) {
 		"x-amzn-device-height":          "1080",
 		"x-amzn-device-family":          "WebPlayer",
 		"x-amzn-device-id":              cfg.DeviceID,
-		"x-amzn-user-agent":             userAgent,
+		"x-amzn-user-agent":             httpx.UserAgent,
 		"x-amzn-session-id":             cfg.SessionID,
 		"x-amzn-request-id":             strconv.FormatInt(time.Now().UnixNano(), 36),
 		"x-amzn-device-language":        "en_US",
@@ -82,7 +84,7 @@ func searchAmazon(ctx context.Context, query string) ([]Item, error) {
 		"x-amzn-csrf":                   js(map[string]string{"interface": "CSRFInterface.v1_0.CSRFHeaderElement", "token": cfg.CSRF.Token, "timestamp": cfg.CSRF.TS, "rndNonce": cfg.CSRF.Rnd}),
 		"x-amzn-music-domain":           "music.amazon.com",
 		"x-amzn-referer":                "music.amazon.com",
-		"x-amzn-page-url":               amazonSearchURL(query),
+		"x-amzn-page-url":               SearchURL(query),
 	}
 	body := js(map[string]string{
 		"keyword":  js(map[string]string{"interface": "Web.TemplatesInterface.v1_0.Touch.SearchTemplateInterface.SearchKeywordClientInformation", "keyword": query}),
@@ -100,7 +102,7 @@ func searchAmazon(ctx context.Context, query string) ([]Item, error) {
 	return parseAmazonSearch(raw)
 }
 
-func parseAmazonSearch(raw []byte) ([]Item, error) {
+func parseAmazonSearch(raw []byte) ([]match.Item, error) {
 	var resp struct {
 		Methods []struct {
 			Template struct {
@@ -131,7 +133,7 @@ func parseAmazonSearch(raw []byte) ([]Item, error) {
 	}
 
 	seen := map[string]bool{}
-	var out []Item
+	var out []match.Item
 	for _, w := range t.Widgets {
 		for _, x := range w.Items {
 			link := x.PrimaryLink.Deeplink
@@ -143,7 +145,7 @@ func parseAmazonSearch(raw []byte) ([]Item, error) {
 			if strings.Contains(link, "trackAsin=") {
 				kind = "track"
 			}
-			out = append(out, Item{
+			out = append(out, match.Item{
 				Kind:     kind,
 				Title:    textOf(x.PrimaryText),
 				Artist:   textOf(x.SecondaryText),

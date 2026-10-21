@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/pquerna/otp v1.5.0
 	github.com/wailsapp/wails/v2 v2.11.0
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/sys v0.49.0
 )
 

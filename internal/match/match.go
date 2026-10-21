@@ -1,4 +1,4 @@
-package main
+package match
 
 import (
 	"regexp"
@@ -7,8 +7,8 @@ import (
 	"unicode"
 )
 
-// confidentScore: at or above it the best match is shown as found, below it as "check it".
-const confidentScore = 0.85
+// ConfidentScore: at or above it the best match is shown as found, below it as "check it".
+const ConfidentScore = 0.85
 
 var (
 	// "Song (feat. X)", "Song [Remastered]", "Song - Remastered 2011" -> "Song"
@@ -18,8 +18,8 @@ var (
 	noiseWords = map[string]bool{"feat": true, "ft": true, "featuring": true, "with": true, "the": true, "and": true, "remastered": true, "remaster": true}
 )
 
-// baseTitle drops trailing (feat. ...), [Remastered] and " - ..." parts for the search query.
-func baseTitle(s string) string {
+// BaseTitle drops trailing (feat. ...), [Remastered] and " - ..." parts for the search query.
+func BaseTitle(s string) string {
 	for {
 		t := titleSuffixRe.ReplaceAllString(s, "")
 		if t == s || t == "" {
@@ -69,15 +69,15 @@ func coverage(a, b map[string]bool) float64 {
 	return float64(n) / float64(len(a))
 }
 
-func firstArtist(s string) string {
+func FirstArtist(s string) string {
 	return strings.TrimSpace(strings.Split(s, ",")[0])
 }
 
-func score(src, c Item) float64 {
+func Score(src, c Item) float64 {
 	// Same base title with a different suffix ("Remastered", "feat.") is close, but below an exact title.
 	noRemaster := func(s string) map[string]bool { return tokens(remasterRe.ReplaceAllString(s, "")) }
-	title := max(dice(noRemaster(src.Title), noRemaster(c.Title)), 0.95*dice(tokens(baseTitle(src.Title)), tokens(baseTitle(c.Title))))
-	artist := coverage(tokens(firstArtist(src.Artist)), tokens(c.Artist))
+	title := max(dice(noRemaster(src.Title), noRemaster(c.Title)), 0.95*dice(tokens(BaseTitle(src.Title)), tokens(BaseTitle(c.Title))))
+	artist := coverage(tokens(FirstArtist(src.Artist)), tokens(c.Artist))
 	s := 0.6*title + 0.4*artist
 	if src.Explicit != c.Explicit {
 		s -= 0.05 // prefer the same (clean/explicit) version
@@ -85,12 +85,12 @@ func score(src, c Item) float64 {
 	return s
 }
 
-// rank keeps candidates of the source's kind, best first, at most limit.
-func rank(src Item, candidates []Item, limit int) []Item {
+// Rank keeps candidates of the source's kind, best first, at most limit.
+func Rank(src Item, candidates []Item, limit int) []Item {
 	var out []Item
 	for _, c := range candidates {
 		if c.Kind == src.Kind {
-			c.Score = score(src, c)
+			c.Score = Score(src, c)
 			out = append(out, c)
 		}
 	}
@@ -99,4 +99,15 @@ func rank(src Item, candidates []Item, limit int) []Item {
 		out = out[:limit]
 	}
 	return out
+}
+
+// Item is a track or album on either service.
+type Item struct {
+	Kind     string  `json:"kind"` // "track" or "album"
+	Title    string  `json:"title"`
+	Artist   string  `json:"artist"`
+	Image    string  `json:"image"`
+	URL      string  `json:"url"`
+	Explicit bool    `json:"explicit"`
+	Score    float64 `json:"score"`
 }
