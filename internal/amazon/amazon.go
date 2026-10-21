@@ -15,6 +15,7 @@ import (
 
 	"sonar/internal/httpx"
 	"sonar/internal/match"
+	"sonar/internal/model"
 )
 
 func httpDo(ctx context.Context, method, u string, body []byte, hdr map[string]string) ([]byte, error) {
@@ -45,6 +46,14 @@ func SearchURL(query string) string {
 // Search uses the web player's guest search: no account needed.
 // shortcut: unofficial API, US catalog only; breaks if Amazon changes the web player.
 func Search(ctx context.Context, query string) ([]match.Item, error) {
+	raw, err := showSearch(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return parseAmazonSearch(raw)
+}
+
+func showSearch(ctx context.Context, query string) ([]byte, error) {
 	cfg, err := newSession(ctx)
 	if err != nil {
 		return nil, err
@@ -86,7 +95,7 @@ func Search(ctx context.Context, query string) ([]match.Item, error) {
 	if err != nil {
 		return nil, fmt.Errorf("amazon search: %w", err)
 	}
-	return parseAmazonSearch(raw)
+	return raw, nil
 }
 
 func parseAmazonSearch(raw []byte) ([]match.Item, error) {
@@ -156,4 +165,100 @@ func textOf(raw json.RawMessage) string {
 	}
 	_ = json.Unmarshal(raw, &o)
 	return o.Text
+}
+
+// SearchCatalog maps the first page of guest search to the UI's search model.
+func SearchCatalog(ctx context.Context, query string) (*model.SearchResponse, error) {
+	raw, err := showSearch(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return parseSearchResponse(raw)
+}
+
+func parseSearchResponse(raw []byte) (*model.SearchResponse, error) {
+	var resp struct {
+		Methods []struct {
+			Template struct {
+				Header  string `json:"header"`
+				Widgets []struct {
+					Header string `json:"header"`
+					Items  []struct {
+						PrimaryText struct {
+							Text     string `json:"text"`
+							Observer struct {
+								DefaultValue struct {
+									Text string `json:"text"`
+								} `json:"defaultValue"`
+							} `json:"observer"`
+						} `json:"primaryText"`
+						SecondaryText json.RawMessage `json:"secondaryText"`
+						Image         string          `json:"image"`
+						PrimaryLink   struct {
+							Deeplink string `json:"deeplink"`
+						} `json:"primaryLink"`
+						Tags []string `json:"tags"`
+					} `json:"items"`
+				} `json:"widgets"`
+			} `json:"template"`
+		} `json:"methods"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("amazon search: %w", err)
+	}
+	if len(resp.Methods) == 0 {
+		return nil, fmt.Errorf("amazon search: empty response")
+	}
+	t := resp.Methods[0].Template
+	if t.Header == "Service error" {
+		return nil, fmt.Errorf("amazon search: service returned an error")
+	}
+
+	out := &model.SearchResponse{
+		Tracks: []model.SearchResult{}, Albums: []model.SearchResult{},
+		Artists: []model.SearchResult{}, Playlists: []model.SearchResult{},
+	}
+	for _, w := range t.Widgets {
+		var kind, route string
+		var dst *[]model.SearchResult
+		switch w.Header {
+		case "Songs":
+			kind, route, dst = "track", "albums", &out.Tracks
+		case "Albums":
+			kind, route, dst = "album", "albums", &out.Albums
+		case "Artists":
+			kind, route, dst = "artist", "artists", &out.Artists
+		case "Playlists":
+			kind, route, dst = "playlist", "playlists", &out.Playlists
+		default:
+			continue // top results duplicate the lists; community playlists need an account
+		}
+		for _, x := range w.Items {
+			path, query, _ := strings.Cut(x.PrimaryLink.Deeplink, "?")
+			parts := strings.Split(strings.Trim(path, "/"), "/")
+			if len(parts) < 2 || parts[0] != route {
+				continue
+			}
+			id, u := parts[1], canonical(route, parts[1]) // artist slug dropped
+			if kind == "track" {
+				_, id, _ = strings.Cut(query, "trackAsin=")
+				if id == "" {
+					continue
+				}
+				u += "?trackAsin=" + id
+			}
+			name := x.PrimaryText.Text
+			if name == "" {
+				name = x.PrimaryText.Observer.DefaultValue.Text
+			}
+			*dst = append(*dst, model.SearchResult{
+				ID: id, Name: clean(name), Type: kind,
+				Artists:     textOf(x.SecondaryText),
+				Images:      x.Image,
+				ExternalURL: u,
+				IsExplicit:  slices.Contains(x.Tags, "E"),
+			})
+		}
+	}
+	return out, nil
 }
