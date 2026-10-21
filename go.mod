@@ -3,6 +3,7 @@ module sonar
 go 1.27.0
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/pquerna/otp v1.5.0
 	github.com/wailsapp/wails/v2 v2.11.0
 	go.etcd.io/bbolt v1.5.0
@@ -45,7 +46,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gookit/color v1.5.4 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jackmordaunt/icns v1.0.0 // indirect
 	github.com/jaypipes/ghw v0.13.0 // indirect
 	github.com/jaypipes/pcidb v1.0.1 // indirect
