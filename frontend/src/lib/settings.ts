@@ -8,6 +8,7 @@ export interface Settings {
     fontFamily: FontFamily;
     sfxEnabled: boolean;
     proxy: string;
+    language: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -16,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
     fontFamily: "google-sans",
     sfxEnabled: true,
     proxy: "",
+    language: "auto",
 };
 
 export const FONT_OPTIONS: {

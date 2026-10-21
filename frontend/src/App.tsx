@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getSettings, getSettingsLoadError, loadSettings, applyThemeMode, applyFont } from "@/lib/settings";
+import { setLanguage } from "@/lib/i18n";
 import { applyTheme } from "@/lib/themes";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { TitleBar } from "@/components/TitleBar";
@@ -33,6 +34,7 @@ function applySavedAppearance() {
     applyThemeMode(settings.themeMode);
     applyTheme(settings.theme);
     applyFont(settings.fontFamily);
+    setLanguage(settings.language);
 }
 
 function App() {

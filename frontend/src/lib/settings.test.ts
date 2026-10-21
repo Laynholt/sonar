@@ -81,3 +81,11 @@ it("keeps proxy across save and load", async () => {
     vi.mocked(api.LoadSettings).mockResolvedValue(saved);
     expect((await reloaded.loadSettings()).proxy).toBe("socks5://127.0.0.1:10808");
 });
+
+it("defaults the language to auto and keeps a saved one", async () => {
+    const api = await import("../../wailsjs/go/main/App");
+    const settings = await import("./settings");
+    expect(settings.DEFAULT_SETTINGS.language).toBe("auto");
+    vi.mocked(api.LoadSettings).mockResolvedValue({ language: "ru" });
+    expect((await settings.loadSettings()).language).toBe("ru");
+});
