@@ -79,6 +79,7 @@ func (b *Balancer) Download(ctx context.Context, mode, trackURL, pathNoExt strin
 		}
 		path, err := s.Download(ctx, trackURL, pathNoExt, st)
 		if err == nil {
+			b.Reset(name) // it demonstrably works, e.g. in fixed mode or the all-paused fallback
 			return path, nil
 		}
 		if cerr := ctx.Err(); cerr != nil {
@@ -102,8 +103,11 @@ func (b *Balancer) punish(name string, err error) {
 		return
 	}
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.paused[name].needsCheck {
+		return // only Reset lifts a browser check, not a cooldown
+	}
 	b.paused[name] = p
-	b.mu.Unlock()
 }
 
 // Status lists the sources in constructor order.

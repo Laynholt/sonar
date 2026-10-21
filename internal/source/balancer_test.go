@@ -193,3 +193,42 @@ func TestBalancerPrefixesStatus(t *testing.T) {
 		t.Fatalf("%q %v", got, err)
 	}
 }
+
+func TestBalancerNeedsCheckSurvivesForcedRetry(t *testing.T) {
+	down := fmt.Errorf("%w: down", ErrUnavailable)
+	a := &fake{name: "a", results: []error{ErrNeedsCheck, down}}
+	b := &fake{name: "b", results: []error{down, down}}
+	bal, clk := newTest(a, b)
+	autoCall(bal) // a needs a check, b is down: everything is paused
+	autoCall(bal) // forced retry: a gets ErrUnavailable
+	if a.calls != 2 {
+		t.Fatalf("a called %d times", a.calls)
+	}
+	clk.t = clk.t.Add(10 * time.Minute)
+	if st := bal.Status()[0]; !st.NeedsCheck || st.Available {
+		t.Fatalf("status %+v", st)
+	}
+	for range 2 {
+		if p, err := autoCall(bal); err != nil || p != "b.flac" {
+			t.Fatalf("%q %v", p, err)
+		}
+	}
+	if a.calls != 2 {
+		t.Fatalf("a called %d times", a.calls)
+	}
+}
+
+func TestBalancerSuccessClearsPause(t *testing.T) {
+	a := &fake{name: "a", results: []error{fmt.Errorf("%w: down", ErrUnavailable)}}
+	bal, _ := newTest(a, &fake{name: "b"})
+	autoCall(bal)
+	if bal.Status()[0].Available {
+		t.Fatal("a should be paused")
+	}
+	if _, err := bal.Download(context.Background(), "a", "u", "p", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !bal.Status()[0].Available {
+		t.Fatal("a should be available after a success")
+	}
+}
