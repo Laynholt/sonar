@@ -16,6 +16,27 @@ const SECTIONS = [
     { id: "appearance", label: "settings.appearance" },
     { id: "network", label: "settings.network" },
 ] as const satisfies readonly { id: string; label: MessageKey }[];
+// Accent names are plain colour words, so they follow the language; unknown themes keep their own label.
+const THEME_LABELS: Record<string, MessageKey> = {
+    amber: "theme.amber",
+    blue: "theme.blue",
+    cyan: "theme.cyan",
+    emerald: "theme.emerald",
+    fuchsia: "theme.fuchsia",
+    green: "theme.green",
+    indigo: "theme.indigo",
+    lime: "theme.lime",
+    neutral: "theme.neutral",
+    orange: "theme.orange",
+    pink: "theme.pink",
+    purple: "theme.purple",
+    red: "theme.red",
+    rose: "theme.rose",
+    sky: "theme.sky",
+    teal: "theme.teal",
+    violet: "theme.violet",
+    yellow: "theme.yellow",
+};
 type SectionId = typeof SECTIONS[number]["id"];
 
 function Row({ id, label, description, children, wide }: { id: string; label: string; description?: string; children: ReactNode; wide?: boolean }) {
@@ -147,7 +168,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
                       <span className="w-3 h-3 rounded-full border border-border" style={{
                       backgroundColor: isDark ? theme.cssVars.dark.primary : theme.cssVars.light.primary
                   }}/>
-                      {theme.label}
+                      {THEME_LABELS[theme.name] ? t(THEME_LABELS[theme.name]) : theme.label}
                     </span>
                   </SelectItem>))}
                 </SelectContent>

@@ -48,4 +48,18 @@ describe("SettingsPage", () => {
         expect(getLanguage()).toBe("ru");
         expect(onUnsavedChangesChange).toHaveBeenLastCalledWith(true);
     });
+
+    it("shows the accent colour names in the picked language", async () => {
+        const languageSelect = view.container.querySelector("select")!;
+        await act(async () => {
+            languageSelect.value = "ru";
+            languageSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        await act(async () => button(view.container, "Оформление").click());
+        const accent = [...view.container.querySelectorAll("select")].find((select) => select.querySelector('option[value="blue"]'))!;
+        const labels = [...accent.options].map((option) => option.textContent);
+        expect(labels).toContain("Синий");
+        expect(labels).toContain("Красный");
+        expect(labels).not.toContain("Blue");
+    });
 });

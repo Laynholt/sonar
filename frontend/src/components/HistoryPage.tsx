@@ -178,7 +178,7 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                                             <div className="flex items-center gap-3 min-w-0">
                                                 <div className="h-8 w-8 rounded shrink-0 bg-secondary overflow-hidden">
                                                     {item.image ? (<img src={item.image} alt={item.name} className="h-full w-full object-cover"/>) : (<div className="h-full w-full flex items-center justify-center text-[10px] text-muted-foreground font-medium bg-muted">
-                                                            {item.type.slice(0, 2).toUpperCase()}
+                                                            {(() => { const Icon = TYPE_TABS.find((tab) => tab.type === item.type)?.Icon; return Icon && <Icon className="h-4 w-4"/>; })()}
                                                         </div>)}
                                                 </div>
                                                 <span className="font-medium text-sm truncate">{item.name}</span>
