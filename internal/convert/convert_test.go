@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -71,9 +72,28 @@ func TestConvertOriginalIsNoop(t *testing.T) {
 
 func TestConvertUnknownFormat(t *testing.T) {
 	in := filepath.Join(t.TempDir(), "a.flac")
-	os.WriteFile(in, []byte("data"), 0o644)
+	if err := os.WriteFile(in, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Convert(context.Background(), "x", in, "ogg"); err == nil {
 		t.Fatal("want error")
+	}
+	if _, err := os.Stat(in); err != nil {
+		t.Errorf("input must survive: %v", err)
+	}
+}
+
+func TestConvertSameExtension(t *testing.T) {
+	in := filepath.Join(t.TempDir(), "a.mp3")
+	if err := os.WriteFile(in, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Convert(context.Background(), "x", in, "mp3-320")
+	if err == nil || err.Error() != "convert to mp3-320: input already has that extension" {
+		t.Fatalf("err = %v", err)
+	}
+	if b, _ := os.ReadFile(in); string(b) != "data" {
+		t.Error("input touched")
 	}
 }
 
@@ -106,18 +126,23 @@ func makeFlac(t *testing.T, ffmpeg, path string, cover bool) {
 	}
 }
 
+type probeStream struct {
+	CodecType string `json:"codec_type"`
+	CodecName string `json:"codec_name"`
+}
+
 type probe struct {
-	Streams []struct {
-		CodecType string `json:"codec_type"`
-	} `json:"streams"`
-	Format struct {
-		Tags map[string]string `json:"tags"`
+	Streams []probeStream `json:"streams"`
+	Format  struct {
+		Duration string            `json:"duration"`
+		Tags     map[string]string `json:"tags"`
 	} `json:"format"`
 }
 
 func probeFile(t *testing.T, ffprobe, path string) probe {
 	t.Helper()
-	out, err := exec.Command(ffprobe, "-v", "error", "-show_entries", "format_tags=title,artist", "-show_streams", "-of", "json", path).Output()
+	out, err := exec.Command(ffprobe, "-v", "error", "-show_entries",
+		"format=duration:format_tags=title,artist:stream=codec_type,codec_name", "-of", "json", path).Output()
 	if err != nil {
 		t.Fatalf("ffprobe %s: %v", path, err)
 	}
@@ -157,12 +182,24 @@ func TestConvertReal(t *testing.T) {
 				if p.Format.Tags["title"] != "T" || p.Format.Tags["artist"] != "A" {
 					t.Errorf("tags lost: %v", p.Format.Tags)
 				}
-				hasVideo := slices.ContainsFunc(p.Streams, func(s struct {
-					CodecType string `json:"codec_type"`
-				}) bool {
-					return s.CodecType == "video"
-				})
-				if hasVideo != cover {
+				hasStream := func(typ string) (probeStream, bool) {
+					i := slices.IndexFunc(p.Streams, func(s probeStream) bool { return s.CodecType == typ })
+					if i < 0 {
+						return probeStream{}, false
+					}
+					return p.Streams[i], true
+				}
+				audio, ok := hasStream("audio")
+				if !ok {
+					t.Fatalf("no audio stream: %+v", p.Streams)
+				}
+				if want := map[string]string{"mp3-320": "mp3", "m4a-aac-320": "aac"}[format]; audio.CodecName != want {
+					t.Errorf("audio codec = %q, want %q", audio.CodecName, want)
+				}
+				if d, err := strconv.ParseFloat(p.Format.Duration, 64); err != nil || d < 0.8 {
+					t.Errorf("duration = %q, want >= 0.8s", p.Format.Duration)
+				}
+				if _, hasVideo := hasStream("video"); hasVideo != cover {
 					t.Errorf("cover stream = %v, want %v", hasVideo, cover)
 				}
 			})

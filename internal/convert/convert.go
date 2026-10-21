@@ -58,6 +58,9 @@ func Convert(ctx context.Context, ffmpeg, in, format string) (string, error) {
 		return "", fmt.Errorf("convert to %s: unknown format", format)
 	}
 	out := strings.TrimSuffix(in, filepath.Ext(in)) + ext
+	if out == in {
+		return "", fmt.Errorf("convert to %s: input already has that extension", format)
+	}
 	part := out + ".part"
 
 	cmd := exec.CommandContext(ctx, ffmpeg, Args(in, part, format)...)
