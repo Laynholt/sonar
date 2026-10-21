@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { InputWithContext } from "@/components/ui/input-with-context";
-import { CloudDownload, XCircle, Link, Search, X, ChevronDown } from "lucide-react";
+import { XCircle, Link, Search, X, ChevronDown } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { FetchHistory } from "@/components/FetchHistory";
@@ -336,7 +336,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                 <Spinner />
                                 Fetching...
                             </>) : (<>
-                                <CloudDownload className="h-4 w-4"/>
+                                <Search className="h-4 w-4"/>
                                 Fetch
                             </>)}
                     </Button>)}
