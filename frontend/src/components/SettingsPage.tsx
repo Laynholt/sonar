@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { Save } from "lucide-react";
+import { Save, Settings2, Palette, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,10 +12,10 @@ import { LOCALES, availableLanguages, setLanguage, t as translate, useI18n, type
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 
 const SECTIONS = [
-    { id: "general", label: "settings.general" },
-    { id: "appearance", label: "settings.appearance" },
-    { id: "network", label: "settings.network" },
-] as const satisfies readonly { id: string; label: MessageKey }[];
+    { id: "general", label: "settings.general", Icon: Settings2 },
+    { id: "appearance", label: "settings.appearance", Icon: Palette },
+    { id: "network", label: "settings.network", Icon: Globe },
+] as const satisfies readonly { id: string; label: MessageKey; Icon: unknown }[];
 // Accent names are plain colour words, so they follow the language; unknown themes keep their own label.
 const THEME_LABELS: Record<string, MessageKey> = {
     amber: "theme.amber",
@@ -40,7 +40,7 @@ const THEME_LABELS: Record<string, MessageKey> = {
 type SectionId = typeof SECTIONS[number]["id"];
 
 function Row({ id, label, description, children, wide }: { id: string; label: string; description?: string; children: ReactNode; wide?: boolean }) {
-    return (<div className="flex items-center justify-between gap-6 py-4 border-b last:border-b-0">
+    return (<div className="flex items-center justify-between gap-6 px-4 py-4 border-b last:border-b-0">
       <div className="space-y-1 min-w-0">
         <Label htmlFor={id}>{label}</Label>
         {description && <p className="text-xs text-muted-foreground">{description}</p>}
@@ -121,13 +121,19 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
         </Button>
       </div>
 
-      <div className="flex rounded-xl border bg-card text-card-foreground shadow-sm">
-        <nav className="flex w-48 shrink-0 flex-col gap-1 border-r p-3">
-          {SECTIONS.map(({ id, label }) => (<Button key={id} variant={section === id ? "secondary" : "ghost"} className="justify-start" onClick={() => setSection(id)}>{t(label)}</Button>))}
-        </nav>
+      {/* Same tab strip and bordered table as the History page. */}
+      <div className="flex gap-2 border-b shrink-0">
+        {SECTIONS.map(({ id, label, Icon }) => (<Button key={id} variant={section === id ? "default" : "ghost"} size="sm" className="rounded-b-none" onClick={() => setSection(id)}>
+          <Icon className="h-4 w-4"/>
+          {t(label)}
+        </Button>))}
+      </div>
 
-        <div className="min-w-0 flex-1 px-6 py-2">
-          <h2 className="border-b py-4 text-lg font-semibold">{t(SECTIONS.find((s) => s.id === section)!.label)}</h2>
+      <div className="rounded-md border overflow-hidden">
+        <div className="h-10 px-4 flex items-center border-b bg-muted/50 text-xs font-medium uppercase text-muted-foreground">
+          {t(SECTIONS.find((s) => s.id === section)!.label)}
+        </div>
+        <div>
           {section === "general" && (<>
             <Row id="language" label={t("settings.language")} description={t("settings.languageDesc")}>
               <Select value={Object.hasOwn(LOCALES, tempSettings.language) ? tempSettings.language : "auto"} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, language: value }))}>
