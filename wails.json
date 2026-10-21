@@ -2,9 +2,9 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "sonar",
   "outputfilename": "sonar",
-  "frontend:install": "pnpm install",
-  "frontend:build": "pnpm run build",
-  "frontend:dev:watcher": "pnpm run dev",
+  "frontend:install": "corepack pnpm install",
+  "frontend:build": "corepack pnpm run build",
+  "frontend:dev:watcher": "corepack pnpm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
     "name": "Laynholt"
