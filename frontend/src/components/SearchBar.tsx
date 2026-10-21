@@ -208,11 +208,14 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                 setSearchResults((prev) => {
                     if (!prev || !isCurrent())
                         return prev;
+                    // Spotify's pages overlap, so keep only ids not already listed (and not repeated in this page).
+                    const seen = new Set(prev[tab].map((item) => item.id));
+                    const fresh = moreResults.filter((item) => !seen.has(item.id) && seen.add(item.id));
                     const updated = new model.SearchResponse({
-                        tracks: tab === "tracks" ? [...prev.tracks, ...moreResults] : prev.tracks,
-                        albums: tab === "albums" ? [...prev.albums, ...moreResults] : prev.albums,
-                        artists: tab === "artists" ? [...prev.artists, ...moreResults] : prev.artists,
-                        playlists: tab === "playlists" ? [...prev.playlists, ...moreResults] : prev.playlists,
+                        tracks: tab === "tracks" ? [...prev.tracks, ...fresh] : prev.tracks,
+                        albums: tab === "albums" ? [...prev.albums, ...fresh] : prev.albums,
+                        artists: tab === "artists" ? [...prev.artists, ...fresh] : prev.artists,
+                        playlists: tab === "playlists" ? [...prev.playlists, ...fresh] : prev.playlists,
                     });
                     return updated;
                 });

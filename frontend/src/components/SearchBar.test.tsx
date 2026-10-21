@@ -188,4 +188,29 @@ describe("modes and recent fetches", () => {
         expect(props.onSearchModeChange).toHaveBeenCalledWith(false);
         expect(props.onFetchUrl).toHaveBeenCalledWith("https://open.spotify.com/track/1");
     });
+
+    it("appends only new items when the next page overlaps the previous one", async () => {
+        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50));
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        // Page 2 repeats two items from page 1 and repeats a new item within itself.
+        vi.mocked(SearchSpotifyByType).mockResolvedValue([result("Initial 48"), result("Initial 49"), result("Fresh"), result("Fresh")]);
+        await start("first");
+        await act(async () => button(view.container, "Load More").click());
+        const rows = [...view.container.querySelectorAll("button.bg-card")].map((row) => row.querySelector("p")!.textContent);
+        expect(rows).toHaveLength(51);
+        expect(new Set(rows).size).toBe(51);
+        expect(rows.at(-1)).toBe("Fresh");
+        expect(button(view.container, "Tracks (51)")).toBeTruthy();
+        expect(errors).not.toHaveBeenCalledWith(expect.stringContaining("same key"), expect.anything(), expect.anything());
+        errors.mockRestore();
+    });
+
+    it("keeps Load More when a full page was all duplicates", async () => {
+        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50));
+        vi.mocked(SearchSpotifyByType).mockResolvedValue(Array.from({ length: 50 }, (_, index) => result(`Initial ${index}`)));
+        await start("first");
+        await act(async () => button(view.container, "Load More").click());
+        expect(view.container.textContent).toContain("Tracks (50)");
+        expect(button(view.container, "Load More").disabled).toBe(false);
+    });
 });

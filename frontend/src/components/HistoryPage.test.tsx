@@ -6,7 +6,7 @@ import { ClearFetchHistory, ClearFetchHistoryByType, DeleteFetchHistoryItem, Get
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { HistoryPage } from "./HistoryPage";
 import { TooltipProvider } from "./ui/tooltip";
-import { mount, button } from "../test/render";
+import { mount, button, change } from "../test/render";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ GetFetchHistory: vi.fn(), DeleteFetchHistoryItem: vi.fn(), ClearFetchHistory: vi.fn(), ClearFetchHistoryByType: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
@@ -66,5 +66,26 @@ describe("HistoryPage", () => {
         vi.mocked(DeleteFetchHistoryItem).mockRejectedValue("history is unavailable");
         await act(async () => labelled("Delete").click());
         expect(toast.error).toHaveBeenCalledWith("history is unavailable");
+    });
+
+    it("steps back a page when deleting the last row of the last page", async () => {
+        const many = Array.from({ length: 51 }, (_, index) => entry(`t${index}`, "track", `Song ${String(index).padStart(2, "0")}`));
+        many.forEach((item, index) => { item.timestamp = 1000 - index; });
+        vi.mocked(GetFetchHistory).mockResolvedValue(many);
+        await view.unmount();
+        view = await mount(<TooltipProvider><HistoryPage onHistorySelect={onHistorySelect}/></TooltipProvider>);
+        await act(async () => [...view.container.querySelectorAll("a")].find((a) => a.textContent === "2")!.click());
+        expect(view.container.textContent).toContain("Song 50");
+        vi.mocked(GetFetchHistory).mockResolvedValue(many.slice(0, 50));
+        await act(async () => labelled("Delete").click());
+        expect(view.container.textContent).toContain("Song 49");
+        expect(view.container.textContent).not.toContain("No fetch history");
+    });
+
+    it("keeps Clear <Tab> enabled while a search matches nothing", async () => {
+        const input = view.container.querySelector<HTMLInputElement>("input")!;
+        await act(async () => change(input, "no such entry"));
+        expect(view.container.textContent).toContain("No fetch history");
+        expect(button(view.container, "Clear Tracks").disabled).toBe(false);
     });
 });

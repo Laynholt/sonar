@@ -48,6 +48,7 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
         }
     }, []);
     useEffect(() => { void reload(); }, [reload]);
+    const typeCount = useMemo(() => items.filter((item) => item.type === activeType).length, [items, activeType]);
     const filtered = useMemo(() => {
         const query = searchQuery.toLowerCase();
         return items
@@ -105,7 +106,9 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
         return pages;
     };
     const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    // Deleting the last row of the last page leaves the stored page past the end.
+    const activePage = Math.min(currentPage, totalPages || 1);
+    const startIndex = (activePage - 1) * ITEMS_PER_PAGE;
     const paginated = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE);
     return (<div className="space-y-6">
             <h1 className="text-2xl font-bold">History</h1>
@@ -120,7 +123,7 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                                 </Badge>)}
                         </div>
                         <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setClearScope("type")} disabled={filtered.length === 0} className="cursor-pointer gap-2">
+                            <Button variant="outline" size="sm" onClick={() => setClearScope("type")} disabled={typeCount === 0} className="cursor-pointer gap-2">
                                 <Trash2 className="h-4 w-4"/> Clear {activeTab.label}
                             </Button>
                             <Button variant="outline" size="sm" onClick={() => setClearScope("all")} disabled={items.length === 0} className="cursor-pointer gap-2">
@@ -222,18 +225,18 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                             <PaginationItem>
                                 <PaginationPrevious href="#" onClick={(e) => {
                     e.preventDefault();
-                    if (currentPage > 1)
-                        setCurrentPage(currentPage - 1);
-                }} className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}/>
+                    if (activePage > 1)
+                        setCurrentPage(activePage - 1);
+                }} className={activePage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}/>
                             </PaginationItem>
                             
-                            {getPaginationPages(currentPage, totalPages).map((page, index) => (page === 'ellipsis' ? (<PaginationItem key={`ellipsis-${index}`}>
+                            {getPaginationPages(activePage, totalPages).map((page, index) => (page === 'ellipsis' ? (<PaginationItem key={`ellipsis-${index}`}>
                                         <PaginationEllipsis />
                                     </PaginationItem>) : (<PaginationItem key={page}>
                                         <PaginationLink href="#" onClick={(e) => {
                         e.preventDefault();
                         setCurrentPage(page as number);
-                    }} isActive={currentPage === page} className="cursor-pointer">
+                    }} isActive={activePage === page} className="cursor-pointer">
                                             {page}
                                         </PaginationLink>
                                     </PaginationItem>)))}
@@ -241,9 +244,9 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                             <PaginationItem>
                                 <PaginationNext href="#" onClick={(e) => {
                     e.preventDefault();
-                    if (currentPage < totalPages)
-                        setCurrentPage(currentPage + 1);
-                }} className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}/>
+                    if (activePage < totalPages)
+                        setCurrentPage(activePage + 1);
+                }} className={activePage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}/>
                             </PaginationItem>
                         </PaginationContent>
                     </Pagination>)}
