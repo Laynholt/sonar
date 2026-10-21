@@ -59,3 +59,11 @@ func ParseLink(raw string) (Link, error) {
 	}
 	return Link{kind, seg[1]}, nil
 }
+
+// TrackURL is the one page both download sites take for a track.
+func TrackURL(id string) (string, error) {
+	if !idRe.MatchString(id) {
+		return "", fmt.Errorf("not an Amazon Music track ID: %q", id)
+	}
+	return "https://music.amazon.com/tracks/" + id, nil
+}

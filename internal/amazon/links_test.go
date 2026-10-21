@@ -55,3 +55,14 @@ func TestIsLink(t *testing.T) {
 		}
 	}
 }
+
+func TestTrackURL(t *testing.T) {
+	if u, err := TrackURL("B00A3SGXAA"); u != "https://music.amazon.com/tracks/B00A3SGXAA" || err != nil {
+		t.Errorf("got %q, %v", u, err)
+	}
+	for _, id := range []string{"6rqhFgbbKwnb9MLmUQDhG6", "../x", ""} {
+		if u, err := TrackURL(id); err == nil {
+			t.Errorf("TrackURL(%q) = %q, want error", id, u)
+		}
+	}
+}

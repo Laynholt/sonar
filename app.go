@@ -12,9 +12,14 @@ import (
 	"time"
 
 	"sonar/internal/amazon"
+	"sonar/internal/convert"
+	"sonar/internal/doubledouble"
+	"sonar/internal/download"
 	"sonar/internal/history"
 	"sonar/internal/httpx"
+	"sonar/internal/lucida"
 	"sonar/internal/model"
+	"sonar/internal/source"
 	"sonar/internal/spotify"
 )
 
@@ -22,6 +27,11 @@ type App struct {
 	ctx     context.Context
 	dataDir string // holds history.db and config.json
 	hist    *history.DB
+
+	dd         *doubledouble.Client
+	sources    *source.Balancer
+	dl         *download.Queue
+	findFFmpeg func(custom string) string // a field so tests can fake it
 }
 
 var errNoHistory = errors.New("history is unavailable")
@@ -56,11 +66,16 @@ func (a *App) init() {
 	if err := httpx.SetManualProxy(proxy); err != nil {
 		log.Printf("saved proxy: %v", err)
 	}
+	a.dd = doubledouble.New(filepath.Join(a.dataDir, "doubledouble-token"))
+	a.sources = source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
+	a.findFFmpeg = convert.FindFFmpeg
+	a.dl = download.NewQueue(a.fetch, downloadWorkers)
 }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
 func (a *App) shutdown(context.Context) {
+	a.dl.Close()
 	if a.hist != nil {
 		a.hist.Close()
 	}
