@@ -1,11 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ExternalLink, XCircle, Play, Pause } from "lucide-react";
-import { Spinner } from "@/components/ui/spinner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ExternalLink, XCircle } from "lucide-react";
 import type { TrackMetadata } from "@/types/api";
-import { usePreview } from "@/hooks/usePreview";
 import { openExternal } from "@/lib/utils";
+import { CoverPreview } from "./CoverPreview";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 interface TrackInfoProps {
     track: TrackMetadata & {
@@ -15,7 +13,6 @@ interface TrackInfoProps {
     onBack?: () => void;
 }
 export function TrackInfo({ track, onBack, }: TrackInfoProps) {
-    const { playPreview, loadingPreview, playingTrack } = usePreview();
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
         const seconds = Math.floor((ms % 60000) / 1000);
@@ -35,14 +32,14 @@ export function TrackInfo({ track, onBack, }: TrackInfoProps) {
     </div>)}
     <CardContent className="px-6">
       <div className="flex gap-6 items-start">
-        {track.images && (<div className="shrink-0">
+        <div className="shrink-0">
           <div className="relative w-48 h-48 rounded-md shadow-lg overflow-hidden">
-            <img src={track.images} alt={track.name} className="w-full h-full object-cover"/>
+            <CoverPreview trackId={track.id} trackName={track.name} src={track.images} className="w-full h-full rounded-none"/>
             <div className="absolute bottom-1 right-1 bg-black/80 text-white px-1.5 py-0.5 text-xs font-medium rounded">
               {formatDuration(track.duration_ms)}
             </div>
           </div>
-        </div>)}
+        </div>
         <div className="flex-1 space-y-4 min-w-0">
           <div className="space-y-1">
             <ServiceBadge service={track.service}/>
@@ -81,16 +78,6 @@ export function TrackInfo({ track, onBack, }: TrackInfoProps) {
               <ExternalLink className="h-4 w-4"/>
               Open in {serviceLabels[track.service]}
             </Button>
-            {track.service === "spotify" && track.id && (<Tooltip>
-              <TooltipTrigger asChild>
-                <Button onClick={() => playPreview(track.id!, track.name)} variant="outline" size="icon" aria-label={playingTrack === track.id ? "Stop preview" : "Play preview"} disabled={loadingPreview === track.id}>
-                  {loadingPreview === track.id ? (<Spinner />) : playingTrack === track.id ? (<Pause className="h-4 w-4"/>) : (<Play className="h-4 w-4"/>)}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{playingTrack === track.id ? "Stop Preview" : "Play Preview"}</p>
-              </TooltipContent>
-            </Tooltip>)}
           </div>
         </div>
       </div>

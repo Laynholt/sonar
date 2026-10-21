@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrackMetadata } from "@/types/api";
+import { GetPreviewURL } from "../../wailsjs/go/main/App";
+import { stopPreview } from "@/hooks/usePreview";
+import { mount } from "../test/render";
 import { TrackList } from "./TrackList";
+
+vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
+vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { error: vi.fn() } }));
 
 function makeTrack(n: number, over: Partial<TrackMetadata> = {}): TrackMetadata {
     return {
@@ -68,14 +75,16 @@ describe("TrackList", () => {
         expect(render(tracks)).not.toContain('aria-label="Go to next page"');
     });
 
-    it("labels the open link and gates previews by the track's service", () => {
-        const spotify = render([makeTrack(1)]);
-        const amazon = render([makeTrack(1, { service: "amazon" })]);
+    it("labels the open link per service and keeps the preview out of the Actions cell", () => {
+        const doc = (markup: string) => new DOMParser().parseFromString(markup, "text/html");
+        const spotify = doc(render([makeTrack(1)]));
+        const amazon = doc(render([makeTrack(1, { service: "amazon" })]));
 
-        expect(spotify).toContain('aria-label="Open in Spotify"');
-        expect(spotify).toContain('aria-label="Play preview"');
-        expect(amazon).toContain('aria-label="Open in Amazon Music"');
-        expect(amazon).not.toContain("Play preview");
+        for (const [parsed, label] of [[spotify, "Open in Spotify"], [amazon, "Open in Amazon Music"]] as const) {
+            const actions = parsed.querySelector("tbody tr td:last-child")!;
+            expect([...actions.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([label]);
+            expect(parsed.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
+        }
     });
 
     it("shows no download controls", () => {
@@ -85,5 +94,38 @@ describe("TrackList", () => {
         expect(doc.querySelectorAll('[role="checkbox"]').length).toBe(0);
         const buttons = [...doc.querySelectorAll("button")].map((b) => `${b.getAttribute("aria-label") ?? ""} ${b.textContent ?? ""}`);
         expect(buttons.filter((name) => /download/i.test(name))).toEqual([]);
+    });
+});
+
+describe("TrackList preview", () => {
+    const pause = vi.fn();
+    const listeners: Record<string, () => void> = {};
+    beforeEach(() => {
+        vi.resetAllMocks();
+        pause.mockClear();
+        vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+        vi.stubGlobal("Audio", class {
+            addEventListener(name: string, fn: () => void) { listeners[name] = fn; }
+            pause = pause;
+            currentTime = 0;
+            play() { return Promise.resolve(); }
+        });
+    });
+    afterEach(() => { stopPreview(); vi.unstubAllGlobals(); });
+
+    it("plays from the row cover and stops on a second click", async () => {
+        vi.mocked(GetPreviewURL).mockResolvedValue("url1");
+        const view = await mount(<TrackList tracks={[makeTrack(1)]} searchQuery="" sortBy="default" currentPage={1} itemsPerPage={50} onPageChange={vi.fn()} />);
+        const cover = () => view.container.querySelector("tbody button[aria-label$=\" preview\"]") as HTMLButtonElement;
+
+        await act(async () => cover().click());
+        expect(GetPreviewURL).toHaveBeenCalledWith("track-1");
+        await act(async () => listeners.loadeddata());
+        expect(cover().getAttribute("aria-label")).toBe("Stop preview");
+
+        await act(async () => cover().click());
+        expect(pause).toHaveBeenCalledTimes(1);
+        expect(cover().getAttribute("aria-label")).toBe("Play preview");
+        await view.unmount();
     });
 });

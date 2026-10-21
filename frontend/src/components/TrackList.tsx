@@ -1,10 +1,9 @@
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Play, Pause } from "lucide-react";
-import { Spinner } from "@/components/ui/spinner";
+import { ExternalLink } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, } from "@/components/ui/pagination";
 import type { TrackMetadata } from "@/types/api";
-import { usePreview } from "@/hooks/usePreview";
+import { CoverPreview } from "./CoverPreview";
 import { openExternal } from "@/lib/utils";
 import { serviceLabels } from "./ServiceBadge";
 interface TrackListProps {
@@ -28,7 +27,6 @@ interface TrackListProps {
     onTrackClick?: (track: TrackMetadata) => void;
 }
 export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPage, hideAlbumColumn = false, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
-    const { playPreview, loadingPreview, playingTrack } = usePreview();
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
             return true;
@@ -168,7 +166,7 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               </td>
               <td className="p-4 align-middle">
                 <div className="flex items-center gap-3">
-                  {track.images && (<img src={track.images} alt={track.name} className="w-10 h-10 shrink-0 rounded object-cover"/>)}
+                  <CoverPreview trackId={track.id} trackName={track.name} src={track.images} className="w-10 h-10"/>
                   <div className="flex min-w-0 flex-col [overflow-wrap:anywhere]">
                     <div className="flex items-center gap-2">
                       {onTrackClick ? (<span className="font-medium cursor-pointer hover:underline" onClick={() => onTrackClick(track)}>
@@ -229,16 +227,6 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>Open in {serviceLabels[track.service]}</p>
-                    </TooltipContent>
-                  </Tooltip>)}
-                  {track.service === "spotify" && track.id && (<Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button onClick={() => playPreview(track.id!, track.name)} size="icon" variant="outline" aria-label={playingTrack === track.id ? "Stop preview" : "Play preview"} disabled={loadingPreview === track.id}>
-                        {loadingPreview === track.id ? (<Spinner />) : playingTrack === track.id ? (<Pause className="h-4 w-4"/>) : (<Play className="h-4 w-4"/>)}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{playingTrack === track.id ? "Stop Preview" : "Play Preview"}</p>
                     </TooltipContent>
                   </Tooltip>)}
                 </div>
