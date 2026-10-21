@@ -258,12 +258,12 @@ func TestBalancerGuardFiresAtLimit(t *testing.T) {
 		t.Fatalf("fired early: %v", hits)
 	}
 	dl("a")
-	dl("a") // past the limit: no second hit
-	if want := []hit{{"a", 3}}; !slices.Equal(hits, want) {
+	dl("a") // past the limit: fires again
+	if want := []hit{{"a", 3}, {"a", 4}}; !slices.Equal(hits, want) {
 		t.Fatalf("hits = %v, want %v", hits, want)
 	}
 	dl("b")
-	if want := []hit{{"a", 3}, {"b", 3}}; !slices.Equal(hits, want) {
+	if want := []hit{{"a", 3}, {"a", 4}, {"b", 3}}; !slices.Equal(hits, want) {
 		t.Fatalf("hits = %v, want %v", hits, want)
 	}
 
@@ -293,6 +293,11 @@ func TestBalancerGuardFiresAtLimit(t *testing.T) {
 	}
 	if len(hits) != 0 {
 		t.Fatalf("fired with guard off: %v", hits)
+	}
+	bal.SetGuard(3) // switched on past the current count
+	dl("a")
+	if want := []hit{{"a", 6}}; !slices.Equal(hits, want) {
+		t.Fatalf("hits = %v, want %v", hits, want)
 	}
 }
 

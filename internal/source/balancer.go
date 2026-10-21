@@ -22,7 +22,7 @@ type Balancer struct {
 	cooldown time.Duration
 	now      func() time.Time
 
-	// OnLimit is called, outside any lock, when a site's count reaches the guard limit. Set it before use.
+	// OnLimit is called, outside any lock, when a site's count is at or past the guard limit. Set it before use.
 	OnLimit func(site string, count int)
 	rest    time.Duration // a site idle this long starts counting again
 
@@ -112,7 +112,7 @@ func (b *Balancer) countSuccess(name string) {
 	}
 	b.count[name]++
 	b.last[name] = now
-	n, fire := b.count[name], b.limit > 0 && b.count[name] == b.limit
+	n, fire := b.count[name], b.limit > 0 && b.count[name] >= b.limit
 	b.mu.Unlock()
 	if fire && b.OnLimit != nil {
 		b.OnLimit(name, n)

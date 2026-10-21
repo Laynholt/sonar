@@ -100,9 +100,9 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 // onLimit holds the queue until the user answers the dialog.
 func (a *App) onLimit(site string, count int) {
 	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
 	a.guard = DownloadGuard{Site: site, Count: count, Asking: true}
-	a.guardMu.Unlock()
-	a.dl.Hold(time.Time{})
+	a.dl.Hold(time.Time{}) // under guardMu so guard and hold change together
 }
 
 func (a *App) GetDownloadGuard() DownloadGuard {
@@ -119,8 +119,8 @@ func (a *App) GuardWait() {
 	a.sources.ResetCounts()
 	until := time.Now().Add(guardRest)
 	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
 	a.guard = DownloadGuard{Site: a.guard.Site, Count: a.guard.Count, PausedUntil: until.UnixMilli()}
-	a.guardMu.Unlock()
 	a.dl.Hold(until)
 }
 
@@ -128,8 +128,8 @@ func (a *App) GuardWait() {
 func (a *App) GuardContinue() {
 	a.sources.ResetCounts()
 	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
 	a.guard = DownloadGuard{}
-	a.guardMu.Unlock()
 	a.dl.Resume()
 }
 
