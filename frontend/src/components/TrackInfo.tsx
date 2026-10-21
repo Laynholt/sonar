@@ -44,7 +44,7 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: Track
     <CardContent className="px-6">
       <div className="flex flex-col gap-6 md:flex-row">
         <div className="flex flex-1 items-start gap-6 min-w-0">
-          <CoverPreview trackId={track.id} trackName={track.name} src={track.images} className="h-48 w-48 rounded-md shadow-lg"/>
+          <CoverPreview trackId={track.service === "spotify" ? track.id : undefined} trackName={track.name} src={track.images} className="h-48 w-48 rounded-md shadow-lg"/>
           <div className="flex min-h-48 flex-1 flex-col justify-between gap-4 min-w-0">
             <div className="space-y-1">
               <ServiceBadge service={track.service}/>

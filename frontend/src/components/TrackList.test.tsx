@@ -88,8 +88,9 @@ describe("TrackList", () => {
         for (const [parsed, label] of [[spotify, "Open in Spotify"], [amazon, "Open in Amazon Music"]] as const) {
             const actions = parsed.querySelector("tbody tr td:last-child")!;
             expect([...actions.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([label]);
-            expect(parsed.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
         }
+        expect(spotify.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
+        expect(amazon.querySelectorAll('button[aria-label="Play preview"]').length).toBe(0);
     });
 
     it("makes each artist its own link", async () => {

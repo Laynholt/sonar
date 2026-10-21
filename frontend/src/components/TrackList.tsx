@@ -164,7 +164,7 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               </td>
               <td className="p-4 align-middle">
                 <div className="flex items-center gap-3">
-                  <CoverPreview trackId={track.id} trackName={track.name} src={track.images} className="w-10 h-10"/>
+                  <CoverPreview trackId={track.service === "spotify" ? track.id : undefined} trackName={track.name} src={track.images} className="w-10 h-10"/>
                   <div className="flex min-w-0 flex-col [overflow-wrap:anywhere]">
                     <div className="flex items-center gap-2">
                       {onTrackClick ? (<span className="font-medium cursor-pointer hover:underline" onClick={() => onTrackClick(track)}>

@@ -241,11 +241,14 @@ func parseSearchResponse(raw []byte) (*model.SearchResponse, error) {
 			}
 			id, u := parts[1], canonical(route, parts[1]) // artist slug dropped
 			if kind == "track" {
-				_, id, _ = strings.Cut(query, "trackAsin=")
-				if id == "" {
-					continue
+				id = ""
+				if v, err := url.ParseQuery(query); err == nil {
+					id = v.Get("trackAsin")
 				}
 				u += "?trackAsin=" + id
+			}
+			if !idRe.MatchString(id) {
+				continue
 			}
 			name := x.PrimaryText.Text
 			if name == "" {

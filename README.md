@@ -18,6 +18,7 @@ Amazon is read as a guest (no sign-in) from the US catalog, so:
 
 - Community playlists (`/user-playlists/...`) need an account and are not supported; search hides them.
 - Search shows only the first page (up to 10 items per type), with no "load more".
+- Links from other Amazon stores (e.g. `music.amazon.co.uk`) only open if the release is in the US catalog.
 - No previews.
 - No disc numbers, label, plays, followers or listeners; empty counts are hidden.
 
@@ -33,7 +34,7 @@ English is built in; Russian ships as `frontend/src/locales/ru.json`. Settings >
 
 To add a language: copy `frontend/src/locales/ru.json` to `<code>.json` (for example `de.json`), translate the values, set `"$name"` to the language's own name, and rebuild. No code changes are needed. Keys missing from a file fall back to English. Plural strings use the CLDR forms of the language (`one`, `few`, `many`, `other`).
 
-Go error texts and Spotify data (titles, playlist descriptions) are not translated.
+Go error texts and Spotify and Amazon data (titles, playlist descriptions) are not translated.
 
 ## Roadmap
 

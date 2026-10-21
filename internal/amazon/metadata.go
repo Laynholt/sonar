@@ -3,6 +3,7 @@ package amazon
 import (
 	"context"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 
@@ -15,7 +16,7 @@ const (
 	expQ = `parentalSettings { hasExplicitLanguage }`
 
 	trackQuery    = `query ($id: String!) { track(id: $id) { id title duration isrc trackNumber ` + expQ + ` ` + artQ + ` album { id title releaseDate copyright trackCount ` + imgQ + ` ` + artQ + ` } } }`
-	albumQuery    = `query ($id: String!) { album(id: $id) { id title releaseDate copyright trackCount ` + imgQ + ` ` + expQ + ` ` + artQ + ` tracks { id title duration trackNumber ` + expQ + ` ` + artQ + ` } } }`
+	albumQuery    = `query ($id: String!) { album(id: $id) { id title releaseDate trackCount ` + imgQ + ` ` + expQ + ` ` + artQ + ` tracks { id title duration trackNumber ` + expQ + ` ` + artQ + ` } } }`
 	playlistQuery = `query ($id: String!, $after: String) { playlist(id: $id) { id title description trackCount curator { name } followers { totalCount } ` + imgQ + ` tracks(first: 100, after: $after) { totalCount pageInfo { hasNextPage token } edges { node { id title duration ` + expQ + ` album { id title ` + imgQ + ` } ` + artQ + ` } } } } }`
 	artistQuery   = `query ($id: String!, $cursor: String) { artist(id: $id) { id name ` + imgQ + ` albums(limit: 100, cursor: $cursor) { pageInfo { hasNextPage token } edges { node { id title releaseDate trackCount format ` + imgQ + ` } } } } }`
 	albumsQuery   = `query ($ids: [String!]!) { albums(ids: $ids) { id title releaseDate trackCount ` + imgQ + ` ` + artQ + ` tracks { id title duration trackNumber ` + expQ + ` ` + artQ + ` } } }`
@@ -97,7 +98,7 @@ type gArtist struct {
 	} `json:"albums"`
 }
 
-func notFound(kind, id string) error { return fmt.Errorf("amazon: %s %s not found", kind, id) }
+func notFound(kind, id string) error { return fmt.Errorf("amazon: %s %s not found in the US catalog", kind, id) }
 
 // canonical builds URLs from IDs; API URLs carry ?ref= noise.
 func canonical(kind, id string) string { return "https://music.amazon.com/" + kind + "/" + id }
@@ -319,7 +320,8 @@ func fetchArtist(ctx context.Context, q querier, id string) (*model.ArtistDiscog
 			Albums []gAlbum `json:"albums"`
 		}
 		if err := q.gql(ctx, albumsQuery, map[string]any{"ids": chunk}, &out); err != nil {
-			return nil, err
+			log.Printf("amazon: tracks for %d albums of artist %s: %v", len(chunk), id, err)
+			continue
 		}
 		for i := range out.Albums {
 			full[out.Albums[i].ID] = &out.Albums[i]
@@ -343,6 +345,8 @@ func fetchArtist(ctx context.Context, q querier, id string) (*model.ArtistDiscog
 			for i := range f.Tracks {
 				tracks = append(tracks, albumTrack(&f.Tracks[i], f))
 			}
+		} else {
+			log.Printf("amazon: no tracks returned for album %s", al.ID)
 		}
 	}
 	return &model.ArtistDiscographyPayload{

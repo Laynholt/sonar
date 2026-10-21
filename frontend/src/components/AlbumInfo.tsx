@@ -110,7 +110,7 @@ export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuer
         </CardContent>
       </Card>
       <div className="space-y-4">
-        <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
+        <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} hasPlays={trackList.some((track) => track.plays)} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
         <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} hideAlbumColumn={true} onPageChange={onPageChange} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
       </div>
     </div>);

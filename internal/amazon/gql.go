@@ -9,7 +9,7 @@ import (
 const (
 	// shortcut: public anonymous web-player key, US only; replace if Amazon rotates it (401 AUTH_*)
 	gqlAPIKey = "amzn1.application.5d9d979e3a5f4e8ea83bc8536b4fde0b"
-	// shortcut: public anonymous web-player key, US only; replace if Amazon rotates it (401 AUTH_*)
+	// web player's own device type; sent with the guest session, replace if Amazon rejects it (401 AUTH_INVALID_DEVICE_*)
 	gqlDeviceType = "A16ZV8BU3SN1N3"
 	gqlEndpoint   = "https://gql.music.amazon.dev"
 	configURL     = "https://music.amazon.com/config.json?skipToken=false&clientApplication=skyfire"

@@ -14,7 +14,7 @@ type Link struct{ Kind, ID string }
 var ErrCommunityPlaylist = errors.New("Community playlists on Amazon Music need an account and aren't supported. Curated playlists (music.amazon.com/playlists/…) work.")
 
 var (
-	hostRe = regexp.MustCompile(`^music\.amazon\.[a-z.]+$`)
+	hostRe = regexp.MustCompile(`^(www\.)?music\.amazon\.[a-z.]+$`)
 	idRe   = regexp.MustCompile(`^[A-Z0-9]{10}$`)
 	kinds  = map[string]string{"tracks": "track", "albums": "album", "playlists": "playlist", "artists": "artist"}
 )

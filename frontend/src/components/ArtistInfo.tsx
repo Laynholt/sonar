@@ -197,7 +197,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
 
       {activeTab === "tracks" && trackList.length > 0 && (<div className="space-y-4">
           <h3 className="text-2xl font-bold">{t("artist.allTracks")}</h3>
-          <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
+          <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} hasPlays={trackList.some((track) => track.plays)} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
           <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
         </div>)}
     </div>);

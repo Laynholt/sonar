@@ -5,10 +5,11 @@ import { useI18n } from "@/lib/i18n";
 interface SearchAndSortProps {
     searchQuery: string;
     sortBy: string;
+    hasPlays: boolean;
     onSearchChange: (value: string) => void;
     onSortChange: (value: string) => void;
 }
-export function SearchAndSort({ searchQuery, sortBy, onSearchChange, onSortChange, }: SearchAndSortProps) {
+export function SearchAndSort({ searchQuery, sortBy, hasPlays, onSearchChange, onSortChange, }: SearchAndSortProps) {
     const { t } = useI18n();
     return (<div className="flex gap-2">
       <div className="relative flex-1">
@@ -31,8 +32,8 @@ export function SearchAndSort({ searchQuery, sortBy, onSearchChange, onSortChang
           <SelectItem value="artist-desc">{t("sort.artistDesc")}</SelectItem>
           <SelectItem value="duration-asc">{t("sort.durationAsc")}</SelectItem>
           <SelectItem value="duration-desc">{t("sort.durationDesc")}</SelectItem>
-          <SelectItem value="plays-asc">{t("sort.playsAsc")}</SelectItem>
-          <SelectItem value="plays-desc">{t("sort.playsDesc")}</SelectItem>
+          {hasPlays && <SelectItem value="plays-asc">{t("sort.playsAsc")}</SelectItem>}
+          {hasPlays && <SelectItem value="plays-desc">{t("sort.playsDesc")}</SelectItem>}
         </SelectContent>
       </Select>
     </div>);

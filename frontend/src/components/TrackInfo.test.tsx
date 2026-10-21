@@ -65,6 +65,14 @@ describe("TrackInfo", () => {
         expect(() => button(view.container, "Album")).toThrow();
     });
 
+    it("offers a preview for Spotify tracks but not Amazon ones", async () => {
+        view = await mount(<TrackInfo track={track}/>);
+        expect(view.container.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
+
+        await view.render(<TrackInfo track={{ ...track, service: "amazon" }}/>);
+        expect(view.container.querySelectorAll('button[aria-label="Play preview"]').length).toBe(0);
+    });
+
     it("has an open-in-service button", async () => {
         view = await mount(<TrackInfo track={track}/>);
 

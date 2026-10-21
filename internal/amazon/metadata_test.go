@@ -284,8 +284,42 @@ func TestFetchNotFound(t *testing.T) {
 	}
 	for name, f := range fetchers {
 		err := f()
-		if err == nil || !strings.Contains(err.Error(), "not found") || !strings.Contains(err.Error(), "B000000000") {
-			t.Errorf("%s: err = %v, want 'not found' with the ID", name, err)
+		if err == nil || !strings.Contains(err.Error(), "not found in the US catalog") || !strings.Contains(err.Error(), "B000000000") {
+			t.Errorf("%s: err = %v, want 'not found in the US catalog' with the ID", name, err)
 		}
 	}
+}
+
+func TestFetchArtistSurvivesFailedBatch(t *testing.T) {
+	var edges []map[string]any
+	for i := range 150 {
+		edges = append(edges, map[string]any{"node": map[string]any{"id": fmt.Sprintf("A%03d", i), "title": "t", "format": "ALBUM", "trackCount": 1}})
+	}
+	artist, _ := json.Marshal(map[string]any{"data": map[string]any{"artist": map[string]any{
+		"id": "X", "name": "X", "images": []any{},
+		"albums": map[string]any{"pageInfo": map[string]any{"hasNextPage": false}, "edges": edges},
+	}}})
+	q := &fakeQuerier{}
+	q.handle = func(root string, vars map[string]any) []byte {
+		if root == "artist(" {
+			return artist
+		}
+		ids := vars["ids"].([]string)
+		if ids[0] == "A000" {
+			return []byte(`{"errors":[{"message":"boom"}]}`)
+		}
+		var albums []map[string]any
+		for _, id := range ids {
+			albums = append(albums, map[string]any{"id": id, "title": "t", "trackCount": 1,
+				"tracks": []map[string]any{{"id": "T" + id, "title": "s", "duration": 1, "trackNumber": 1}}})
+		}
+		b, _ := json.Marshal(map[string]any{"data": map[string]any{"albums": albums}})
+		return b
+	}
+	r, err := fetchArtist(context.Background(), q, "X")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, "len(AlbumList)", len(r.AlbumList), 150)
+	eq(t, "len(TrackList)", len(r.TrackList), 50)
 }
