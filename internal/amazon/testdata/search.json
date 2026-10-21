@@ -1,0 +1,235 @@
+{
+ "methods": [
+  {
+   "template": {
+    "widgets": [
+     {
+      "header": "Top Results",
+      "items": [
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "Olivia Rodrigo",
+         "disabled": false
+        },
+        "secondaryText": "",
+        "image": "https://m.media-amazon.com/images/I/717Oy0K6lvL._AA256._SX472_SY472_BL0_QL100_.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/artists/B06WP75FR9/olivia-rodrigo"
+        }
+       },
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "you seem pretty sad for a girl so in love",
+         "disabled": false
+        },
+        "secondaryText": "Olivia Rodrigo",
+        "image": "https://m.media-amazon.com/images/I/61C19wcbjeL._AA256._SX472_SY472_BL0_QL100_.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/albums/B0H4V22WBL"
+        }
+       }
+      ]
+     },
+     {
+      "header": "Artists",
+      "items": [
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "Olivia Rodrigo",
+         "disabled": false
+        },
+        "image": "https://m.media-amazon.com/images/I/717Oy0K6lvL._AA256.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/artists/B06WP75FR9/olivia-rodrigo"
+        }
+       },
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "Billie Eilish",
+         "disabled": false
+        },
+        "image": "https://m.media-amazon.com/images/I/51gFss9+ErL._AA256.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/artists/B01A7VBHJ4/billie-eilish"
+        }
+       }
+      ]
+     },
+     {
+      "header": "Albums",
+      "items": [
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "you seem pretty sad for a girl so in love",
+         "disabled": false
+        },
+        "secondaryText": "Olivia Rodrigo",
+        "image": "https://m.media-amazon.com/images/I/61PIlNHqZ8L._AA256._SX354_SY354_BL0_QL100_.jpg",
+        "tags": [
+         "E"
+        ],
+        "primaryLink": {
+         "deeplink": "/albums/B0GVN6XSJC"
+        }
+       },
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "SOUR",
+         "disabled": false
+        },
+        "secondaryText": "Olivia Rodrigo",
+        "image": "https://m.media-amazon.com/images/I/61xGrcIkeeL._AA256._SX354_SY354_BL0_QL100_.jpg",
+        "tags": [
+         "E"
+        ],
+        "primaryLink": {
+         "deeplink": "/albums/B091BHTFTZ"
+        }
+       }
+      ]
+     },
+     {
+      "header": "Songs",
+      "items": [
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "expectations",
+         "disabled": false
+        },
+        "secondaryText": "Olivia Rodrigo & Chappell Roan",
+        "image": "https://m.media-amazon.com/images/I/81-AZPmeJ6L._AA256._SX472_SY472_BL0_QL100_.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/albums/B0HMXVCKG1?trackAsin=B0HMY12BH5"
+        }
+       },
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "the cure",
+         "disabled": false
+        },
+        "secondaryText": "Olivia Rodrigo",
+        "image": "https://m.media-amazon.com/images/I/61PIlNHqZ8L._AA256._SX472_SY472_BL0_QL100_.jpg",
+        "tags": [
+         "E"
+        ],
+        "primaryLink": {
+         "deeplink": "/albums/B0GVN6XSJC?trackAsin=B0GVMV9C5R"
+        }
+       }
+      ]
+     },
+     {
+      "header": "Playlists",
+      "items": [
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "",
+         "disabled": false,
+         "observer": {
+          "interface": "StorageInterface.v1_0.StorageObserver",
+          "storageGroup": "PLAYLIST_NAME",
+          "storageKey": "B0HN6S6JP3",
+          "states": {},
+          "defaultValue": {
+           "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+           "text": "REDISCOVER Olivia Rodrigo",
+           "disabled": false
+          }
+         }
+        },
+        "image": "https://m.media-amazon.com/images/I/A1OglwNNGNL._AA256._SX354_SY354_BL0_QL100_.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/playlists/B0CF3S6S4V"
+        }
+       },
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "",
+         "disabled": false,
+         "observer": {
+          "interface": "StorageInterface.v1_0.StorageObserver",
+          "storageGroup": "PLAYLIST_NAME",
+          "storageKey": "B0HN6TP8TG",
+          "states": {},
+          "defaultValue": {
+           "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+           "text": "Pop Culture",
+           "disabled": false
+          }
+         }
+        },
+        "image": "https://m.media-amazon.com/images/I/91ha4pnzEYL._AA256._SX354_SY354_BL0_QL100_.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/playlists/B07H51Z3B9"
+        }
+       }
+      ]
+     },
+     {
+      "header": "Community Playlists",
+      "items": [
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "",
+         "disabled": false,
+         "observer": {
+          "interface": "StorageInterface.v1_0.StorageObserver",
+          "storageGroup": "PLAYLIST_NAME",
+          "storageKey": "f02fa03d3e404c428e53d4cfb58ce93bc2a0",
+          "states": {},
+          "defaultValue": {
+           "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+           "text": "My Favourite Olivia Rodrigo Songs!",
+           "disabled": false
+          }
+         }
+        },
+        "secondaryText": "michael",
+        "image": "https://m.media-amazon.com/images/I/71Czg+4skDL._US354_BL50_BG34,34,34_CLa%7C354,354%7C71Czg+4skDL.jpg,71IkSyGDGhL.jpg,61fin73zyhL.jpg,6157iEhJ26L.jpg%7C0,0,354,354+0,0,177,177+177,0,177,177+0,177,177,177+177,177,177,177._AA256.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/user-playlists/f02fa03d3e404c428e53d4cfb58ce93bc2a0"
+        }
+       }
+      ]
+     },
+     {
+      "header": "Stations",
+      "items": [
+       {
+        "primaryText": {
+         "interface": "Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.TextElement",
+         "text": "Olivia Rodrigo",
+         "disabled": false
+        },
+        "image": "https://m.media-amazon.com/images/I/41V4L5gcRKS._SY500_CR50,0,488,488_.jpg",
+        "tags": [],
+        "primaryLink": {
+         "deeplink": "/stations/AK3VQFS6583MS"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}
