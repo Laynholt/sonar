@@ -56,7 +56,13 @@ func (d *DB) Add(item FetchItem) error {
 		if err := b.Put([]byte(item.ID), buf); err != nil {
 			return err
 		}
-		if b.Stats().KeyN <= maxItems {
+		// Stats().KeyN is stale inside a write transaction, so count keys directly.
+		n := 0
+		c := b.Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			n++
+		}
+		if n <= maxItems {
 			return nil
 		}
 		return trim(b)

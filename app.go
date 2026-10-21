@@ -156,17 +156,21 @@ func (a *App) SaveSettings(s map[string]any) error {
 	return nil
 }
 
-// LoadSettings returns nil when nothing has been saved yet.
+// LoadSettings returns an empty map when nothing has been saved yet.
 func (a *App) LoadSettings() (map[string]any, error) {
 	data, err := os.ReadFile(a.configPath())
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return map[string]any{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var s map[string]any
-	return s, json.Unmarshal(data, &s)
+	s := map[string]any{}
+	err = json.Unmarshal(data, &s)
+	if s == nil { // file held "null"
+		s = map[string]any{}
+	}
+	return s, err
 }
 
 func (a *App) GetFetchHistory() ([]history.FetchItem, error) {

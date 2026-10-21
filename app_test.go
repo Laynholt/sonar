@@ -45,3 +45,10 @@ func TestHistoryUnavailable(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestLoadSettingsEmptyIsNotNil(t *testing.T) {
+	s, err := (&App{dataDir: t.TempDir()}).LoadSettings()
+	if err != nil || s == nil || len(s) != 0 {
+		t.Fatalf("got %#v, %v; want empty non-nil map", s, err)
+	}
+}

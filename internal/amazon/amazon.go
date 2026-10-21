@@ -32,7 +32,7 @@ func httpDo(ctx context.Context, method, u string, body []byte, hdr map[string]s
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d от %s", resp.StatusCode, req.URL.Host)
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, req.URL.Host)
 	}
 	return io.ReadAll(resp.Body)
 }
@@ -125,11 +125,11 @@ func parseAmazonSearch(raw []byte) ([]match.Item, error) {
 		return nil, fmt.Errorf("amazon search: %w", err)
 	}
 	if len(resp.Methods) == 0 {
-		return nil, fmt.Errorf("amazon search: пустой ответ")
+		return nil, fmt.Errorf("amazon search: empty response")
 	}
 	t := resp.Methods[0].Template
 	if t.Header == "Service error" {
-		return nil, fmt.Errorf("amazon search: сервис вернул ошибку")
+		return nil, fmt.Errorf("amazon search: service returned an error")
 	}
 
 	seen := map[string]bool{}
