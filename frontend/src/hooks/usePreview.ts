@@ -6,8 +6,11 @@ export function usePreview() {
     const [loadingPreview, setLoadingPreview] = useState<string | null>(null);
     const currentAudioRef = useRef<HTMLAudioElement | null>(null);
     const [playingTrack, setPlayingTrack] = useState<string | null>(null);
+    // Bumped by every play/stop; a URL resolving after a newer request is dropped.
+    const requestRef = useRef(0);
     useEffect(() => {
         return () => {
+            requestRef.current++;
             if (currentAudioRef.current) {
                 currentAudioRef.current.pause();
                 currentAudioRef.current.currentTime = 0;
@@ -15,6 +18,7 @@ export function usePreview() {
         };
     }, []);
     const playPreview = async (trackId: string, trackName: string) => {
+        const request = ++requestRef.current;
         try {
             const currentAudio = currentAudioRef.current;
             if (playingTrack === trackId && currentAudio) {
@@ -32,6 +36,7 @@ export function usePreview() {
             }
             setLoadingPreview(trackId);
             const previewURL = await GetPreviewURL(trackId);
+            if (request !== requestRef.current) return;
             if (!previewURL) {
                 toast.error("Preview not available", {
                     description: `No preview found for "${trackName}"`,
@@ -60,6 +65,7 @@ export function usePreview() {
             await audio.play();
         }
         catch (error) {
+            if (request !== requestRef.current) return;
             console.error("Preview error:", error);
             toast.error("Preview not available", {
                 description: errorMessage(error, `Could not load preview for "${trackName}"`),
@@ -69,6 +75,8 @@ export function usePreview() {
         }
     };
     const stopPreview = () => {
+        requestRef.current++;
+        setLoadingPreview(null);
         const currentAudio = currentAudioRef.current;
         if (currentAudio) {
             currentAudio.pause();

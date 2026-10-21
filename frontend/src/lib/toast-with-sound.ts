@@ -6,6 +6,8 @@ type ToastOptions = Parameters<typeof toast.success>[1];
 const toastStyle = {
     className: "font-mono lowercase",
 };
+// Errors carry guidance (451 / proxy hints) that cannot be read in the global 1 s.
+const longToast = { duration: 6000 };
 const isSfxEnabled = () => getSettings().sfxEnabled;
 export const toastWithSound = {
     success: (message: string, data?: ToastOptions) => {
@@ -20,14 +22,14 @@ export const toastWithSound = {
         logger.error(msg);
         if (isSfxEnabled())
             playErrorSound();
-        return toast.error(msg, { ...toastStyle, ...data });
+        return toast.error(msg, { ...longToast, ...toastStyle, ...data });
     },
     warning: (message: string, data?: ToastOptions) => {
         const msg = message.toLowerCase();
         logger.warning(msg);
         if (isSfxEnabled())
             playWarningSound();
-        return toast.warning(msg, { ...toastStyle, ...data });
+        return toast.warning(msg, { ...longToast, ...toastStyle, ...data });
     },
     info: (message: string, data?: ToastOptions) => {
         const msg = message.toLowerCase();
