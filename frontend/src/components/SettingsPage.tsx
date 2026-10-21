@@ -121,12 +121,13 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
         </Button>
       </div>
 
-      <div className="flex gap-8">
-        <nav className="flex w-40 shrink-0 flex-col gap-1">
+      <div className="flex rounded-xl border bg-card text-card-foreground shadow-sm">
+        <nav className="flex w-48 shrink-0 flex-col gap-1 border-r p-3">
           {SECTIONS.map(({ id, label }) => (<Button key={id} variant={section === id ? "secondary" : "ghost"} className="justify-start" onClick={() => setSection(id)}>{t(label)}</Button>))}
         </nav>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 px-6 py-2">
+          <h2 className="border-b py-4 text-lg font-semibold">{t(SECTIONS.find((s) => s.id === section)!.label)}</h2>
           {section === "general" && (<>
             <Row id="language" label={t("settings.language")} description={t("settings.languageDesc")}>
               <Select value={Object.hasOwn(LOCALES, tempSettings.language) ? tempSettings.language : "auto"} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, language: value }))}>

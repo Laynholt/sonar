@@ -131,13 +131,14 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               {!hideAlbumColumn && (<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden md:table-cell w-1/4">
                 {t("type.album")}
               </th>)}
-              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell w-24">
+              {/* Sized for the longest translation (ru); truncate keeps a wider font from overlapping the next column. */}
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell w-36 truncate" title={t("track.duration")}>
                 {t("track.duration")}
               </th>
-              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell w-32">
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell w-40 truncate" title={t("track.plays")}>
                 {t("track.plays")}
               </th>
-              <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground w-32">
+              <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground w-32 truncate">
                 {t("table.actions")}
               </th>
             </tr>
