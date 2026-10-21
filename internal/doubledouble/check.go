@@ -111,18 +111,8 @@ func (c *Client) Check(ctx context.Context, browser, profileDir, trackURL string
 		}
 	}
 	endpoint := "http://127.0.0.1:" + strconv.Itoa(port)
-	token, err := c.watch(ctx, endpoint, browserPath, exited)
-	if err != nil {
-		return err
-	}
-	if err := c.SetToken(token); err != nil {
-		return err
-	}
-	if b, err := dialCDP(ctx, wsURL(endpoint)+browserPath); err == nil { // best effort: the deferred kill covers failure
-		b.call("Browser.close", nil)
-		b.ws.Close()
-	}
-	return nil
+	_, err = c.watch(ctx, endpoint, browserPath, exited)
+	return err
 }
 
 // readDevToolsPort waits for the browser to write DevToolsActivePort: line 1 is the port, line 2 the browser socket path.
@@ -151,7 +141,8 @@ func readDevToolsPort(ctx context.Context, profileDir string) (int, string, erro
 }
 
 // watch reads sessionStorage.captchaToken from the check page once per pollEvery until it is set.
-// It also denies downloads in the browser, so the site's own file download never lands on disk.
+// It denies downloads on the browser socket, then stores the token and closes the browser over
+// that same socket, so the denial holds until the window is gone.
 func (c *Client) watch(ctx context.Context, endpoint, browserPath string, exited <-chan struct{}) (string, error) {
 	var browser, page *cdpConn
 	defer func() {
@@ -210,6 +201,11 @@ func (c *Client) watch(ctx context.Context, endpoint, browserPath string, exited
 	for {
 		tok, err := step()
 		if tok != "" {
+			saveErr := c.SetToken(tok)
+			browser.call("Browser.close", nil) // best effort: Check's deferred kill covers failure
+			if saveErr != nil {
+				return "", fmt.Errorf("doubledouble: saving the check token: %w", saveErr)
+			}
 			return tok, nil
 		}
 		if err != nil {
@@ -273,6 +269,9 @@ func (c *cdpConn) call(method string, params any) (json.RawMessage, error) {
 	c.n++
 	c.ws.SetReadDeadline(time.Now().Add(5 * time.Second))
 	c.ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if params == nil {
+		params = struct{}{} // Chromium may reject "params":null
+	}
 	if err := c.ws.WriteJSON(map[string]any{"id": c.n, "method": method, "params": params}); err != nil {
 		return nil, err
 	}

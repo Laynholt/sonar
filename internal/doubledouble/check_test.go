@@ -96,9 +96,16 @@ func TestWatchReadsToken(t *testing.T) {
 	if err != nil || tok != "tok123" {
 		t.Fatalf("got %q %v", tok, err)
 	}
-	if len(*msgs) != 1 || (*msgs)[0]["method"] != "Browser.setDownloadBehavior" ||
-		(*msgs)[0]["params"].(map[string]any)["behavior"] != "deny" {
-		t.Fatalf("browser got %v", *msgs)
+	m := *msgs
+	if len(m) != 2 || m[0]["method"] != "Browser.setDownloadBehavior" ||
+		m[0]["params"].(map[string]any)["behavior"] != "deny" {
+		t.Fatalf("browser got %v", m)
+	}
+	if _, ok := m[1]["params"].(map[string]any); m[1]["method"] != "Browser.close" || !ok {
+		t.Fatalf("want Browser.close with object params, got %v", m[1])
+	}
+	if c.Token() != "tok123" {
+		t.Fatalf("stored %q", c.Token())
 	}
 }
 
@@ -122,5 +129,20 @@ func TestCheckRejectsSecondCheck(t *testing.T) {
 	err := c.Check(context.Background(), "no-such-browser", t.TempDir(), trackURL)
 	if err == nil || !strings.Contains(err.Error(), "already open") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestWatchSaveFailureStillClosesBrowser(t *testing.T) {
+	pollEvery = 5 * time.Millisecond
+	t.Cleanup(func() { pollEvery = time.Second })
+	c := New(filepath.Join(t.TempDir(), "missing-dir", "token"))
+	endpoint, msgs := fakeBrowser(t, c, []string{`{"type":"string","value":"tok"}`})
+
+	_, err := c.watch(context.Background(), endpoint, "/devtools/browser/abc", make(chan struct{}))
+	if err == nil || !strings.Contains(err.Error(), "saving the check token") {
+		t.Fatalf("got %v", err)
+	}
+	if m := *msgs; len(m) != 2 || m[1]["method"] != "Browser.close" {
+		t.Fatalf("browser got %v", m)
 	}
 }
