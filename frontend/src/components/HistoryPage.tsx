@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Trash2, Search, Database, FolderOpen, Music2, Disc3, ListMusic, UserRound } from "lucide-react";
+import { Trash2, Search, Database, Music2, Disc3, ListMusic, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -192,17 +192,6 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                                         </td>
                                         <td className="p-3 align-middle text-center" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center justify-center gap-1">
-                                                <Tooltip delayDuration={0}>
-                                                    <TooltipTrigger asChild>
-                                                        <Button variant="ghost" size="icon" aria-label="Load" className="h-8 w-8 cursor-pointer" onClick={() => onHistorySelect(item.id, item.url)}>
-                                                            <FolderOpen className="h-4 w-4"/>
-                                                        </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p>Load</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-
                                                 <Tooltip delayDuration={0}>
                                                     <TooltipTrigger asChild>
                                                         <Button variant="ghost" size="icon" aria-label="Delete" className="h-8 w-8 cursor-pointer text-destructive hover:text-destructive" onClick={() => void mutate(() => DeleteFetchHistoryItem(item.id))}>

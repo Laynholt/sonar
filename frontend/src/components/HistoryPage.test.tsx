@@ -38,6 +38,11 @@ describe("HistoryPage", () => {
         expect(onHistorySelect).toHaveBeenCalledWith("t1", "https://open.spotify.com/track/t1");
     });
 
+    it("has no Load button; the row itself opens the entry", async () => {
+        expect(labelled("Load")).toBeNull();
+        expect([...view.container.querySelectorAll("button")].some((item) => item.textContent?.trim() === "Load")).toBe(false);
+    });
+
     it("deletes without opening the entry, then reloads", async () => {
         await act(async () => labelled("Delete").click());
         expect(DeleteFetchHistoryItem).toHaveBeenCalledWith("t1");

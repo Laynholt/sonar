@@ -6,6 +6,7 @@ import type { MetadataResponse } from "@/types/api";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { stopPreview } from "@/hooks/usePreview";
 import { fetchMetadata } from "@/lib/api";
+import { getLanguage, setLanguage } from "@/lib/i18n";
 import { AddFetchHistory, GetFetchHistory, GetFetchHistoryData } from "../wailsjs/go/main/App";
 
 const albumUrl = "https://open.spotify.com/album/al";
@@ -25,6 +26,7 @@ const album: MetadataResponse = {
     track_list: [],
 };
 
+vi.mock("@/components/ui/select", () => import("./test/nativeSelect"));
 vi.mock("@/lib/api", () => ({ fetchMetadata: vi.fn() }));
 vi.mock("@/hooks/usePreview", async (original) => ({ ...await original<typeof import("@/hooks/usePreview")>(), stopPreview: vi.fn() }));
 vi.mock("../wailsjs/go/main/App", () => ({ AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), GetFetchHistoryData: vi.fn(), DeleteFetchHistoryItem: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
@@ -44,7 +46,7 @@ beforeEach(async () => {
     vi.mocked(toast.error).mockClear();
 });
 // Unmount so the window listeners of one test do not outlive it.
-afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); });
+afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); setLanguage("en"); });
 
 async function mountApp() {
     Object.defineProperty(window, "matchMedia", { configurable: true, value: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }) });
@@ -203,5 +205,24 @@ describe("back button over the click chain", () => {
         await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="History"]')!.click(); });
 
         expect(stopPreview).toHaveBeenCalled();
+    });
+});
+
+describe("unsaved language", () => {
+    it("reverts the previewed language on Discard Changes", async () => {
+        localStorage.setItem("sonar-settings", JSON.stringify({ language: "en" }));
+        await mountApp();
+        await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="Settings"]')!.click(); });
+        const select = container!.querySelector("select")!;
+        await act(async () => {
+            select.value = "ru";
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        expect(getLanguage()).toBe("ru");
+
+        await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="History"]')!.click(); });
+        await act(async () => { [...document.querySelectorAll("button")].find((b) => b.textContent === "Discard Changes")!.click(); });
+
+        expect(getLanguage()).toBe("en");
     });
 });
