@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { InputWithContext } from "@/components/ui/input-with-context";
-import { XCircle, Link, Search, X, ChevronDown } from "lucide-react";
+import { XCircle, Link, Search, X, ChevronDown, ArrowLeft } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { FetchHistory } from "@/components/FetchHistory";
@@ -46,8 +46,10 @@ interface SearchBarProps {
     hasResult: boolean;
     searchMode: boolean;
     onSearchModeChange: (isSearch: boolean) => void;
+    canGoBack: boolean;
+    onBack: () => void;
 }
-export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, history, onHistorySelect, onHistoryRemove, hasResult, searchMode, onSearchModeChange, }: SearchBarProps) {
+export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, history, onHistorySelect, onHistoryRemove, hasResult, searchMode, onSearchModeChange, canGoBack, onBack, }: SearchBarProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<model.SearchResponse | null>(null);
     const [searchStatus, setSearchStatus] = useState<"idle" | "debouncing" | "loading" | "success" | "empty" | "error">("idle");
@@ -306,6 +308,9 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
     ];
     return (<div className="space-y-4">
             <div className="flex gap-2">
+                <Button variant={canGoBack ? "default" : "outline"} size="icon" aria-label="Back" className="shrink-0" disabled={!canGoBack} onClick={onBack}>
+                    <ArrowLeft className="h-4 w-4"/>
+                </Button>
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button variant="outline" size="icon" aria-label={searchMode ? "Switch to fetch mode" : "Switch to search mode"} className="shrink-0" onClick={() => changeMode(!searchMode)}>

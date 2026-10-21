@@ -13,13 +13,15 @@ import { SettingsPage } from "@/components/SettingsPage";
 import { DebugLoggerPage } from "@/components/DebugLoggerPage";
 import { AboutPage } from "@/components/AboutPage";
 import { HistoryPage } from "@/components/HistoryPage";
-import { Search } from "lucide-react";
 import { SearchBar } from "@/components/SearchBar";
 import { TrackInfo } from "@/components/TrackInfo";
 import { AlbumInfo } from "@/components/AlbumInfo";
 import { PlaylistInfo } from "@/components/PlaylistInfo";
 import { ArtistInfo } from "@/components/ArtistInfo";
 import { useMetadata } from "@/hooks/useMetadata";
+import type { View } from "@/hooks/navigation";
+import { stopPreview } from "@/hooks/usePreview";
+import type { AlbumRef } from "@/components/ArtistLinks";
 import { extractArtistID } from "@/lib/spotify-url";
 import { errorMessage } from "@/lib/utils";
 import { DeleteFetchHistoryItem, GetFetchHistory, GetFetchHistoryData } from "../wailsjs/go/main/App";
@@ -123,20 +125,44 @@ function App() {
         }
     };
     const loaded = metadata.loadedMetadata;
+    // A fresh card starts on defaults; one reached with Back brings its saved view.
     useEffect(() => {
-        setSearchQuery("");
-        setSortBy("default");
-        setTrackPage(1);
+        setSearchQuery(loaded?.view?.searchQuery ?? "");
+        setSortBy(loaded?.view?.sortBy ?? "default");
+        setTrackPage(loaded?.view?.page ?? 1);
+        stopPreview();
     }, [loaded]);
-    const fetchUrl = async (url: string) => {
-        setSpotifyUrl(url);
-        const fetched = await metadata.handleFetchMetadata(url);
+    useEffect(() => { if (currentPage !== "main") stopPreview(); }, [currentPage]);
+    // Without a view the fetch opens a new chain; with one it is a click inside the current card.
+    const fetchUrl = async (url: string, view?: View) => {
+        if (!view) setSpotifyUrl(url);
+        const fetched = await metadata.handleFetchMetadata(url, view);
         if (fetched) setSpotifyUrl(fetched);
     };
+    const chainFetch = (url: string) => fetchUrl(url, { searchQuery, sortBy, page: trackPage });
+    const goBack = () => {
+        const previous = metadata.goBack();
+        if (!previous) return;
+        setSpotifyUrl(previous.sourceUrl);
+        setIsSearchMode(false);
+    };
+    // Alt+Left and the mouse back button, only on the main page.
+    useEffect(() => {
+        if (currentPage !== "main") return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.altKey && event.key === "ArrowLeft" && metadata.canGoBack) { event.preventDefault(); goBack(); }
+        };
+        const onMouseUp = (event: MouseEvent) => {
+            if (event.button === 3 && metadata.canGoBack) { event.preventDefault(); goBack(); }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        window.addEventListener("mouseup", onMouseUp);
+        return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("mouseup", onMouseUp); };
+    });
     const openArtist = (artist: { id: string; external_urls: string }) => {
         if (loaded?.data.service !== "spotify") {
             // Stage 2 wires the other services; follow the artist's own link if there is one.
-            if (artist.external_urls) void fetchUrl(artist.external_urls);
+            if (artist.external_urls) void chainFetch(artist.external_urls);
             return;
         }
         const artistID = extractArtistID(artist.id) || extractArtistID(artist.external_urls || "");
@@ -144,10 +170,13 @@ function App() {
             toast.error("Failed to open artist");
             return;
         }
-        void fetchUrl(`https://open.spotify.com/artist/${artistID}/discography/all`);
+        void chainFetch(`https://open.spotify.com/artist/${artistID}/discography/all`);
     };
     const openTrack = (track: TrackMetadata) => {
-        if (track.external_urls) void fetchUrl(track.external_urls);
+        if (track.external_urls) void chainFetch(track.external_urls);
+    };
+    const openAlbum = (album: AlbumRef) => {
+        if (album.external_urls) void chainFetch(album.external_urls);
     };
     const renderMetadata = () => {
         if (!loaded) return null;
@@ -157,10 +186,10 @@ function App() {
             onSearchChange: (value: string) => { setSearchQuery(value); setTrackPage(1); }, onSortChange: setSortBy, onPageChange: setTrackPage,
             onTrackClick: openTrack, onArtistClick: openArtist, onBack: metadata.resetMetadata,
         };
-        if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata} onArtistClick={openArtist} onAlbumClick={metadata.handleAlbumClick}/>;
+        if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata} onArtistClick={openArtist} onAlbumClick={openAlbum}/>;
         if ("album_info" in data) return <AlbumInfo service={data.service} sourceUrl={data.album_info.external_urls || sourceUrl} albumInfo={data.album_info} trackList={data.track_list} {...list}/>;
-        if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={data.playlist_info.external_urls || sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={metadata.handleAlbumClick} {...list}/>;
-        return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={metadata.handleAlbumClick} {...list}/>;
+        if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={data.playlist_info.external_urls || sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={openAlbum} {...list}/>;
+        return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={openAlbum} {...list}/>;
     };
     const renderPage = () => {
         switch (currentPage) {
@@ -175,7 +204,7 @@ function App() {
             default:
                 return (<>
                     <Header />
-                    <SearchBar url={spotifyUrl} loading={metadata.loading} onUrlChange={setSpotifyUrl} onFetch={() => fetchUrl(spotifyUrl)} onFetchUrl={fetchUrl} history={recentFetches} onHistorySelect={(item) => void openHistoryItem(item.id, item.url)} onHistoryRemove={(id) => void removeRecentFetch(id)} hasResult={!!loaded} searchMode={isSearchMode} onSearchModeChange={setIsSearchMode}/>
+                    <SearchBar url={spotifyUrl} loading={metadata.loading} onUrlChange={setSpotifyUrl} onFetch={() => fetchUrl(spotifyUrl)} onFetchUrl={(url) => fetchUrl(url)} history={recentFetches} onHistorySelect={(item) => void openHistoryItem(item.id, item.url)} onHistoryRemove={(id) => void removeRecentFetch(id)} hasResult={!!loaded} searchMode={isSearchMode} onSearchModeChange={setIsSearchMode} canGoBack={metadata.canGoBack} onBack={goBack}/>
                     {!isSearchMode && renderMetadata()}
                 </>);
         }
@@ -190,28 +219,6 @@ function App() {
                     {renderPage()}
                 </div>
             </div>
-
-            <Dialog open={metadata.showAlbumDialog} onOpenChange={metadata.setShowAlbumDialog}>
-                <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                        <DialogTitle>Fetch Album</DialogTitle>
-                        <DialogDescription>Do you want to fetch metadata for this album?</DialogDescription>
-                    </DialogHeader>
-                    {metadata.selectedAlbum && (<p className="font-medium bg-muted/50 rounded-md px-3 py-2">{metadata.selectedAlbum.name}</p>)}
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => metadata.setShowAlbumDialog(false)}>
-                            Cancel
-                        </Button>
-                        <Button onClick={async () => {
-                            const albumUrl = await metadata.handleConfirmAlbumFetch();
-                            if (albumUrl) setSpotifyUrl(albumUrl);
-                        }}>
-                            <Search className="h-4 w-4"/>
-                            Fetch Album
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             <Dialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
                 <DialogContent className="sm:max-w-[425px] [&>button]:hidden">

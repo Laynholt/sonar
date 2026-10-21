@@ -17,7 +17,7 @@ function result(name: string) {
 function response(name: string, count = 1, albums = false) {
     return new model.SearchResponse({ tracks: Array.from({ length: count }, (_, index) => result(`${name} ${index}`)), albums: albums ? [result("Album")] : [], artists: [], playlists: [] });
 }
-const props = { url: "", loading: false, onUrlChange: vi.fn(), onFetch: vi.fn(), onFetchUrl: vi.fn(), history: [], onHistorySelect: vi.fn(), onHistoryRemove: vi.fn(), hasResult: false, searchMode: true, onSearchModeChange: vi.fn() };
+const props = { url: "", loading: false, onUrlChange: vi.fn(), onFetch: vi.fn(), onFetchUrl: vi.fn(), history: [], onHistorySelect: vi.fn(), onHistoryRemove: vi.fn(), hasResult: false, searchMode: true, onSearchModeChange: vi.fn(), canGoBack: false, onBack: vi.fn() };
 let view: Awaited<ReturnType<typeof mount>>;
 beforeEach(async () => {
     vi.resetAllMocks();
@@ -233,5 +233,21 @@ describe("modes and recent fetches", () => {
         await act(async () => button(view.container, "Load More").click());
         expect(view.container.textContent).toContain("Tracks (50)");
         expect(button(view.container, "Load More").disabled).toBe(false);
+    });
+});
+
+describe("back button", () => {
+    const back = () => view.container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!;
+
+    it("is first in the row and disabled when there is nothing to go back to", () => {
+        expect(back().disabled).toBe(true);
+        expect(view.container.querySelector("button")).toBe(back());
+    });
+
+    it("calls onBack when enabled", async () => {
+        await view.render(<TooltipProvider><SearchBar {...props} canGoBack/></TooltipProvider>);
+        expect(back().disabled).toBe(false);
+        await act(async () => back().click());
+        expect(props.onBack).toHaveBeenCalledTimes(1);
     });
 });

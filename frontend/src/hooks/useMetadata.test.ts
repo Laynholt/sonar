@@ -69,12 +69,11 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("../../wailsjs/go/main/App", () => ({ AddFetchHistory: doubles.addFetchHistory }));
 
-let loadedMetadataAfterAttempt: typeof import("./useMetadata")["loadedMetadataAfterAttempt"];
 let useMetadata: typeof import("./useMetadata")["useMetadata"];
 
 beforeAll(async () => {
     vi.stubGlobal("window", { navigator: { platform: "Win32" } });
-    ({ loadedMetadataAfterAttempt, useMetadata } = await import("./useMetadata"));
+    ({ useMetadata } = await import("./useMetadata"));
 });
 
 afterAll(() => vi.unstubAllGlobals());
@@ -127,38 +126,6 @@ function MetadataHookHarness() {
     hookState.beginRender();
     return useMetadata();
 }
-
-describe("loaded metadata source identity", () => {
-    it("retains rendered collection A when fetching draft URL B fails", () => {
-        const loadedA: LoadedMetadata = {
-            data: playlistMetadata("Collection A"),
-            sourceUrl: "https://open.spotify.com/playlist/a",
-        };
-
-        expect(loadedMetadataAfterAttempt(
-            loadedA,
-            "https://open.spotify.com/album/b",
-            undefined,
-        )).toBe(loadedA);
-    });
-
-    it("replaces payload and source URL together for cached history B", () => {
-        const loadedA: LoadedMetadata = {
-            data: playlistMetadata("Collection A"),
-            sourceUrl: "https://open.spotify.com/playlist/a",
-        };
-        const metadataB = playlistMetadata("Collection B");
-
-        expect(loadedMetadataAfterAttempt(
-            loadedA,
-            "https://open.spotify.com/playlist/b",
-            metadataB,
-        )).toEqual({
-            data: metadataB,
-            sourceUrl: "https://open.spotify.com/playlist/b",
-        });
-    });
-});
 
 describe("useMetadata async source identity", () => {
     const urlA = "https://open.spotify.com/playlist/a";
@@ -286,72 +253,70 @@ describe("useMetadata async source identity", () => {
         expect(doubles.addFetchHistory).toHaveBeenCalledWith(expect.objectContaining({ url: canonical, type: "album" }));
     });
 
-    it("retains the prior successful pair when a current album request fails", async () => {
+    const view = { searchQuery: "", sortBy: "default", page: 1 };
+
+    it("retains the prior pair and the chain when a chain request fails", async () => {
         const metadataA = playlistMetadata("Collection A");
-        const albumUrl = "https://open.spotify.com/album/b";
         doubles.fetchMetadata.mockRejectedValue(new Error("album B failed"));
 
         let hook = MetadataHookHarness();
         hook.loadFromCache(JSON.stringify(metadataA), urlA);
         hook = MetadataHookHarness();
-        hook.handleAlbumClick({ id: "b", name: "Album B", external_urls: albumUrl });
-        hook = MetadataHookHarness();
-        await hook.handleConfirmAlbumFetch();
+        const fetched = await hook.handleFetchMetadata("https://open.spotify.com/album/b", view);
         hook = MetadataHookHarness();
 
+        expect(fetched).toBeUndefined();
         expect(hook.loadedMetadata).toEqual({ data: metadataA, sourceUrl: urlA });
+        expect(hook.canGoBack).toBe(false);
         expect(hook.loading).toBe(false);
         expect(doubles.toastError).toHaveBeenCalledWith("album B failed");
     });
 
-    it("invalidates pending album A as soon as album B opens, then confirms B", async () => {
-        const priorMetadata = playlistMetadata("Prior Collection");
-        const metadataA = albumMetadata("Album A");
+    it("pushes on a chain fetch, goes back from memory with its view, and a new open drops the chain", async () => {
+        const albumUrl = "https://open.spotify.com/album/b";
+        const metadataA = playlistMetadata("Collection A");
         const metadataB = albumMetadata("Album B");
-        const albumAResult = deferred<MetadataResponse>();
-        const albumBResult = deferred<MetadataResponse>();
-        const albumA = {
-            id: "a",
-            name: "Album A",
-            external_urls: "https://open.spotify.com/album/a",
-        };
-        const albumB = {
-            id: "b",
-            name: "Album B",
-            external_urls: "https://open.spotify.com/album/b",
-        };
-        doubles.fetchMetadata.mockImplementation((url: string) =>
-            url === albumA.external_urls ? albumAResult.promise : albumBResult.promise);
+        doubles.fetchMetadata.mockResolvedValue(metadataB);
 
         let hook = MetadataHookHarness();
-        hook.loadFromCache(JSON.stringify(priorMetadata), urlA);
+        hook.loadFromCache(JSON.stringify(metadataA), urlA);
         hook = MetadataHookHarness();
-        hook.handleAlbumClick(albumA);
+        expect(await hook.handleFetchMetadata(albumUrl, { ...view, page: 2 })).toBe(albumUrl);
         hook = MetadataHookHarness();
-        const requestA = hook.handleConfirmAlbumFetch();
-        hook = MetadataHookHarness();
-        hook.handleAlbumClick(albumB);
+        expect(hook.loadedMetadata).toEqual({ data: metadataB, sourceUrl: albumUrl });
+        expect(hook.canGoBack).toBe(true);
+        expect(doubles.addFetchHistory).toHaveBeenCalledTimes(1);
 
-        albumAResult.resolve(metadataA);
-        const returnedAUrl = await requestA;
+        expect(hook.goBack()).toEqual({ data: metadataA, sourceUrl: urlA, view: { ...view, page: 2 } });
         hook = MetadataHookHarness();
+        expect(hook.loadedMetadata).toEqual({ data: metadataA, sourceUrl: urlA, view: { ...view, page: 2 } });
+        expect(hook.canGoBack).toBe(false);
+        expect(hook.goBack()).toBeNull();
+        expect(doubles.fetchMetadata).toHaveBeenCalledTimes(1);
+        expect(doubles.addFetchHistory).toHaveBeenCalledTimes(1);
 
-        expect(returnedAUrl).toBeUndefined();
-        expect(hook.loadedMetadata).toEqual({ data: priorMetadata, sourceUrl: urlA });
-        expect(hook.selectedAlbum).toEqual(albumB);
-        expect(hook.showAlbumDialog).toBe(true);
-        expect(hook.loading).toBe(false);
-
-        const requestB = hook.handleConfirmAlbumFetch();
-        albumBResult.resolve(metadataB);
-        const returnedBUrl = await requestB;
+        await hook.handleFetchMetadata(albumUrl, view);
         hook = MetadataHookHarness();
+        await hook.handleFetchMetadata(urlB);
+        hook = MetadataHookHarness();
+        expect(hook.canGoBack).toBe(false);
+    });
 
-        expect(returnedBUrl).toBe(albumB.external_urls);
-        expect(hook.loadedMetadata).toEqual({
-            data: metadataB,
-            sourceUrl: albumB.external_urls,
-        });
-        expect(hook.selectedAlbum).toBeNull();
+    it("disables Back while a fetch is loading", async () => {
+        const pending = deferred<MetadataResponse>();
+        doubles.fetchMetadata.mockResolvedValueOnce(albumMetadata("A")).mockResolvedValueOnce(albumMetadata("B")).mockReturnValueOnce(pending.promise);
+
+        let hook = MetadataHookHarness();
+        await hook.handleFetchMetadata("https://open.spotify.com/album/a");
+        hook = MetadataHookHarness();
+        await hook.handleFetchMetadata("https://open.spotify.com/album/b", view);
+        hook = MetadataHookHarness();
+        expect(hook.canGoBack).toBe(true);
+
+        const chain = hook.handleFetchMetadata("https://open.spotify.com/album/c", view);
+        hook = MetadataHookHarness();
+        expect(hook.canGoBack).toBe(false);
+        pending.resolve(albumMetadata("C"));
+        await chain;
     });
 });

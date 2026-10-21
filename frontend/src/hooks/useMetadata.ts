@@ -5,29 +5,18 @@ import { logger } from "@/lib/logger";
 import { errorMessage } from "@/lib/utils";
 import { extractArtistID } from "@/lib/spotify-url";
 import { AddFetchHistory } from "../../wailsjs/go/main/App";
-import type { LoadedMetadata, MetadataResponse } from "@/types/api";
-
-export function loadedMetadataAfterAttempt(
-    current: LoadedMetadata | null,
-    sourceUrl: string,
-    data?: MetadataResponse,
-): LoadedMetadata | null {
-    return data ? { data, sourceUrl } : current;
-}
+import type { MetadataResponse } from "@/types/api";
+import { emptyNav, navigate, type NavAction, type NavEntry, type NavState, type View } from "@/hooks/navigation";
 
 export function useMetadata() {
     const [loading, setLoading] = useState(false);
-    const [loadedMetadata, setLoadedMetadata] = useState<LoadedMetadata | null>(null);
+    const [nav, setNav] = useState<NavState>(emptyNav);
+    const dispatch = (action: NavAction) => setNav(current => navigate(current, action));
     const generationRef = useRef(0);
     // Bumped once a fetch is stored, so the recent-fetches list can reload after the write lands.
     const [historyVersion, setHistoryVersion] = useState(0);
+    const loadedMetadata = nav.current;
     const metadata = loadedMetadata?.data ?? null;
-    const [showAlbumDialog, setShowAlbumDialog] = useState(false);
-    const [selectedAlbum, setSelectedAlbum] = useState<{
-        id: string;
-        name: string;
-        external_urls: string;
-    } | null>(null);
     const getUrlType = (url: string): string => {
         if (url.includes("/track/"))
             return "track";
@@ -96,7 +85,7 @@ export function useMetadata() {
     };
     const beginGeneration = () => ++generationRef.current;
     const isCurrentGeneration = (generation: number) => generation === generationRef.current;
-    const fetchMetadataDirectly = async (url: string, generation: number) => {
+    const fetchMetadataDirectly = async (url: string, generation: number, view?: View): Promise<boolean> => {
         const urlType = getUrlType(url);
         logger.info(`fetching ${urlType} metadata...`);
         logger.debug(`url: ${url}`);
@@ -104,11 +93,11 @@ export function useMetadata() {
         try {
             const startTime = Date.now();
             const data = await fetchMetadata(url);
-            if (!isCurrentGeneration(generation)) return;
+            if (!isCurrentGeneration(generation)) return false;
             if (!isKnownMetadataResponse(data)) {
                 logger.error(`unknown metadata payload for url: ${url}`);
                 toast.error("Failed to parse metadata response");
-                return;
+                return false;
             }
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
             if ("playlist_info" in data) {
@@ -116,7 +105,7 @@ export function useMetadata() {
                 if (!playlistInfo.owner.name && playlistInfo.tracks.total === 0 && data.track_list.length === 0) {
                     logger.warning("playlist appears to be empty or private");
                     toast.error("Playlist not found or may be private");
-                    return;
+                    return false;
                 }
             }
             else if ("album_info" in data) {
@@ -124,10 +113,10 @@ export function useMetadata() {
                 if (!albumInfo.name && albumInfo.total_tracks === 0 && data.track_list.length === 0) {
                     logger.warning("album appears to be empty or not found");
                     toast.error("Album not found or may be private");
-                    return;
+                    return false;
                 }
             }
-            setLoadedMetadata(current => loadedMetadataAfterAttempt(current, url, data));
+            dispatch(view ? { type: "push", entry: { data, sourceUrl: url }, view } : { type: "open", entry: { data, sourceUrl: url } });
             saveToHistory(url, data);
             if ("track" in data) {
                 logger.success(`fetched track: ${data.track.name} - ${data.track.artists}`);
@@ -147,12 +136,14 @@ export function useMetadata() {
             }
             logger.info(`fetch completed in ${elapsed}s`);
             toast.success("Metadata fetched successfully");
+            return true;
         }
         catch (err) {
-            if (!isCurrentGeneration(generation)) return;
+            if (!isCurrentGeneration(generation)) return false;
             const errorMsg = errorMessage(err, "Failed to fetch metadata");
             logger.error(`fetch failed: ${errorMsg}`);
             toast.error(errorMsg);
+            return false;
         }
         finally {
             if (isCurrentGeneration(generation)) {
@@ -165,7 +156,7 @@ export function useMetadata() {
         setLoading(false);
         try {
             const data = JSON.parse(cachedData) as MetadataResponse;
-            setLoadedMetadata(current => loadedMetadataAfterAttempt(current, sourceUrl, data));
+            dispatch({ type: "open", entry: { data, sourceUrl } });
             toast.success("Loaded from cache");
         }
         catch (err) {
@@ -173,7 +164,7 @@ export function useMetadata() {
             toast.error("Failed to load from cache");
         }
     };
-    const handleFetchMetadata = async (url: string) => {
+    const handleFetchMetadata = async (url: string, view?: View) => {
         const generation = beginGeneration();
         if (!url.trim()) {
             setLoading(false);
@@ -194,87 +185,30 @@ export function useMetadata() {
             urlToFetch = `https://open.spotify.com/artist/${artistID}/discography/all`;
             logger.debug("normalized artist url to discography");
         }
-        if (isArtistUrl) {
-            logger.info("artist url detected");
-            await fetchMetadataDirectly(urlToFetch, generation);
-        }
-        else {
-            await fetchMetadataDirectly(urlToFetch, generation);
-        }
-        return isCurrentGeneration(generation) ? urlToFetch : undefined;
+        if (isArtistUrl) logger.info("artist url detected");
+        const fetched = await fetchMetadataDirectly(urlToFetch, generation, view);
+        return fetched && isCurrentGeneration(generation) ? urlToFetch : undefined;
     };
-    const handleAlbumClick = (album: {
-        id: string;
-        name: string;
-        external_urls: string;
-    }) => {
+    const goBack = (): NavEntry | null => {
+        const previous = nav.back[nav.back.length - 1] ?? null;
+        if (!previous) return null;
         beginGeneration();
         setLoading(false);
-        logger.debug(`album clicked: ${album.name}`);
-        setSelectedAlbum(album);
-        setShowAlbumDialog(true);
-    };
-    const handleConfirmAlbumFetch = async () => {
-        if (!selectedAlbum)
-            return;
-        const albumUrl = selectedAlbum.external_urls;
-        const generation = beginGeneration();
-        logger.info(`fetching album: ${selectedAlbum.name}...`);
-        logger.debug(`url: ${albumUrl}`);
-        setShowAlbumDialog(false);
-        setLoading(true);
-        try {
-            const startTime = Date.now();
-            const data = await fetchMetadata(albumUrl);
-            if (!isCurrentGeneration(generation)) return;
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-            if ("album_info" in data) {
-                const albumInfo = data.album_info;
-                if (!albumInfo.name && albumInfo.total_tracks === 0 && data.track_list.length === 0) {
-                    logger.warning("album appears to be empty or not found");
-                    toast.error("Album not found or may be private");
-                    setSelectedAlbum(null);
-                    return albumUrl;
-                }
-            }
-            setLoadedMetadata(current => loadedMetadataAfterAttempt(current, albumUrl, data));
-            saveToHistory(albumUrl, data);
-            if ("album_info" in data) {
-                logger.success(`fetched album: ${data.album_info.name}`);
-                logger.debug(`${data.track_list.length} tracks, released: ${data.album_info.release_date}`);
-            }
-            logger.info(`fetch completed in ${elapsed}s`);
-            toast.success("Album metadata fetched successfully");
-            return albumUrl;
-        }
-        catch (err) {
-            if (!isCurrentGeneration(generation)) return;
-            const errorMsg = errorMessage(err, "Failed to fetch album metadata");
-            logger.error(`fetch failed: ${errorMsg}`);
-            toast.error(errorMsg);
-        }
-        finally {
-            if (isCurrentGeneration(generation)) {
-                setLoading(false);
-                setSelectedAlbum(null);
-            }
-        }
+        dispatch({ type: "back" });
+        return previous;
     };
     return {
         loading,
         metadata,
         loadedMetadata,
         historyVersion,
-        showAlbumDialog,
-        setShowAlbumDialog,
-        selectedAlbum,
+        canGoBack: nav.back.length > 0 && !loading,
         handleFetchMetadata,
-        handleAlbumClick,
-        handleConfirmAlbumFetch,
         loadFromCache,
+        goBack,
         resetMetadata: () => {
             beginGeneration();
-            setLoadedMetadata(null);
+            dispatch({ type: "close" });
             setLoading(false);
         },
     };
