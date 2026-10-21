@@ -8,9 +8,29 @@ import (
 	"sonar/internal/httpx"
 )
 
-func TestGetMetadataRejectsAmazonLink(t *testing.T) {
-	_, err := (&App{}).GetMetadata("https://music.amazon.com/albums/B01DPROTRO")
-	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
+func TestGetMetadataRejectsCommunityPlaylist(t *testing.T) {
+	_, err := (&App{}).GetMetadata("https://music.amazon.com/user-playlists/f02fa03d3e404c428e53d4cfb58ce93bc2a0")
+	if err == nil || !strings.Contains(err.Error(), "need an account") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGetMetadataUnsupported(t *testing.T) {
+	_, err := (&App{}).GetMetadata("https://example.com/x")
+	if err == nil || err.Error() != "Unsupported link. Paste a Spotify or Amazon Music link." {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGetPreviewURLAmazonID(t *testing.T) {
+	if u, err := (&App{}).GetPreviewURL("B00A3SGXAA"); u != "" || err != nil {
+		t.Fatalf("got %q, %v; want empty, nil", u, err)
+	}
+}
+
+func TestSearchAmazonEmptyQuery(t *testing.T) {
+	_, err := (&App{}).SearchAmazon(AmazonSearchRequest{})
+	if err == nil || err.Error() != "search query is required" {
 		t.Fatalf("err = %v", err)
 	}
 }

@@ -8,9 +8,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"time"
 
+	"sonar/internal/amazon"
 	"sonar/internal/history"
 	"sonar/internal/httpx"
 	"sonar/internal/model"
@@ -65,17 +66,20 @@ func (a *App) shutdown(context.Context) {
 	}
 }
 
-// GetMetadata returns the JSON of a Spotify track, album, playlist or artist.
+// GetMetadata returns the JSON of a Spotify or Amazon track, album, playlist or artist.
 func (a *App) GetMetadata(url string) (string, error) {
-	if strings.Contains(url, "music.amazon.") {
-		return "", errors.New("Amazon Music links are not supported yet")
-	}
-	if !spotify.IsLink(url) {
-		return "", errors.New("Unsupported link. Paste a Spotify link.")
+	var get func(context.Context, string) (any, error)
+	switch {
+	case spotify.IsLink(url):
+		get = spotify.GetMetadata
+	case amazon.IsLink(url):
+		get = amazon.GetMetadata
+	default:
+		return "", errors.New("Unsupported link. Paste a Spotify or Amazon Music link.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	data, err := spotify.GetMetadata(ctx, url)
+	data, err := get(ctx, url)
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +126,26 @@ func (a *App) SearchSpotifyByType(req SpotifySearchByTypeRequest) ([]model.Searc
 	return spotify.SearchByType(ctx, req.Query, req.SearchType, req.Limit, req.Offset)
 }
 
+type AmazonSearchRequest struct {
+	Query string `json:"query"`
+}
+
+func (a *App) SearchAmazon(req AmazonSearchRequest) (*model.SearchResponse, error) {
+	if req.Query == "" {
+		return nil, errors.New("search query is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return amazon.SearchCatalog(ctx, req.Query)
+}
+
+var spotifyID = regexp.MustCompile(`^[A-Za-z0-9]{22}$`)
+
+// GetPreviewURL returns "" for non-Spotify IDs: Amazon has no previews.
 func (a *App) GetPreviewURL(trackID string) (string, error) {
+	if !spotifyID.MatchString(trackID) {
+		return "", nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return spotify.PreviewURL(ctx, trackID)
