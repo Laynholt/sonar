@@ -133,3 +133,58 @@ func TestPreviewDownloadPath(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+type recSource struct {
+	calls int
+	path  string
+}
+
+func (r *recSource) Name() string { return "lucida" }
+func (r *recSource) Download(context.Context, string, string, func(string)) (string, error) {
+	r.calls++
+	return r.path, nil
+}
+
+// TestFetch runs the real fetch through a queue; DownloadTracks is skipped so fetch's own FFmpeg check is hit.
+func TestFetch(t *testing.T) {
+	for _, tc := range []struct {
+		name, format, ffmpeg string
+		want                 download.Status
+		wantErr              string
+		wantCalls            int
+	}{
+		{"original", "original", "", download.Completed, "", 1},
+		{"no ffmpeg", "mp3-320", "", download.Failed, "FFmpeg is needed", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := &recSource{path: filepath.Join(t.TempDir(), "x.flac")}
+			a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return tc.ffmpeg }}
+			a.sources = source.NewBalancer(time.Minute, src)
+			a.dl = download.NewQueue(a.fetch, 1)
+			t.Cleanup(a.dl.Close)
+			r := req(tc.format, "auto", "B00A3SGXAA")
+			r.Options.Dir = t.TempDir()
+			a.dl.Enqueue(r.Collection, r.Options, r.Tracks)
+			var it download.Item
+			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+				if q := a.GetDownloadQueue(); len(q) == 1 && q[0].Status != download.Queued && q[0].Status != download.Downloading {
+					it = q[0]
+					break
+				}
+			}
+			if it.Status != tc.want || !strings.Contains(it.Error, tc.wantErr) || (tc.want == download.Completed && it.Path != src.path) {
+				t.Errorf("item = %+v", it)
+			}
+			if src.calls != tc.wantCalls {
+				t.Errorf("source called %d times, want %d", src.calls, tc.wantCalls)
+			}
+		})
+	}
+}
+
+func TestPreviewDownloadPathEmptyFormat(t *testing.T) {
+	a, _ := newTestApp(t, "")
+	if got := a.PreviewDownloadPath(download.Options{Dir: "D", FilenameTemplate: "x"}); filepath.Ext(got) != ".flac" {
+		t.Fatalf("got %q", got)
+	}
+}

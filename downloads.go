@@ -18,6 +18,8 @@ import (
 	"sonar/internal/source"
 )
 
+var errNoFFmpeg = errors.New("FFmpeg is needed to convert to MP3 or M4A; set its path in Settings → Downloads")
+
 const (
 	sourceCooldown  = 10 * time.Minute
 	downloadWorkers = 2 // both sites rip one track per request; don't hammer them
@@ -37,12 +39,19 @@ func (a *App) fetch(ctx context.Context, id string, o download.Options, pathNoEx
 	if err != nil {
 		return "", err
 	}
+	ff := ""
+	if o.Format != "original" {
+		// Checked before the download so a FLAC is never fetched just to be deleted.
+		if ff = a.findFFmpeg(o.FFmpegPath); ff == "" {
+			return "", errNoFFmpeg
+		}
+	}
 	f, err := a.sources.Download(ctx, o.Source, url, pathNoExt, onStatus)
 	if err != nil || o.Format == "original" {
 		return f, err
 	}
 	onStatus("Converting to " + map[string]string{"mp3-320": "MP3", "m4a-aac-320": "M4A"}[o.Format] + "…")
-	return convert.Convert(ctx, a.findFFmpeg(o.FFmpegPath), f, o.Format)
+	return convert.Convert(ctx, ff, f, o.Format)
 }
 
 // DownloadTracks validates the whole request before it queues anything.
@@ -55,7 +64,7 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 		return fmt.Errorf("unknown download format %q", o.Format)
 	}
 	if o.Format != "original" && a.findFFmpeg(o.FFmpegPath) == "" {
-		return errors.New("FFmpeg is needed to convert to MP3 or M4A; set its path in Settings → Downloads")
+		return errNoFFmpeg
 	}
 	if o.Source == "" {
 		o.Source = source.Auto
@@ -128,6 +137,9 @@ func (a *App) SelectFFmpeg() (string, error) {
 
 // PreviewDownloadPath shows where a sample track would land with these options.
 func (a *App) PreviewDownloadPath(o download.Options) string {
+	if o.Format == "" {
+		o.Format = "original"
+	}
 	if o.Dir == "" {
 		o.Dir = a.DefaultDownloadDir()
 	}

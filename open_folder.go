@@ -14,13 +14,18 @@ func (a *App) OpenFolder(path string) error {
 	} else if !st.IsDir() {
 		path = filepath.Dir(path)
 	}
+	name := "xdg-open"
 	switch runtime.GOOS {
 	case "windows":
-		// explorer exits 1 even when it opened the folder, so its status is ignored.
-		_ = exec.Command("explorer", path).Start()
-		return nil
+		name = "explorer"
 	case "darwin":
-		return exec.Command("open", path).Start()
+		name = "open"
 	}
-	return exec.Command("xdg-open", path).Start()
+	cmd := exec.Command(name, path)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// Reaped in the background; explorer exits 1 even on success, so the status is ignored.
+	go cmd.Wait()
+	return nil
 }
