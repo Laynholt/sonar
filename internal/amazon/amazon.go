@@ -45,22 +45,9 @@ func SearchURL(query string) string {
 // Search uses the web player's guest search: no account needed.
 // shortcut: unofficial API, US catalog only; breaks if Amazon changes the web player.
 func Search(ctx context.Context, query string) ([]match.Item, error) {
-	raw, err := httpDo(ctx, "POST", "https://music.amazon.com/config.json?skipToken=false&clientApplication=skyfire", nil, nil)
+	cfg, err := newSession(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("amazon config: %w", err)
-	}
-	var cfg struct {
-		DeviceID  string `json:"deviceId"`
-		SessionID string `json:"sessionId"`
-		Version   string `json:"version"`
-		CSRF      struct {
-			Token string `json:"token"`
-			TS    string `json:"ts"`
-			Rnd   string `json:"rnd"`
-		} `json:"csrf"`
-	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return nil, fmt.Errorf("amazon config: %w", err)
+		return nil, err
 	}
 
 	// The API wants nested JSON strings, exactly as the web player sends them.
@@ -71,17 +58,17 @@ func Search(ctx context.Context, query string) ([]match.Item, error) {
 		"x-amzn-device-width":           "1920",
 		"x-amzn-device-height":          "1080",
 		"x-amzn-device-family":          "WebPlayer",
-		"x-amzn-device-id":              cfg.DeviceID,
+		"x-amzn-device-id":              cfg.deviceID,
 		"x-amzn-user-agent":             httpx.UserAgent,
-		"x-amzn-session-id":             cfg.SessionID,
+		"x-amzn-session-id":             cfg.sessionID,
 		"x-amzn-request-id":             strconv.FormatInt(time.Now().UnixNano(), 36),
 		"x-amzn-device-language":        "en_US",
 		"x-amzn-currency-of-preference": "USD",
 		"x-amzn-os-version":             "1.0",
-		"x-amzn-application-version":    cfg.Version,
+		"x-amzn-application-version":    cfg.version,
 		"x-amzn-device-time-zone":       "UTC",
 		"x-amzn-timestamp":              strconv.FormatInt(time.Now().UnixMilli(), 10),
-		"x-amzn-csrf":                   js(map[string]string{"interface": "CSRFInterface.v1_0.CSRFHeaderElement", "token": cfg.CSRF.Token, "timestamp": cfg.CSRF.TS, "rndNonce": cfg.CSRF.Rnd}),
+		"x-amzn-csrf":                   js(map[string]string{"interface": "CSRFInterface.v1_0.CSRFHeaderElement", "token": cfg.csrfToken, "timestamp": cfg.csrfTS, "rndNonce": cfg.csrfRnd}),
 		"x-amzn-music-domain":           "music.amazon.com",
 		"x-amzn-referer":                "music.amazon.com",
 		"x-amzn-page-url":               SearchURL(query),
@@ -91,7 +78,7 @@ func Search(ctx context.Context, query string) ([]match.Item, error) {
 		"userHash": js(map[string]string{"level": "LIBRARY_MEMBER"}),
 		"headers":  js(headers),
 	})
-	raw, err = httpDo(ctx, "POST", "https://na.web.skill.music.a2z.com/api/showSearch", []byte(body), map[string]string{
+	raw, err := httpDo(ctx, "POST", "https://na.web.skill.music.a2z.com/api/showSearch", []byte(body), map[string]string{
 		"Content-Type": "text/plain;charset=UTF-8",
 		"Origin":       "https://music.amazon.com",
 		"Referer":      "https://music.amazon.com/",
