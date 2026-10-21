@@ -21,7 +21,7 @@ interface TrackListProps {
     onTrackClick?: (track: TrackMetadata) => void;
 }
 export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPage, hideAlbumColumn = false, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
             return true;
@@ -114,7 +114,7 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
         const num = parseInt(plays, 10);
         if (isNaN(num))
             return plays;
-        return num.toLocaleString();
+        return num.toLocaleString(language);
     };
     return (<div className="space-y-4">
     <div className="rounded-md border">

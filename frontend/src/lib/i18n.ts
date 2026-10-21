@@ -9,17 +9,26 @@ export type Params = Record<string, string | number>;
 
 // Every locales/<code>.json is a language; the file stem is the code.
 const files = import.meta.glob<Locale>("../locales/*.json", { eager: true, import: "default" });
-export const LOCALES: Record<string, Locale> = { en };
-for (const [path, locale] of Object.entries(files)) LOCALES[path.match(/([^/]+)\.json$/)![1]] = locale;
+export function buildLocales(found: Record<string, Locale>): Record<string, Locale> {
+    const locales: Record<string, Locale> = { en };
+    for (const [path, locale] of Object.entries(found)) {
+        const code = path.match(/([^/]+)\.json$/)![1];
+        // A stem that is not a language tag (xx_YY) would make Intl throw later.
+        try { Intl.getCanonicalLocales(code); } catch { continue; }
+        locales[code] = locale;
+    }
+    return locales;
+}
+export const LOCALES = buildLocales(files);
 
-export function availableLanguages(): { code: string; name: string }[] {
-    const codes = Object.keys(LOCALES).filter(code => code !== "en").sort();
-    return ["en", ...codes].map(code => ({ code, name: String(LOCALES[code]["$name"]) }));
+export function availableLanguages(locales: Record<string, Locale> = LOCALES): { code: string; name: string }[] {
+    const codes = Object.keys(locales).filter(code => code !== "en").sort();
+    return ["en", ...codes].map(code => ({ code, name: String(locales[code]["$name"] ?? code) }));
 }
 
 export function resolveLanguage(setting: string, preferred: readonly string[], locales: Record<string, Locale> = LOCALES): string {
-    if (locales[setting]) return setting;
-    return preferred.map(tag => tag.split("-")[0].toLowerCase()).find(code => locales[code]) ?? "en";
+    if (Object.hasOwn(locales, setting)) return setting;
+    return preferred.map(tag => tag.split("-")[0].toLowerCase()).find(code => Object.hasOwn(locales, code)) ?? "en";
 }
 
 export function translate(lang: string, key: MessageKey, params?: Params, locales: Record<string, Locale> = LOCALES): string {

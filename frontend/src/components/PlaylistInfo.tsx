@@ -64,7 +64,7 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
     return (<div className="space-y-6">
       <Card className="relative">
       {onBack && (<div className="absolute top-4 right-4 z-10">
-          <Button variant="ghost" size="icon" onClick={onBack}>
+          <Button variant="ghost" size="icon" onClick={onBack} aria-label={t("common.close")}>
               <XCircle className="h-5 w-5"/>
           </Button>
       </div>)}

@@ -329,7 +329,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                 <div className="relative flex-1">
                     {!searchMode ? (<>
                             <InputWithContext id="spotify-url" placeholder={placeholderText} value={url} onChange={(e) => onUrlChange(e.target.value)} onPaste={handlePaste} onKeyDown={(e) => e.key === "Enter" && handleFetchWithValidation()} className="pr-8"/>
-                            {url && (<button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => onUrlChange("")}>
+                            {url && (<button type="button" aria-label={t("search.clear")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => onUrlChange("")}>
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
                         </>) : (<>

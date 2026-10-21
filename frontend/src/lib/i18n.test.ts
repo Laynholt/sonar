@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from "vitest";
 import { en } from "../locales/en";
 import ru from "../locales/ru.json";
-import { LOCALES, availableLanguages, getLanguage, resolveLanguage, setLanguage, translate } from "./i18n";
+import { LOCALES, availableLanguages, buildLocales, getLanguage, resolveLanguage, setLanguage, translate } from "./i18n";
 
 afterEach(() => setLanguage("en"));
 
@@ -50,4 +50,17 @@ it("applies the language to the store and the document", () => {
     setLanguage("ru");
     expect(getLanguage()).toBe("ru");
     expect(document.documentElement.lang).toBe("ru");
+});
+
+it("skips a locale file whose name is not a language tag", () => {
+    const built = buildLocales({ "../locales/xx_YY.json": { "$name": "Bad" }, "../locales/de.json": { "$name": "Deutsch" } });
+    expect(Object.keys(built).sort()).toEqual(["de", "en"]);
+});
+
+it("names a language by its code when the file has no $name", () => {
+    expect(availableLanguages({ en, de: {} })).toContainEqual({ code: "de", name: "de" });
+});
+
+it("does not mistake Object.prototype names for languages", () => {
+    expect(resolveLanguage("constructor", ["toString"])).toBe("en");
 });

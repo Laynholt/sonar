@@ -17,7 +17,7 @@ interface TrackInfoProps {
     onAlbumClick?: (album: AlbumRef) => void;
 }
 export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: TrackInfoProps) {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
         const seconds = Math.floor((ms % 60000) / 1000);
@@ -27,7 +27,7 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: Track
         const num = parseInt(plays, 10);
         if (isNaN(num))
             return plays;
-        return num.toLocaleString();
+        return num.toLocaleString(language);
     };
     const details = [
         [t("track.releaseDate"), track.release_date],
@@ -37,7 +37,7 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: Track
     ].filter(([, value]) => value);
     return (<Card className="relative">
     {onBack && (<div className="absolute top-4 right-4 z-10">
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label={t("common.back")}>
+        <Button variant="ghost" size="icon" onClick={onBack} aria-label={t("common.close")}>
             <XCircle className="h-5 w-5"/>
         </Button>
     </div>)}

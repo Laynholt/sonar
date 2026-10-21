@@ -37,7 +37,7 @@ describe("TrackInfo", () => {
         view = await mount(<TrackInfo track={track}/>);
         const text = view.container.textContent!;
 
-        for (const part of ["Release Date", "2026-01-02", "Plays", (1234).toLocaleString(), "Duration", "3:05", "Copyright", "℗ Label"]) expect(text).toContain(part);
+        for (const part of ["Release Date", "2026-01-02", "Plays", (1234).toLocaleString("en"), "Duration", "3:05", "Copyright", "℗ Label"]) expect(text).toContain(part);
     });
 
     it("opens the clicked artist", async () => {

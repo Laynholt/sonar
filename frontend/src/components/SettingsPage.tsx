@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { Switch } from "@/components/ui/switch";
 import { getSettings, saveSettings, applyThemeMode, applyFont, FONT_OPTIONS, type Settings as SettingsType, type FontFamily } from "@/lib/settings";
 import { themes, applyTheme } from "@/lib/themes";
-import { availableLanguages, setLanguage, t as translate, useI18n, type MessageKey } from "@/lib/i18n";
+import { LOCALES, availableLanguages, setLanguage, t as translate, useI18n, type MessageKey } from "@/lib/i18n";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 
 const SECTIONS = [
@@ -129,7 +129,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
         <div className="min-w-0 flex-1">
           {section === "general" && (<>
             <Row id="language" label={t("settings.language")} description={t("settings.languageDesc")}>
-              <Select value={tempSettings.language} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, language: value }))}>
+              <Select value={Object.hasOwn(LOCALES, tempSettings.language) ? tempSettings.language : "auto"} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, language: value }))}>
                 <SelectTrigger id="language">
                   <SelectValue placeholder={t("settings.languagePlaceholder")}/>
                 </SelectTrigger>
