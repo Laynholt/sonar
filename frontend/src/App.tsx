@@ -12,18 +12,21 @@ import { SettingsPage } from "@/components/SettingsPage";
 import { DebugLoggerPage } from "@/components/DebugLoggerPage";
 import { AboutPage } from "@/components/AboutPage";
 import { HistoryPage } from "@/components/HistoryPage";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import { Search } from "lucide-react";
+import { SearchBar } from "@/components/SearchBar";
 import { TrackInfo } from "@/components/TrackInfo";
 import { AlbumInfo } from "@/components/AlbumInfo";
 import { PlaylistInfo } from "@/components/PlaylistInfo";
 import { ArtistInfo } from "@/components/ArtistInfo";
 import { useMetadata } from "@/hooks/useMetadata";
 import { extractArtistID } from "@/lib/spotify-url";
+import { errorMessage } from "@/lib/utils";
+import { DeleteFetchHistoryItem, GetFetchHistory } from "../wailsjs/go/main/App";
+import type { history } from "../wailsjs/go/models";
 import type { TrackMetadata } from "@/types/api";
 
 const ITEMS_PER_PAGE = 50;
+const RECENT_FETCHES = 5;
 
 function applySavedAppearance() {
     const settings = getSettings();
@@ -38,6 +41,8 @@ function App() {
     const [pendingPageChange, setPendingPageChange] = useState<PageType | null>(null);
     const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false);
     const [spotifyUrl, setSpotifyUrl] = useState("");
+    const [isSearchMode, setIsSearchMode] = useState(false);
+    const [recentFetches, setRecentFetches] = useState<history.FetchItem[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [sortBy, setSortBy] = useState("default");
     const [trackPage, setTrackPage] = useState(1);
@@ -80,6 +85,31 @@ function App() {
     const handleCancelNavigation = () => {
         setShowUnsavedChangesDialog(false);
         setPendingPageChange(null);
+    };
+    const loadRecentFetches = useCallback(async () => {
+        try {
+            setRecentFetches(((await GetFetchHistory()) || []).slice(0, RECENT_FETCHES));
+        }
+        catch (err) {
+            toast.error("Could not load recent fetches", { description: errorMessage(err, "Unknown error") });
+        }
+    }, []);
+    // Refreshes on mount, after each stored fetch, and when returning from the History page.
+    useEffect(() => { if (currentPage === "main") void loadRecentFetches(); }, [currentPage, metadata.historyVersion, loadRecentFetches]);
+    const removeRecentFetch = async (id: string) => {
+        try {
+            await DeleteFetchHistoryItem(id);
+        }
+        catch (err) {
+            toast.error(errorMessage(err, "Failed to delete history entry"));
+        }
+        await loadRecentFetches();
+    };
+    const openCached = (data: string, sourceUrl: string) => {
+        setSpotifyUrl(sourceUrl);
+        setIsSearchMode(false);
+        metadata.loadFromCache(data, sourceUrl);
+        setCurrentPage("main");
     };
     const loaded = metadata.loadedMetadata;
     useEffect(() => {
@@ -130,19 +160,12 @@ function App() {
             case "about":
                 return <AboutPage />;
             case "history":
-                return <HistoryPage />;
+                return <HistoryPage onHistorySelect={openCached}/>;
             default:
                 return (<>
                     <Header />
-                    {/* Temporary plain fetch form; replaced by SearchBar. */}
-                    <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void fetchUrl(spotifyUrl); }}>
-                        <Input value={spotifyUrl} onChange={(e) => setSpotifyUrl(e.target.value)} placeholder="Paste a Spotify URL"/>
-                        <Button type="submit" disabled={metadata.loading}>
-                            {metadata.loading ? <Spinner /> : <Search className="h-4 w-4"/>}
-                            Fetch
-                        </Button>
-                    </form>
-                    {renderMetadata()}
+                    <SearchBar url={spotifyUrl} loading={metadata.loading} onUrlChange={setSpotifyUrl} onFetch={() => fetchUrl(spotifyUrl)} onFetchUrl={fetchUrl} history={recentFetches} onHistorySelect={(item) => openCached(item.data, item.url)} onHistoryRemove={(id) => void removeRecentFetch(id)} hasResult={!!loaded} searchMode={isSearchMode} onSearchModeChange={setIsSearchMode}/>
+                    {!isSearchMode && renderMetadata()}
                 </>);
         }
     };

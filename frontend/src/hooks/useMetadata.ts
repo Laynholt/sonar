@@ -19,6 +19,8 @@ export function useMetadata() {
     const [loading, setLoading] = useState(false);
     const [loadedMetadata, setLoadedMetadata] = useState<LoadedMetadata | null>(null);
     const generationRef = useRef(0);
+    // Bumped once a fetch is stored, so the recent-fetches list can reload after the write lands.
+    const [historyVersion, setHistoryVersion] = useState(0);
     const metadata = loadedMetadata?.data ?? null;
     const [showAlbumDialog, setShowAlbumDialog] = useState(false);
     const [selectedAlbum, setSelectedAlbum] = useState<{
@@ -84,6 +86,7 @@ export function useMetadata() {
                 data: jsonStr,
                 timestamp: Math.floor(Date.now() / 1000)
             });
+            setHistoryVersion(version => version + 1);
         }
         catch (err) {
             console.error("Failed to save fetch history:", err);
@@ -259,6 +262,7 @@ export function useMetadata() {
         loading,
         metadata,
         loadedMetadata,
+        historyVersion,
         showAlbumDialog,
         setShowAlbumDialog,
         selectedAlbum,
