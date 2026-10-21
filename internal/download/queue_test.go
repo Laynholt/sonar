@@ -34,6 +34,12 @@ func (f *fakeFetch) fetch(ctx context.Context, id string, o Options, pathNoExt s
 	return pathNoExt + ".flac", nil
 }
 
+func (f *fakeFetch) callLog() []call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]call(nil), f.calls...)
+}
+
 func (f *fakeFetch) called(id string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -216,20 +222,48 @@ func TestQueueCancelActive(t *testing.T) {
 func TestQueueRespectsWorkerLimit(t *testing.T) {
 	var mu sync.Mutex
 	cur, peak := 0, 0
-	f := &fakeFetch{fn: func(_ context.Context, _, p string) (string, error) {
+	gate := make(chan struct{})
+	f := &fakeFetch{fn: func(ctx context.Context, _, p string) (string, error) {
 		mu.Lock()
 		cur++
 		peak = max(peak, cur)
 		mu.Unlock()
-		time.Sleep(10 * time.Millisecond) // simulated work, not synchronization
-		mu.Lock()
-		cur--
-		mu.Unlock()
-		return p + ".flac", nil
+		defer func() {
+			mu.Lock()
+			cur--
+			mu.Unlock()
+		}()
+		select {
+		case <-gate:
+			return p + ".flac", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}}
 	q := newQ(t, f, 2)
 	q.Enqueue(album, testOpts(t), tracks("1", "2", "3", "4", "5"))
+	inFlight := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return cur
+	}
+	for deadline := time.Now().Add(2 * time.Second); inFlight() != 2; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("in flight = %d, want 2", inFlight())
+		}
+	}
+	// A third fetch would start within this window if the limit were broken.
+	for end := time.Now().Add(30 * time.Millisecond); time.Now().Before(end); time.Sleep(time.Millisecond) {
+		if n := len(f.callLog()); n != 2 {
+			t.Fatalf("calls = %d while 2 are blocked, want 2", n)
+		}
+	}
+	for range 5 {
+		gate <- struct{}{}
+	}
 	waitFor(t, q, allIn(Completed, "1", "2", "3", "4", "5"))
+	mu.Lock()
+	defer mu.Unlock()
 	if peak != 2 {
 		t.Errorf("peak in flight = %d, want 2", peak)
 	}

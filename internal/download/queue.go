@@ -31,6 +31,7 @@ type Item struct {
 }
 
 // Fetch downloads one track to pathNoExt+extension and returns the file path.
+// onStatus must not be called after Fetch returns.
 type Fetch func(ctx context.Context, trackID string, o Options, pathNoExt string, onStatus func(string)) (string, error)
 
 type entry struct {
