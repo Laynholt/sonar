@@ -1,7 +1,7 @@
 import type { LoadedMetadata } from "@/types/api";
 
 // What the list showed when the user clicked on, so Back can restore it.
-export type View = { searchQuery: string; sortBy: string; page: number };
+export type View = { searchQuery: string; sortBy: string; page: number; tab?: string };
 export type NavEntry = LoadedMetadata & { view?: View };
 export type NavState = { current: NavEntry | null; back: NavEntry[] };
 export type NavAction =

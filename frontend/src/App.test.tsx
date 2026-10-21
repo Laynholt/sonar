@@ -208,6 +208,34 @@ describe("back button over the click chain", () => {
     });
 });
 
+describe("artist tabs over the click chain", () => {
+    const artistUrl = "https://open.spotify.com/artist/0123456789abcdefghijAB/discography/all";
+    const artist: MetadataResponse = {
+        service: "spotify",
+        artist_info: { name: "Some Artist", images: "", followers: 1, external_urls: artistUrl, discography_type: "all", total_albums: 0 },
+        album_list: [],
+        track_list: [{ service: "spotify", id: "s1", name: "Song 1", artists: "Some Artist", album_name: "Album", duration_ms: 1000, images: "", release_date: "2026", track_number: 1, external_urls: "", album_id: "al", album_url: albumUrl }],
+    };
+    const searchBox = () => container!.querySelector<HTMLInputElement>('input[placeholder="Search tracks..."]');
+    const click = (selector: string, text: string) => act(async () => { [...container!.querySelectorAll<HTMLElement>(selector)].find((el) => el.textContent === text)!.click(); });
+
+    it("brings Back to the Tracks tab with its query", async () => {
+        vi.mocked(fetchMetadata).mockImplementation(async (url) => (url === albumUrl ? album : artist));
+        await mountApp();
+        await act(async () => { setValue(container!.querySelector("#spotify-url")!, artistUrl); });
+        await click("button", "Fetch");
+        expect(searchBox()).toBeNull();
+
+        await click("button", "All Tracks");
+        await act(async () => { setValue(searchBox()!, "Song"); });
+        await click("button", "Album");
+        expect(container!.textContent).toContain("Chain Album");
+        await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="Back"]')!.click(); });
+
+        expect(searchBox()!.value).toBe("Song");
+    });
+});
+
 describe("unsaved language", () => {
     it("reverts the previewed language on Discard Changes", async () => {
         localStorage.setItem("sonar-settings", JSON.stringify({ language: "en" }));

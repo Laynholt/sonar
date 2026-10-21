@@ -49,7 +49,7 @@ describe("TrackList", () => {
         expect(markup).toContain("Some Album");
         expect(markup).toContain("3:00");
         expect(markup).toContain('title="Explicit"');
-        expect(markup).toContain((1234567).toLocaleString());
+        expect(markup).toContain((1234567).toLocaleString("en"));
     });
 
     it("filters by search query across title, artist and album", () => {
@@ -99,6 +99,31 @@ describe("TrackList", () => {
         button(view.container, "Two").click();
 
         expect(onArtistClick.mock.calls).toEqual([[artists_data[0]], [artists_data[1]]]);
+        await view.unmount();
+    });
+
+    it("takes artist names from the artists string when artists_data has none", async () => {
+        const onArtistClick = vi.fn();
+        // The Go album/playlist builders send artists_data with empty names.
+        const artists_data = [
+            { id: "a1", name: "", external_urls: "u1" },
+            { id: "a2", name: "", external_urls: "u2" },
+        ];
+        const view = await mount(<TrackList tracks={[makeTrack(1, { artists: "A, B", artists_data })]} searchQuery="" sortBy="default" currentPage={1} itemsPerPage={50} onPageChange={vi.fn()} onArtistClick={onArtistClick} />);
+
+        expect(button(view.container, "A").textContent).toBe("A");
+        button(view.container, "B").click();
+
+        expect(onArtistClick.mock.calls).toEqual([[{ id: "a2", name: "B", external_urls: "u2" }]]);
+        await view.unmount();
+    });
+
+    it("shows plain text when the artist names and artists_data disagree in count", async () => {
+        const artists_data = [{ id: "a1", name: "", external_urls: "u1" }, { id: "a2", name: "", external_urls: "u2" }];
+        const view = await mount(<TrackList tracks={[makeTrack(1, { artists: "A, B, C", artists_data })]} searchQuery="" sortBy="default" currentPage={1} itemsPerPage={50} onPageChange={vi.fn()} onArtistClick={vi.fn()} />);
+
+        expect(view.container.textContent).toContain("A, B, C");
+        expect(() => button(view.container, "A")).toThrow();
         await view.unmount();
     });
 

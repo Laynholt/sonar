@@ -51,6 +51,7 @@ function App() {
     const [searchQuery, setSearchQuery] = useState("");
     const [sortBy, setSortBy] = useState("default");
     const [trackPage, setTrackPage] = useState(1);
+    const [artistTab, setArtistTab] = useState("albums");
     const metadata = useMetadata();
     const resetSettingsFn = useRef<(() => void) | null>(null);
     const rememberSettingsReset = useCallback((reset: () => void) => { resetSettingsFn.current = reset; }, []);
@@ -131,6 +132,7 @@ function App() {
         setSearchQuery(loaded?.view?.searchQuery ?? "");
         setSortBy(loaded?.view?.sortBy ?? "default");
         setTrackPage(loaded?.view?.page ?? 1);
+        setArtistTab(loaded?.view?.tab ?? "albums");
         stopPreview();
     }, [loaded]);
     useEffect(() => { if (currentPage !== "main") stopPreview(); }, [currentPage]);
@@ -140,7 +142,7 @@ function App() {
         const fetched = await metadata.handleFetchMetadata(url, view);
         if (fetched) setSpotifyUrl(fetched);
     };
-    const chainFetch = (url: string) => fetchUrl(url, { searchQuery, sortBy, page: trackPage });
+    const chainFetch = (url: string) => fetchUrl(url, { searchQuery, sortBy, page: trackPage, tab: artistTab });
     const goBack = () => {
         const previous = metadata.goBack();
         if (!previous) return;
@@ -190,7 +192,7 @@ function App() {
         if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata} onArtistClick={openArtist} onAlbumClick={openAlbum}/>;
         if ("album_info" in data) return <AlbumInfo service={data.service} sourceUrl={data.album_info.external_urls || sourceUrl} albumInfo={data.album_info} trackList={data.track_list} {...list}/>;
         if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={data.playlist_info.external_urls || sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={openAlbum} {...list}/>;
-        return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={openAlbum} {...list}/>;
+        return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={openAlbum} activeTab={artistTab} onTabChange={setArtistTab} {...list}/>;
     };
     const renderPage = () => {
         switch (currentPage) {

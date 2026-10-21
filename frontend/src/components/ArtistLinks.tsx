@@ -14,13 +14,18 @@ export function ArtistLinks({ track, onArtistClick, className }: {
     const link = (artist: ArtistRef) => onArtistClick && artist.id && artist.external_urls
         ? <button type="button" className={linkClass} onClick={() => onArtistClick(artist)}>{artist.name}</button>
         : artist.name;
-    const artists: ArtistRef[] = track.artists_data?.length
-        ? track.artists_data
+    // The Go list builders send artists_data without names; those come from the "A, B" string.
+    const names = track.artists.split(", ").map((name) => name.trim());
+    const data = track.artists_data ?? [];
+    const artists: ArtistRef[] | null = data.length
+        ? data.every((artist) => artist.name)
+            ? data
+            : names.length === data.length ? data.map((artist, i) => ({ ...artist, name: names[i] })) : null
         : track.artist_id && track.artist_url
             ? [{ id: track.artist_id, name: track.artists, external_urls: track.artist_url }]
-            : [];
+            : null;
     return (<span className={className}>
-    {artists.length === 0 ? track.artists : artists.map((artist, i) => (<span key={artist.id || i}>
+    {!artists ? track.artists : artists.map((artist, i) => (<span key={artist.id || i}>
       {i > 0 && ", "}
       {link(artist)}
     </span>))}

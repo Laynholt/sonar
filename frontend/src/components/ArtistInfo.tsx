@@ -6,7 +6,6 @@ import { TrackList } from "./TrackList";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
-import { useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import type { AlbumRef, ArtistRef } from "./ArtistLinks";
 interface ArtistInfoProps {
@@ -44,10 +43,11 @@ interface ArtistInfoProps {
     onPageChange: (page: number) => void;
     onTrackClick?: (track: TrackMetadata) => void;
     onBack?: () => void;
+    activeTab: string;
+    onTabChange: (tab: string) => void;
 }
-export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, }: ArtistInfoProps) {
+export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, activeTab, onTabChange, }: ArtistInfoProps) {
     const { t } = useI18n();
-    const [activeTab, setActiveTab] = useState<"albums" | "tracks" | "gallery">("albums");
     const hasGallery = artistInfo.gallery && artistInfo.gallery.length > 0;
     return (<div className="space-y-6">
       <Card className="overflow-hidden p-0 relative">
@@ -56,7 +56,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
               <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${artistInfo.header})` }}/>
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"/>
               {onBack && (<div className="absolute top-4 right-4 z-10">
-                  <Button variant="ghost" size="icon" onClick={onBack} className="text-white hover:bg-white/20 hover:text-white">
+                  <Button variant="ghost" size="icon" onClick={onBack} aria-label={t("common.close")} className="text-white hover:bg-white/20 hover:text-white">
                       <XCircle className="h-5 w-5"/>
                   </Button>
               </div>)}
@@ -101,7 +101,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
             </div>
           </>) : (<CardContent className="px-6 py-6">
             {onBack && (<div className="absolute top-4 right-4 z-10">
-                <Button variant="ghost" size="icon" onClick={onBack}>
+                <Button variant="ghost" size="icon" onClick={onBack} aria-label={t("common.close")}>
                     <XCircle className="h-5 w-5"/>
                 </Button>
             </div>)}
@@ -146,13 +146,13 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
 
       <div className="border-b">
         <div className="flex gap-6">
-            <button onClick={() => setActiveTab("albums")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "albums" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
+            <button onClick={() => onTabChange("albums")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "albums" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
                 {t("artist.albums")}
             </button>
-            <button onClick={() => setActiveTab("tracks")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "tracks" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
+            <button onClick={() => onTabChange("tracks")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "tracks" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
                 {t("artist.allTracks")}
             </button>
-            {hasGallery && (<button onClick={() => setActiveTab("gallery")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "gallery" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
+            {hasGallery && (<button onClick={() => onTabChange("gallery")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "gallery" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
                 {t("artist.gallery")}
             </button>)}
         </div>

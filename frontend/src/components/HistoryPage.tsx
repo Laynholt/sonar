@@ -170,7 +170,7 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {paginated.map((item, index) => (<tr key={item.id} className="border-b transition-colors hover:bg-muted/50 cursor-pointer" onClick={() => onHistorySelect(item.id, item.url)}>
+                                {paginated.map((item, index) => (<tr key={item.id} tabIndex={0} className="border-b transition-colors hover:bg-muted/50 cursor-pointer" onClick={() => onHistorySelect(item.id, item.url)} onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) onHistorySelect(item.id, item.url); }}>
                                         <td className="p-3 align-middle text-sm text-muted-foreground text-left font-mono">
                                             {startIndex + index + 1}
                                         </td>

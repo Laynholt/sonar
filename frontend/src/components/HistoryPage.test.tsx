@@ -48,6 +48,17 @@ describe("HistoryPage", () => {
         expect([...view.container.querySelectorAll("button")].some((item) => item.textContent?.trim() === "Load")).toBe(false);
     });
 
+    it("opens a focused row on Enter, but not when Enter lands on the delete button", async () => {
+        const row = view.container.querySelector<HTMLElement>("tbody tr")!;
+        const press = (target: HTMLElement) => act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+
+        expect(row.tabIndex).toBe(0);
+        await press(labelled("Delete"));
+        expect(onHistorySelect).not.toHaveBeenCalled();
+        await press(row);
+        expect(onHistorySelect).toHaveBeenCalledWith("t1", "https://open.spotify.com/track/t1");
+    });
+
     it("deletes without opening the entry, then reloads", async () => {
         await act(async () => labelled("Delete").click());
         expect(DeleteFetchHistoryItem).toHaveBeenCalledWith("t1");
