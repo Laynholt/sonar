@@ -98,7 +98,9 @@ type gArtist struct {
 	} `json:"albums"`
 }
 
-func notFound(kind, id string) error { return fmt.Errorf("amazon: %s %s not found in the US catalog", kind, id) }
+func notFound(kind, id string) error {
+	return fmt.Errorf("amazon: %s %s not found in the US catalog", kind, id)
+}
 
 // canonical builds URLs from IDs; API URLs carry ?ref= noise.
 func canonical(kind, id string) string { return "https://music.amazon.com/" + kind + "/" + id }
