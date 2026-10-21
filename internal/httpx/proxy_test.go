@@ -2,7 +2,9 @@ package httpx
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
 )
 
 func TestSetManualProxy(t *testing.T) {
@@ -22,7 +24,7 @@ func TestSetManualProxy(t *testing.T) {
 			t.Fatalf("%q: err=%v", c.in, err)
 		}
 		if !c.bad {
-			if got := manualProxyString(); got != c.want {
+			if got := ManualProxy(); got != c.want {
 				t.Fatalf("%q: got %q want %q", c.in, got, c.want)
 			}
 		}
@@ -95,5 +97,55 @@ func TestLoopbackBypassesProxy(t *testing.T) {
 		if u, _ := proxyFor(req); u != nil {
 			t.Fatalf("%s: got proxy %v", raw, u)
 		}
+	}
+}
+
+func clearProxyEnv(t *testing.T) {
+	for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"} {
+		t.Setenv(k, "")
+	}
+	SetManualProxy("")
+}
+
+func TestEnvProxyOrder(t *testing.T) {
+	req, _ := http.NewRequest("GET", "https://open.spotify.com/", nil)
+	for _, c := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"ALL_PROXY alone", map[string]string{"ALL_PROXY": "socks5://all:1"}, "socks5://all:1"},
+		{"lowercase all_proxy", map[string]string{"all_proxy": "http://all:1"}, "http://all:1"},
+		{"HTTPS_PROXY beats ALL_PROXY", map[string]string{"HTTPS_PROXY": "http://s:1", "ALL_PROXY": "http://all:1"}, "http://s:1"},
+		{"HTTP_PROXY is the https fallback", map[string]string{"HTTP_PROXY": "http://h:1", "ALL_PROXY": "http://all:1"}, "http://h:1"},
+		{"HTTPS_PROXY beats HTTP_PROXY", map[string]string{"HTTPS_PROXY": "http://s:1", "HTTP_PROXY": "http://h:1"}, "http://s:1"},
+	} {
+		clearProxyEnv(t)
+		for k, v := range c.env {
+			t.Setenv(k, v)
+		}
+		u, err := proxyFor(req)
+		if err != nil || u == nil || u.String() != c.want {
+			t.Errorf("%s: got %v, %v; want %s", c.name, u, err, c.want)
+		}
+	}
+}
+
+func TestNoProxyMatchIsDirectNotOS(t *testing.T) {
+	clearProxyEnv(t)
+	osProxyCache.Lock()
+	osProxyCache.expires = time.Now().Add(time.Hour)
+	osProxyCache.m = map[string]osProxyResult{"https://open.spotify.com": {u: &url.URL{Scheme: "http", Host: "os:1"}}}
+	osProxyCache.Unlock()
+	t.Cleanup(func() { osProxyCache.Lock(); osProxyCache.m = nil; osProxyCache.Unlock() })
+	req, _ := http.NewRequest("GET", "https://open.spotify.com/", nil)
+
+	if u, _ := proxyFor(req); u == nil || u.Host != "os:1" {
+		t.Fatalf("no env: want OS proxy, got %v", u)
+	}
+	t.Setenv("ALL_PROXY", "http://all:1")
+	t.Setenv("NO_PROXY", "spotify.com")
+	if u, err := proxyFor(req); u != nil || err != nil {
+		t.Fatalf("NO_PROXY match: want direct, got %v, %v", u, err)
 	}
 }

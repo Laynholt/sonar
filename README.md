@@ -13,7 +13,9 @@ Status: stage 1 (shell + Spotify viewer). Nothing is downloaded yet.
 
 ## Proxy
 
-Settings has a Proxy field (`host:port` or a full `http://`, `https://`, `socks5://` URL). If it is empty, sonar uses `HTTPS_PROXY` / `HTTP_PROXY`, then the OS system proxy (Windows, macOS, Linux/GNOME). Loopback addresses always go direct.
+Settings has a Proxy field (`host:port` or a full `http://`, `https://`, `socks5://` URL). If it is empty, sonar reads the environment: for https requests `HTTPS_PROXY`, else `HTTP_PROXY`, else `ALL_PROXY` (lowercase names work too). If any of those is set, the OS proxy is not consulted, and hosts matching `NO_PROXY` go direct. With none set, sonar uses the OS system proxy (Windows, macOS, Linux/GNOME). Loopback addresses always go direct.
+
+A proxy set in Settings is never bypassed: if it is unreachable, the request fails with a "proxy ... is unreachable" error instead of retrying direct.
 
 ## Roadmap
 
@@ -43,4 +45,4 @@ $env:SONAR_LIVE=1; $env:HTTPS_PROXY="http://127.0.0.1:10808"; go test -run Live 
 
 ## Credits
 
-The UI is based on SpotiDownloader (MIT).
+The UI is based on SpotiDownloader (MIT); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -4,6 +4,7 @@ package httpx
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -53,6 +54,8 @@ func newDirectHTTPTransport() *http.Transport {
 
 // directFallbackTransport retries once without the proxy when the proxied
 // attempt fails with a transient network error (dead or misconfigured proxy).
+// A manual proxy is the user's explicit choice: it is never bypassed, and a
+// connect failure says so instead of surfacing as a bogus region block.
 type directFallbackTransport struct {
 	primary http.RoundTripper
 	direct  http.RoundTripper
@@ -60,6 +63,13 @@ type directFallbackTransport struct {
 
 func (t directFallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.primary.RoundTrip(req)
+	if u := manualProxy.Load(); err != nil && u != nil && !isLoopback(req.URL.Hostname()) {
+		var opErr *net.OpError
+		if errors.As(err, &opErr) && opErr.Op == "proxyconnect" {
+			return resp, fmt.Errorf("proxy %s is unreachable: %w", u.Host, opErr.Err)
+		}
+		return resp, err
+	}
 	if err == nil || !isTransientNetworkError(err) || !canReplayRequest(req) {
 		return resp, err
 	}

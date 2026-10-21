@@ -1,14 +1,18 @@
 package httpx
 
 import (
+	"cmp"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 )
 
 const osProxyTTL = 30 * time.Second
@@ -41,8 +45,8 @@ func SetManualProxy(raw string) error {
 	return nil
 }
 
-// manualProxyString is for tests.
-func manualProxyString() string {
+// ManualProxy returns the manual proxy URL, or "" when none is set.
+func ManualProxy() string {
 	if u := manualProxy.Load(); u != nil {
 		return u.String()
 	}
@@ -64,10 +68,25 @@ func proxyFor(req *http.Request) (*url.URL, error) {
 	if u := manualProxy.Load(); u != nil {
 		return u, nil
 	}
-	if u, err := http.ProxyFromEnvironment(req); u != nil || err != nil {
-		return u, err
+	if u, set, err := envProxy(req.URL); set {
+		return u, err // a NO_PROXY match goes direct, not to the OS proxy
 	}
 	return cachedOSProxy(req)
+}
+
+// envProxy honours HTTPS_PROXY / HTTP_PROXY / ALL_PROXY (and lowercase) and
+// NO_PROXY. https uses HTTPS_PROXY, else HTTP_PROXY, else ALL_PROXY; http skips
+// HTTPS_PROXY. set reports whether any of those variables applies at all.
+func envProxy(u *url.URL) (proxy *url.URL, set bool, err error) {
+	c := httpproxy.FromEnvironment()
+	all := cmp.Or(os.Getenv("ALL_PROXY"), os.Getenv("all_proxy"))
+	c.HTTPProxy = cmp.Or(c.HTTPProxy, all)
+	c.HTTPSProxy = cmp.Or(c.HTTPSProxy, c.HTTPProxy)
+	if c.HTTPProxy == "" && c.HTTPSProxy == "" {
+		return nil, false, nil
+	}
+	proxy, err = c.ProxyFunc()(u)
+	return proxy, true, err
 }
 
 type osProxyResult struct {
