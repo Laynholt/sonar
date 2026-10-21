@@ -6,6 +6,7 @@ import { TrackList } from "./TrackList";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import type { AlbumRef, ArtistRef } from "./ArtistLinks";
 interface PlaylistInfoProps {
     service: Service;
     sourceUrl: string;
@@ -32,16 +33,8 @@ interface PlaylistInfoProps {
     onSearchChange: (value: string) => void;
     onSortChange: (value: string) => void;
     onPageChange: (page: number) => void;
-    onAlbumClick: (album: {
-        id: string;
-        name: string;
-        external_urls: string;
-    }) => void;
-    onArtistClick: (artist: {
-        id: string;
-        name: string;
-        external_urls: string;
-    }) => void;
+    onAlbumClick: (album: AlbumRef) => void;
+    onArtistClick: (artist: ArtistRef) => void;
     onTrackClick: (track: TrackMetadata) => void;
     onBack?: () => void;
 }

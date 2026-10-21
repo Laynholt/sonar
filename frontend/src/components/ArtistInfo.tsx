@@ -7,6 +7,7 @@ import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
 import { useState } from "react";
+import type { AlbumRef, ArtistRef } from "./ArtistLinks";
 interface ArtistInfoProps {
     service: Service;
     artistInfo: {
@@ -37,16 +38,8 @@ interface ArtistInfoProps {
     itemsPerPage: number;
     onSearchChange: (value: string) => void;
     onSortChange: (value: string) => void;
-    onAlbumClick: (album: {
-        id: string;
-        name: string;
-        external_urls: string;
-    }) => void;
-    onArtistClick: (artist: {
-        id: string;
-        name: string;
-        external_urls: string;
-    }) => void;
+    onAlbumClick: (album: AlbumRef) => void;
+    onArtistClick: (artist: ArtistRef) => void;
     onPageChange: (page: number) => void;
     onTrackClick?: (track: TrackMetadata) => void;
     onBack?: () => void;

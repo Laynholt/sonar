@@ -3,6 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, } from "@/components/ui/pagination";
 import type { TrackMetadata } from "@/types/api";
+import { AlbumLink, ArtistLinks, type AlbumRef, type ArtistRef } from "./ArtistLinks";
 import { CoverPreview } from "./CoverPreview";
 import { openExternal } from "@/lib/utils";
 import { serviceLabels } from "./ServiceBadge";
@@ -14,16 +15,8 @@ interface TrackListProps {
     itemsPerPage: number;
     hideAlbumColumn?: boolean;
     onPageChange: (page: number) => void;
-    onAlbumClick?: (album: {
-        id: string;
-        name: string;
-        external_urls: string;
-    }) => void;
-    onArtistClick?: (artist: {
-        id: string;
-        name: string;
-        external_urls: string;
-    }) => void;
+    onAlbumClick?: (album: AlbumRef) => void;
+    onArtistClick?: (artist: ArtistRef) => void;
     onTrackClick?: (track: TrackMetadata) => void;
 }
 export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPage, hideAlbumColumn = false, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
@@ -174,42 +167,12 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
                       </span>) : (<span className="font-medium">{track.name}</span>)}
                       {track.is_explicit && (<span className="inline-flex items-center justify-center bg-red-600 text-white text-[10px] h-4 w-4 rounded shrink-0" title="Explicit">E</span>)}
                     </div>
-                    <span className="text-sm text-muted-foreground">
-                      {track.artists_data && track.artists_data.length > 0 ? ((() => {
-                const artistNames = track.artists.split(", ").map(name => name.trim());
-                return artistNames.map((name, i) => {
-                    const artistData = track.artists_data![i];
-                    const hasArtistData = artistData && artistData.id && artistData.external_urls;
-                    return (<span key={artistData?.id || i}>
-                            {onArtistClick && hasArtistData ? (<span className="cursor-pointer hover:underline" onClick={() => onArtistClick({
-                                id: artistData.id,
-                                name: name,
-                                external_urls: artistData.external_urls,
-                            })}>
-                              {name}
-                            </span>) : (name)}
-                            {i < artistNames.length - 1 && ", "}
-                          </span>);
-                });
-            })()) : onArtistClick && track.artist_id && track.artist_url ? (<span className="cursor-pointer hover:underline" onClick={() => onArtistClick({
-                    id: track.artist_id!,
-                    name: track.artists,
-                    external_urls: track.artist_url!,
-                })}>
-                        {track.artists}
-                      </span>) : (track.artists)}
-                    </span>
+                    <ArtistLinks track={track} onArtistClick={onArtistClick} className="text-sm text-muted-foreground"/>
                   </div>
                 </div>
               </td>
               {!hideAlbumColumn && (<td className="p-4 align-middle text-sm text-muted-foreground hidden md:table-cell [overflow-wrap:anywhere]">
-                {onAlbumClick && track.album_id && track.album_url ? (<span className="cursor-pointer hover:underline" onClick={() => onAlbumClick({
-                        id: track.album_id!,
-                        name: track.album_name,
-                        external_urls: track.album_url!,
-                    })}>
-                  {track.album_name}
-                </span>) : (track.album_name)}
+                <AlbumLink track={track} onAlbumClick={onAlbumClick}/>
               </td>)}
               <td className="p-4 align-middle text-sm text-muted-foreground hidden lg:table-cell">
                 {formatDuration(track.duration_ms)}

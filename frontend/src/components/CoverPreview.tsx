@@ -19,7 +19,7 @@ export function CoverPreview({ trackId, trackName, src, alt, className }: CoverP
                 e.stopPropagation();
                 void playPreview(trackId, trackName);
             }} className={cn("absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white transition-opacity", loading || playing ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")}>
-      {loading ? <Spinner /> : playing ? <Pause className="h-1/2 w-1/2"/> : <Play className="h-1/2 w-1/2"/>}
+      {loading ? <Spinner /> : playing ? <Pause className="h-6 w-6"/> : <Play className="h-6 w-6"/>}
     </button>)}
   </div>);
 }

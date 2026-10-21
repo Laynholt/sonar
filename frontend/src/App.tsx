@@ -157,7 +157,7 @@ function App() {
             onSearchChange: (value: string) => { setSearchQuery(value); setTrackPage(1); }, onSortChange: setSortBy, onPageChange: setTrackPage,
             onTrackClick: openTrack, onArtistClick: openArtist, onBack: metadata.resetMetadata,
         };
-        if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata}/>;
+        if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata} onArtistClick={openArtist} onAlbumClick={metadata.handleAlbumClick}/>;
         if ("album_info" in data) return <AlbumInfo service={data.service} sourceUrl={data.album_info.external_urls || sourceUrl} albumInfo={data.album_info} trackList={data.track_list} {...list}/>;
         if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={data.playlist_info.external_urls || sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={metadata.handleAlbumClick} {...list}/>;
         return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={metadata.handleAlbumClick} {...list}/>;

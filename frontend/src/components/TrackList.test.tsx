@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrackMetadata } from "@/types/api";
 import { GetPreviewURL } from "../../wailsjs/go/main/App";
 import { stopPreview } from "@/hooks/usePreview";
-import { mount } from "../test/render";
+import { button, mount } from "../test/render";
 import { TrackList } from "./TrackList";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
@@ -85,6 +85,21 @@ describe("TrackList", () => {
             expect([...actions.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([label]);
             expect(parsed.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
         }
+    });
+
+    it("makes each artist its own link", async () => {
+        const onArtistClick = vi.fn();
+        const artists_data = [
+            { id: "a1", name: "One", external_urls: "u1" },
+            { id: "a2", name: "Two", external_urls: "u2" },
+        ];
+        const view = await mount(<TrackList tracks={[makeTrack(1, { artists: "One, Two", artists_data })]} searchQuery="" sortBy="default" currentPage={1} itemsPerPage={50} onPageChange={vi.fn()} onArtistClick={onArtistClick} />);
+
+        button(view.container, "One").click();
+        button(view.container, "Two").click();
+
+        expect(onArtistClick.mock.calls).toEqual([[artists_data[0]], [artists_data[1]]]);
+        await view.unmount();
     });
 
     it("shows no download controls", () => {
