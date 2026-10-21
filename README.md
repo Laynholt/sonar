@@ -1,15 +1,25 @@
 # sonar
 
-Desktop app (Wails v2: Go backend, React/Vite frontend) for looking up Spotify links and search results, with a SpotiDownloader-style UI. No sign-in needed.
+Desktop app (Wails v2: Go backend, React/Vite frontend) for looking up Spotify and Amazon Music links and search results, with a SpotiDownloader-style UI. No sign-in needed.
 
-Status: stage 1 (shell + Spotify viewer). Nothing is downloaded yet.
+Status: stage 2 (Spotify + Amazon Music viewer). Nothing is downloaded yet.
 
 ## Features
 
 - Paste a Spotify track, album, playlist or artist link to see its metadata and track list.
-- Search Spotify by text.
+- Paste an Amazon Music track, album, playlist or artist link (any `music.amazon.*` host) to see the same view.
+- Search Spotify or Amazon Music by text (switch in the search bar).
 - Fetch history (recent fetches and a full history page).
 - Themes and soft UI sounds, configurable in Settings.
+
+## Amazon Music limits
+
+Amazon is read as a guest (no sign-in) from the US catalog, so:
+
+- Community playlists (`/user-playlists/...`) need an account and are not supported; search hides them.
+- Search shows only the first page (up to 10 items per type), with no "load more".
+- No previews.
+- No disc numbers, label, plays, followers or listeners; empty counts are hidden.
 
 ## Proxy
 
@@ -27,7 +37,6 @@ Go error texts and Spotify data (titles, playlist descriptions) are not translat
 
 ## Roadmap
 
-- Stage 2: Amazon Music.
 - Stage 3: downloads via lucida.to.
 
 ## Requirements
