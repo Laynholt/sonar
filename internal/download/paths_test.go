@@ -32,6 +32,9 @@ func TestPathNoExtTemplates(t *testing.T) {
 		{"disc", gw(), "", "{disc}-{track}. {title}", "D/1-01. Global Warming"},
 		{"empty album", noAlbum, "{album}", "{title}", "D/Unknown Album/Global Warming"},
 		{"empty album artist", noAA, "{album_artist}", "{title}", "D/Pitbull/Global Warming"},
+		{"backslash folders", gw(), `{artist}\{album}`, "{title}", "D/Pitbull/Global Warming/Global Warming"},
+		{"empty playlist", gw(), "", "{playlist} - {title}", "D/Global Warming"},
+		{"traversal folder", gw(), "../x", "{title}", "D/Unknown/x/Global Warming"},
 	}
 	for _, c := range cases {
 		got := PathNoExt(c.tr, Collection{Kind: "album", ID: "a", Name: "A"},
@@ -72,6 +75,8 @@ func TestPathNoExtSanitizes(t *testing.T) {
 		{"colon", func(t *Track) { t.Title = "Pt. 1: Intro" }, "", "{title}", "D/Pt. 1 Intro"},
 		{"reserved", func(t *Track) { t.Title = "CON" }, "", "{title}", "D/_CON"},
 		{"dots", func(t *Track) { t.Title = "Outro..." }, "", "{title}", "D/Outro"},
+		{"literal placeholder", func(t *Track) { t.Title = "{artist}" }, "", "{title}", "D/{artist}"},
+		{"traversal title", func(t *Track) { t.Title = "../../x" }, "", "{title}", "D/x"},
 		{"blank", func(t *Track) { t.Title = "   " }, "", "{title}", "D/Unknown Title"},
 	}
 	for _, tc := range cases {
@@ -86,7 +91,7 @@ func TestPathNoExtSanitizes(t *testing.T) {
 	long := gw()
 	long.Title = strings.Repeat("é", 300)
 	name := filepath.Base(PathNoExt(long, c, Options{Dir: "D", FilenameTemplate: "{title}"}))
-	if n := utf8.RuneCountInString(name); n > 200 {
+	if n := utf8.RuneCountInString(name); n != 200 {
 		t.Errorf("long title: %d runes", n)
 	}
 

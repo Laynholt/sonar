@@ -54,38 +54,30 @@ func PathNoExt(t Track, c Collection, o Options) string {
 	if c.Kind == "playlist" {
 		playlist = c.Name
 	}
-	vals := map[string]string{
-		"{title}": title, "{artist}": artist, "{album}": album, "{album_artist}": orElse(t.AlbumArtist, artist),
-		"{year}": year, "{date}": date, "{disc}": fmt.Sprint(disc),
+	// One replacer pass keeps a value that itself contains "{artist}" literal; longer removals come first.
+	pairs := []string{
+		"{title}", Sanitize(title), "{artist}", Sanitize(artist), "{album}", Sanitize(album),
+		"{album_artist}", Sanitize(orElse(t.AlbumArtist, artist)), "{year}", Sanitize(year),
+		"{date}", Sanitize(date), "{disc}", fmt.Sprint(disc),
 	}
-	for k, v := range vals {
-		vals[k] = Sanitize(v)
-	}
-	if playlist != "" { // Sanitize("") would be "Unknown"
-		vals["{playlist}"] = Sanitize(playlist)
+	if playlist == "" {
+		pairs = append(pairs, "{playlist} - ", "", "{playlist}. ", "", "{playlist}", "")
 	} else {
-		vals["{playlist}"] = ""
+		pairs = append(pairs, "{playlist}", Sanitize(playlist))
 	}
-	vals["{track}"] = fmt.Sprintf("%02d", t.Position)
-
-	fill := func(tpl string) string {
-		if t.Position <= 0 {
-			tpl = strings.NewReplacer("{track}. ", "", "{track} - ", "", "{track}", "").Replace(tpl)
-		}
-		for k, v := range vals {
-			tpl = strings.ReplaceAll(tpl, k, v)
-		}
-		return tpl
+	if t.Position <= 0 {
+		pairs = append(pairs, "{track}. ", "", "{track} - ", "", "{track}", "")
+	} else {
+		pairs = append(pairs, "{track}", fmt.Sprintf("%02d", t.Position))
 	}
+	fill := strings.NewReplacer(pairs...).Replace
 
 	base := o.Dir
 	if o.PlaylistFolder && c.Kind == "playlist" && c.Name != "" {
 		base = filepath.Join(base, Sanitize(c.Name))
 	}
-	for _, seg := range strings.Split(fill(o.FolderTemplate), "/") {
-		if seg != "" {
-			base = filepath.Join(base, Sanitize(seg))
-		}
+	for _, seg := range strings.FieldsFunc(fill(o.FolderTemplate), func(r rune) bool { return r == '/' || r == '\\' }) {
+		base = filepath.Join(base, Sanitize(seg))
 	}
 	return filepath.Join(base, Sanitize(fill(orElse(o.FilenameTemplate, "{title} - {artist}"))))
 }
