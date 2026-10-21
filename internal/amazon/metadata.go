@@ -280,6 +280,27 @@ func fetchPlaylist(ctx context.Context, q querier, id string) (*model.PlaylistRe
 	return &model.PlaylistResponsePayload{Service: model.Amazon, PlaylistInfo: info, TrackList: list}, nil
 }
 
+// fetchAlbumBatch loads full albums into dst. Amazon caps entities per query
+// (1000 artists), so a batch that hits the cap is halved and retried.
+func fetchAlbumBatch(ctx context.Context, q querier, artistID string, ids []string, dst map[string]*gAlbum) {
+	var out struct {
+		Albums []gAlbum `json:"albums"`
+	}
+	err := q.gql(ctx, albumsQuery, map[string]any{"ids": ids}, &out)
+	if err != nil && len(ids) > 1 && strings.Contains(strings.ToLower(err.Error()), "entity limit") {
+		fetchAlbumBatch(ctx, q, artistID, ids[:len(ids)/2], dst)
+		fetchAlbumBatch(ctx, q, artistID, ids[len(ids)/2:], dst)
+		return
+	}
+	if err != nil {
+		log.Printf("amazon: tracks for %d albums of artist %s: %v", len(ids), artistID, err)
+		return
+	}
+	for i := range out.Albums {
+		dst[out.Albums[i].ID] = &out.Albums[i]
+	}
+}
+
 func fetchArtist(ctx context.Context, q querier, id string) (*model.ArtistDiscographyPayload, error) {
 	var first *gArtist
 	var albums []gAlbum
@@ -318,16 +339,7 @@ func fetchArtist(ctx context.Context, q querier, id string) (*model.ArtistDiscog
 	}
 	full := make(map[string]*gAlbum, len(ids))
 	for chunk := range slices.Chunk(ids, batchMax) {
-		var out struct {
-			Albums []gAlbum `json:"albums"`
-		}
-		if err := q.gql(ctx, albumsQuery, map[string]any{"ids": chunk}, &out); err != nil {
-			log.Printf("amazon: tracks for %d albums of artist %s: %v", len(chunk), id, err)
-			continue
-		}
-		for i := range out.Albums {
-			full[out.Albums[i].ID] = &out.Albums[i]
-		}
+		fetchAlbumBatch(ctx, q, id, chunk, full)
 	}
 
 	list := make([]model.DiscographyAlbumMetadata, 0, len(albums))
