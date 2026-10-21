@@ -22,13 +22,24 @@ type Balancer struct {
 	cooldown time.Duration
 	now      func() time.Time
 
-	mu     sync.Mutex // guards next and paused
+	// OnLimit is called, outside any lock, when a site's count reaches the guard limit. Set it before use.
+	OnLimit func(site string, count int)
+	rest    time.Duration // a site idle this long starts counting again
+
+	mu     sync.Mutex // guards the fields below
 	next   int
 	paused map[string]pause
+	limit  int // 0 = guard off
+	count  map[string]int
+	last   map[string]time.Time
 }
 
+// GuardRest is how long a site must go unused before its count restarts.
+const GuardRest = 30 * time.Minute
+
 func NewBalancer(cooldown time.Duration, sources ...Source) *Balancer {
-	return &Balancer{sources: sources, cooldown: cooldown, now: time.Now, paused: map[string]pause{}}
+	return &Balancer{sources: sources, cooldown: cooldown, now: time.Now, paused: map[string]pause{},
+		rest: GuardRest, count: map[string]int{}, last: map[string]time.Time{}}
 }
 
 // active reports whether p still keeps its site out of rotation. Caller holds mu.
@@ -80,6 +91,7 @@ func (b *Balancer) Download(ctx context.Context, mode, trackURL, pathNoExt strin
 		path, err := s.Download(ctx, trackURL, pathNoExt, st)
 		if err == nil {
 			b.Reset(name) // it demonstrably works, e.g. in fixed mode or the all-paused fallback
+			b.countSuccess(name)
 			return path, nil
 		}
 		if cerr := ctx.Err(); cerr != nil {
@@ -90,6 +102,34 @@ func (b *Balancer) Download(ctx context.Context, mode, trackURL, pathNoExt strin
 		errs = append(errs, name, err)
 	}
 	return "", fmt.Errorf(strings.Join(msgs, "; "), errs...)
+}
+
+func (b *Balancer) countSuccess(name string) {
+	b.mu.Lock()
+	now := b.now()
+	if now.Sub(b.last[name]) >= b.rest {
+		b.count[name] = 0
+	}
+	b.count[name]++
+	b.last[name] = now
+	n, fire := b.count[name], b.limit > 0 && b.count[name] == b.limit
+	b.mu.Unlock()
+	if fire && b.OnLimit != nil {
+		b.OnLimit(name, n)
+	}
+}
+
+// SetGuard sets how many successful downloads one site may serve before OnLimit fires; 0 turns the guard off.
+func (b *Balancer) SetGuard(limit int) {
+	b.mu.Lock()
+	b.limit = limit
+	b.mu.Unlock()
+}
+
+func (b *Balancer) ResetCounts() {
+	b.mu.Lock()
+	clear(b.count)
+	b.mu.Unlock()
 }
 
 func (b *Balancer) punish(name string, err error) {

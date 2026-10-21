@@ -25,7 +25,16 @@ const (
 	downloadWorkers = 2 // both sites rip one track per request; don't hammer them
 	checkTimeout    = 10 * time.Minute
 	checkTrackURL   = "https://music.amazon.com/tracks/B00A3SGXAA"
+	guardRest       = source.GuardRest // how long the user is asked to wait
 )
+
+// DownloadGuard is what the rate-guard dialog shows. PausedUntil is unix ms, 0 for none.
+type DownloadGuard struct {
+	Site        string `json:"site"`
+	Count       int    `json:"count"`
+	Asking      bool   `json:"asking"`
+	PausedUntil int64  `json:"paused_until"`
+}
 
 type DownloadRequest struct {
 	Collection download.Collection `json:"collection"`
@@ -66,6 +75,9 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 	if o.Format != "original" && a.findFFmpeg(o.FFmpegPath) == "" {
 		return errNoFFmpeg
 	}
+	if o.GuardLimit < 0 {
+		return errors.New("guard limit must be 0 or more")
+	}
 	if o.Source == "" {
 		o.Source = source.Auto
 	}
@@ -80,8 +92,45 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 			return fmt.Errorf("only Amazon Music tracks can be downloaded for now: %s", t.ID)
 		}
 	}
+	a.sources.SetGuard(o.GuardLimit)
 	a.dl.Enqueue(req.Collection, o, req.Tracks)
 	return nil
+}
+
+// onLimit holds the queue until the user answers the dialog.
+func (a *App) onLimit(site string, count int) {
+	a.guardMu.Lock()
+	a.guard = DownloadGuard{Site: site, Count: count, Asking: true}
+	a.guardMu.Unlock()
+	a.dl.Hold(time.Time{})
+}
+
+func (a *App) GetDownloadGuard() DownloadGuard {
+	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
+	if a.guard.PausedUntil != 0 && time.Now().UnixMilli() >= a.guard.PausedUntil {
+		a.guard = DownloadGuard{}
+	}
+	return a.guard
+}
+
+// GuardWait is "OK, I'll wait": pause for guardRest, then the queue resumes by itself.
+func (a *App) GuardWait() {
+	a.sources.ResetCounts()
+	until := time.Now().Add(guardRest)
+	a.guardMu.Lock()
+	a.guard = DownloadGuard{Site: a.guard.Site, Count: a.guard.Count, PausedUntil: until.UnixMilli()}
+	a.guardMu.Unlock()
+	a.dl.Hold(until)
+}
+
+// GuardContinue is "Continue anyway", and also "Resume now" during a pause.
+func (a *App) GuardContinue() {
+	a.sources.ResetCounts()
+	a.guardMu.Lock()
+	a.guard = DownloadGuard{}
+	a.guardMu.Unlock()
+	a.dl.Resume()
 }
 
 func (a *App) GetDownloadQueue() []download.Item { return a.dl.Snapshot() }

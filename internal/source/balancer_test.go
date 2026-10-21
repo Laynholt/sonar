@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -230,5 +231,81 @@ func TestBalancerSuccessClearsPause(t *testing.T) {
 	}
 	if !bal.Status()[0].Available {
 		t.Fatal("a should be available after a success")
+	}
+}
+
+func TestBalancerGuardFiresAtLimit(t *testing.T) {
+	a, b := &fake{name: "a"}, &fake{name: "b"}
+	bal, clk := newTest(a, b)
+	type hit struct {
+		site  string
+		count int
+	}
+	var hits []hit
+	bal.OnLimit = func(site string, count int) { hits = append(hits, hit{site, count}) }
+	dl := func(mode string) {
+		t.Helper()
+		if _, err := bal.Download(context.Background(), mode, "u", "p", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bal.SetGuard(3)
+	dl("a")
+	dl("a")
+	dl("b") // counted apart from a
+	dl("b")
+	if len(hits) != 0 {
+		t.Fatalf("fired early: %v", hits)
+	}
+	dl("a")
+	dl("a") // past the limit: no second hit
+	if want := []hit{{"a", 3}}; !slices.Equal(hits, want) {
+		t.Fatalf("hits = %v, want %v", hits, want)
+	}
+	dl("b")
+	if want := []hit{{"a", 3}, {"b", 3}}; !slices.Equal(hits, want) {
+		t.Fatalf("hits = %v, want %v", hits, want)
+	}
+
+	hits = nil
+	bal.ResetCounts()
+	dl("a")
+	dl("a")
+	dl("a")
+	if want := []hit{{"a", 3}}; !slices.Equal(hits, want) {
+		t.Fatalf("after ResetCounts hits = %v, want %v", hits, want)
+	}
+
+	hits = nil
+	bal.ResetCounts()
+	for range 3 { // the site rests between successes, so it never builds up
+		dl("a")
+		clk.t = clk.t.Add(bal.rest)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("fired despite rest: %v", hits)
+	}
+
+	bal.SetGuard(0)
+	bal.ResetCounts()
+	for range 5 {
+		dl("a")
+	}
+	if len(hits) != 0 {
+		t.Fatalf("fired with guard off: %v", hits)
+	}
+}
+
+func TestBalancerGuardIgnoresFailures(t *testing.T) {
+	a := &fake{name: "a", results: []error{errors.New("x"), errors.New("x"), nil, nil}}
+	bal, _ := newTest(a)
+	fired := 0
+	bal.OnLimit = func(string, int) { fired++ }
+	bal.SetGuard(2)
+	for range 4 {
+		bal.Download(context.Background(), "a", "u", "p", nil)
+	}
+	if fired != 1 {
+		t.Fatalf("fired = %d, want 1 (only the 2 successes count)", fired)
 	}
 }

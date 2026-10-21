@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 
 	"sonar/internal/amazon"
@@ -31,6 +32,8 @@ type App struct {
 	dd         *doubledouble.Client
 	sources    *source.Balancer
 	dl         *download.Queue
+	guardMu    sync.Mutex // guards guard
+	guard      DownloadGuard
 	findFFmpeg func(custom string) string // a field so tests can fake it
 }
 
@@ -69,6 +72,7 @@ func (a *App) init() {
 	a.dd = doubledouble.New(filepath.Join(a.dataDir, "doubledouble-token"))
 	a.sources = source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
 	a.findFFmpeg = convert.FindFFmpeg
+	a.sources.OnLimit = a.onLimit
 	a.dl = download.NewQueue(a.fetch, downloadWorkers)
 }
 

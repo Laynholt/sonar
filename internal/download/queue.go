@@ -50,6 +50,10 @@ type Queue struct {
 	byID   map[string]*entry
 	closed bool
 	wg     sync.WaitGroup
+
+	held      bool        // workers start nothing while held
+	heldUntil time.Time   // zero = until Resume
+	holdTimer *time.Timer // auto-resume for a timed hold
 }
 
 func NewQueue(fetch Fetch, workers int) *Queue {
@@ -166,10 +170,53 @@ func (q *Queue) ClearFinished() {
 	q.order = kept
 }
 
+// Hold stops workers from starting queued items; in-flight ones finish. A zero until holds until Resume.
+func (q *Queue) Hold(until time.Time) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.releaseLocked()
+	q.held, q.heldUntil = true, until
+	if until.IsZero() {
+		return
+	}
+	var t *time.Timer
+	t = time.AfterFunc(time.Until(until), func() {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		if q.holdTimer == t { // a newer Hold or Resume replaced this one
+			q.releaseLocked()
+			q.cond.Broadcast()
+		}
+	})
+	q.holdTimer = t
+}
+
+func (q *Queue) Resume() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.releaseLocked()
+	q.cond.Broadcast()
+}
+
+func (q *Queue) HeldUntil() (held bool, until time.Time) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.held, q.heldUntil
+}
+
+func (q *Queue) releaseLocked() {
+	if q.holdTimer != nil {
+		q.holdTimer.Stop()
+		q.holdTimer = nil
+	}
+	q.held, q.heldUntil = false, time.Time{}
+}
+
 // Close cancels everything and waits for the workers.
 func (q *Queue) Close() {
 	q.mu.Lock()
 	q.closed = true
+	q.releaseLocked() // stops a pending auto-resume timer
 	q.cancelAllLocked()
 	q.cond.Broadcast()
 	q.mu.Unlock()
@@ -182,8 +229,13 @@ func (q *Queue) worker() {
 		q.mu.Lock()
 		var e *entry
 		for {
-			if e = q.takeLocked(); e != nil || q.closed {
+			if q.closed {
 				break
+			}
+			if !q.held {
+				if e = q.takeLocked(); e != nil {
+					break
+				}
 			}
 			q.cond.Wait()
 		}

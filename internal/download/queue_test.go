@@ -349,3 +349,67 @@ func TestQueueSnapshotEmptyIsNotNil(t *testing.T) {
 		t.Error("nil snapshot")
 	}
 }
+
+func TestQueueHoldAndResume(t *testing.T) {
+	f := &fakeFetch{}
+	q := newQ(t, f, 1)
+	q.Hold(time.Time{})
+	if held, until := q.HeldUntil(); !held || !until.IsZero() {
+		t.Fatalf("HeldUntil = %v, %v", held, until)
+	}
+	q.Enqueue(album, testOpts(t), tracks("A", "B"))
+	time.Sleep(100 * time.Millisecond)
+	if !allIn(Queued, "A", "B")(q.Snapshot()) || len(f.callLog()) != 0 {
+		t.Fatalf("held queue ran: %+v", q.Snapshot())
+	}
+	q.Cancel("A")
+	if find(q.Snapshot(), "A").Status != Cancelled {
+		t.Fatalf("A = %+v", find(q.Snapshot(), "A"))
+	}
+	q.Resume()
+	waitFor(t, q, allIn(Completed, "B"))
+	if held, _ := q.HeldUntil(); held {
+		t.Fatal("still held after Resume")
+	}
+
+	q.Hold(time.Now().Add(50 * time.Millisecond))
+	q.Enqueue(album, testOpts(t), tracks("C"))
+	waitFor(t, q, allIn(Completed, "C"))
+	if held, _ := q.HeldUntil(); held {
+		t.Fatal("still held after the deadline")
+	}
+}
+
+func TestQueueHoldLetsInFlightFinishAndReplacesTimer(t *testing.T) {
+	release := make(chan struct{})
+	f := &fakeFetch{fn: func(_ context.Context, id, p string) (string, error) {
+		if id == "A" {
+			<-release
+		}
+		return p + ".flac", nil
+	}}
+	q := newQ(t, f, 1)
+	q.Enqueue(album, testOpts(t), tracks("A", "B"))
+	waitFor(t, q, allIn(Downloading, "A"))
+	q.Hold(time.Now().Add(30 * time.Millisecond))
+	q.Hold(time.Time{}) // replaces the timed hold; the old timer must not lift it
+	close(release)
+	waitFor(t, q, allIn(Completed, "A"))
+	time.Sleep(100 * time.Millisecond)
+	if find(q.Snapshot(), "B").Status != Queued {
+		t.Fatalf("B = %+v; the stale timer resumed the queue", find(q.Snapshot(), "B"))
+	}
+}
+
+func TestQueueCloseWhileHeld(t *testing.T) {
+	q := NewQueue((&fakeFetch{}).fetch, 2)
+	q.Hold(time.Time{})
+	q.Enqueue(album, testOpts(t), tracks("A"))
+	done := make(chan struct{})
+	go func() { q.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close hangs while held")
+	}
+}

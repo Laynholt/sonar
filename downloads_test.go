@@ -188,3 +188,90 @@ func TestPreviewDownloadPathEmptyFormat(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// newGuardApp runs the real fetch, balancer and queue (one worker) so the OnLimit wiring is exercised.
+func newGuardApp(t *testing.T) *App {
+	t.Helper()
+	a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return "" }}
+	a.sources = source.NewBalancer(time.Minute, fakeSource("lucida"))
+	a.sources.OnLimit = a.onLimit
+	a.dl = download.NewQueue(a.fetch, 1)
+	t.Cleanup(a.dl.Close)
+	return a
+}
+
+func waitStatus(t *testing.T, a *App, want ...download.Status) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		q := a.GetDownloadQueue()
+		if len(q) == len(want) && !slices.ContainsFunc(q, func(i download.Item) bool { return i.Status == download.Downloading }) {
+			got := make([]download.Status, len(q))
+			for i, it := range q {
+				got[i] = it.Status
+			}
+			if slices.Equal(got, want) {
+				return
+			}
+		}
+	}
+	t.Fatalf("queue = %+v, want %v", a.GetDownloadQueue(), want)
+}
+
+func TestDownloadGuardFlow(t *testing.T) {
+	enqueue := func(a *App) {
+		t.Helper()
+		r := req("original", "lucida", "B00A3SGXA1", "B00A3SGXA2", "B00A3SGXA3")
+		r.Options.GuardLimit = 2
+		if err := a.DownloadTracks(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done, queued := download.Completed, download.Queued
+
+	a := newGuardApp(t)
+	enqueue(a)
+	waitStatus(t, a, done, done, queued)
+	time.Sleep(50 * time.Millisecond)
+	waitStatus(t, a, done, done, queued) // still held, not drained
+	if got, want := a.GetDownloadGuard(), (DownloadGuard{Site: "lucida", Count: 2, Asking: true}); got != want {
+		t.Fatalf("guard = %+v, want %+v", got, want)
+	}
+	a.GuardContinue()
+	waitStatus(t, a, done, done, done)
+	if got := a.GetDownloadGuard(); got != (DownloadGuard{}) {
+		t.Fatalf("guard after continue = %+v", got)
+	}
+
+	a = newGuardApp(t)
+	enqueue(a)
+	waitStatus(t, a, done, done, queued)
+	a.GuardWait()
+	g := a.GetDownloadGuard()
+	if g.Asking || g.Site != "lucida" || g.Count != 2 {
+		t.Fatalf("guard after wait = %+v", g)
+	}
+	if d := time.UnixMilli(g.PausedUntil).Sub(time.Now().Add(guardRest)); d < -time.Minute || d > time.Minute {
+		t.Fatalf("PausedUntil off by %v", d)
+	}
+	if held, _ := a.dl.HeldUntil(); !held {
+		t.Fatal("queue not held after GuardWait")
+	}
+	waitStatus(t, a, done, done, queued)
+
+	// An expired pause clears itself.
+	a.guardMu.Lock()
+	a.guard.PausedUntil = time.Now().Add(-time.Second).UnixMilli()
+	a.guardMu.Unlock()
+	if got := a.GetDownloadGuard(); got != (DownloadGuard{}) {
+		t.Fatalf("expired guard = %+v", got)
+	}
+}
+
+func TestDownloadTracksRejectsNegativeGuardLimit(t *testing.T) {
+	a, _ := newTestApp(t, "")
+	r := req("", "", "B00A3SGXAA")
+	r.Options.GuardLimit = -1
+	if err := a.DownloadTracks(r); err == nil || !strings.Contains(err.Error(), "guard limit must be 0 or more") {
+		t.Fatalf("err = %v", err)
+	}
+}
