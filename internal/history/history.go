@@ -3,6 +3,7 @@ package history
 
 import (
 	"encoding/json"
+	"errors"
 	"sort"
 	"time"
 
@@ -25,6 +26,8 @@ const (
 	// Each item carries the whole fetched JSON (a playlist can be megabytes).
 	maxItems = 200
 )
+
+var ErrNotFound = errors.New("history item not found")
 
 type DB struct{ db *bolt.DB }
 
@@ -94,9 +97,10 @@ func trim(b *bolt.Bucket) error {
 	return nil
 }
 
-// List returns items newest first.
+// List returns items newest first, without Data: the payloads are large and
+// the list is read on every Home visit. Use Data to load one.
 func (d *DB) List() ([]FetchItem, error) {
-	var items []FetchItem
+	items := []FetchItem{}
 	err := d.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b == nil {
@@ -105,6 +109,7 @@ func (d *DB) List() ([]FetchItem, error) {
 		return b.ForEach(func(_, v []byte) error {
 			var item FetchItem
 			if json.Unmarshal(v, &item) == nil {
+				item.Data = ""
 				items = append(items, item)
 			}
 			return nil
@@ -112,6 +117,27 @@ func (d *DB) List() ([]FetchItem, error) {
 	})
 	sort.Slice(items, func(i, j int) bool { return items[i].Timestamp > items[j].Timestamp })
 	return items, err
+}
+
+// Data returns the stored payload of the item with the given id.
+func (d *DB) Data(id string) (string, error) {
+	var data string
+	err := d.db.View(func(tx *bolt.Tx) error {
+		var v []byte
+		if b := tx.Bucket([]byte(bucket)); b != nil {
+			v = b.Get([]byte(id))
+		}
+		if v == nil {
+			return ErrNotFound
+		}
+		var item FetchItem
+		if err := json.Unmarshal(v, &item); err != nil {
+			return err
+		}
+		data = item.Data
+		return nil
+	})
+	return data, err
 }
 
 func (d *DB) Delete(id string) error {

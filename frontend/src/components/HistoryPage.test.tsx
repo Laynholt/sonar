@@ -33,9 +33,9 @@ describe("HistoryPage", () => {
         expect(view.container.textContent).toContain("Album One");
     });
 
-    it("opens an entry's cached data and source link when its row is clicked", async () => {
+    it("opens an entry by id and source link when its row is clicked", async () => {
         await act(async () => [...view.container.querySelectorAll("span")].find((span) => span.textContent === "Song One")!.click());
-        expect(onHistorySelect).toHaveBeenCalledWith('{"cached":"t1"}', "https://open.spotify.com/track/t1");
+        expect(onHistorySelect).toHaveBeenCalledWith("t1", "https://open.spotify.com/track/t1");
     });
 
     it("deletes without opening the entry, then reloads", async () => {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"sonar/internal/history"
 	"sonar/internal/httpx"
 )
 
@@ -50,5 +51,35 @@ func TestLoadSettingsEmptyIsNotNil(t *testing.T) {
 	s, err := (&App{dataDir: t.TempDir()}).LoadSettings()
 	if err != nil || s == nil || len(s) != 0 {
 		t.Fatalf("got %#v, %v; want empty non-nil map", s, err)
+	}
+}
+
+func TestInitOpensHistoryAndAppliesSavedProxy(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(func() { httpx.SetManualProxy("") })
+	if err := (&App{dataDir: dir}).SaveSettings(map[string]any{"proxy": "http://saved:9"}); err != nil {
+		t.Fatal(err)
+	}
+	httpx.SetManualProxy("")
+	a := &App{dataDir: dir}
+	a.init()
+	t.Cleanup(func() { a.shutdown(nil) })
+	if a.hist == nil {
+		t.Fatal("history not opened")
+	}
+	if got := httpx.ManualProxy(); got != "http://saved:9" {
+		t.Fatalf("manual proxy = %q", got)
+	}
+	if err := a.AddFetchHistory(history.FetchItem{Type: "track", URL: "u", Data: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := a.GetFetchHistory(); len(items) != 1 || items[0].Data != "" {
+		t.Fatalf("list = %+v", items)
+	}
+	if d, err := a.GetFetchHistoryData("track|u"); err != nil || d != "{}" {
+		t.Fatalf("data = %q, %v", d, err)
+	}
+	if _, err := a.GetFetchHistoryData("track|nope"); err == nil {
+		t.Fatal("want error for unknown id")
 	}
 }

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MetadataResponse } from "@/types/api";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
-import { GetFetchHistory } from "../wailsjs/go/main/App";
+import { GetFetchHistory, GetFetchHistoryData } from "../wailsjs/go/main/App";
 
 const playlist: MetadataResponse = {
     service: "spotify",
@@ -16,7 +16,7 @@ const playlist: MetadataResponse = {
 };
 
 vi.mock("@/lib/api", () => ({ fetchMetadata: vi.fn().mockResolvedValue(playlist) }));
-vi.mock("../wailsjs/go/main/App", () => ({ AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), DeleteFetchHistoryItem: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
+vi.mock("../wailsjs/go/main/App", () => ({ AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), GetFetchHistoryData: vi.fn(), DeleteFetchHistoryItem: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
 vi.mock("../wailsjs/runtime/runtime", () => ({ Environment: vi.fn().mockResolvedValue({ platform: "windows" }), WindowMinimise: vi.fn(), WindowToggleMaximise: vi.fn(), Quit: vi.fn(), BrowserOpenURL: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
@@ -60,12 +60,14 @@ describe("App main page", () => {
     });
 
     it("lists a saved fetch under Recent Fetches and reopens it without a network call", async () => {
-        vi.mocked(GetFetchHistory).mockResolvedValue([{ id: "h1", url: "https://open.spotify.com/playlist/x", type: "playlist", name: "Mix", info: "60 tracks", image: "", data: JSON.stringify(playlist), timestamp: 1 }]);
+        vi.mocked(GetFetchHistory).mockResolvedValue([{ id: "h1", url: "https://open.spotify.com/playlist/x", type: "playlist", name: "Mix", info: "60 tracks", image: "", data: "", timestamp: 1 }]);
+        vi.mocked(GetFetchHistoryData).mockResolvedValue(JSON.stringify(playlist));
         await mountApp();
         expect(container!.textContent).toContain("Recent Fetch");
 
         await act(async () => { container!.querySelector<HTMLElement>("[title='Mix']")!.click(); });
 
+        expect(GetFetchHistoryData).toHaveBeenCalledWith("h1");
         expect(container!.textContent).toContain("Song 1");
         expect((await import("@/lib/api")).fetchMetadata).not.toHaveBeenCalled();
         expect((container!.querySelector("#spotify-url") as HTMLInputElement).value).toBe("https://open.spotify.com/playlist/x");

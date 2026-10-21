@@ -2,6 +2,7 @@ package history
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -116,5 +117,25 @@ func TestAddKeepsNewestMaxItems(t *testing.T) {
 		if it.URL == "u0" {
 			t.Fatal("oldest entry survived")
 		}
+	}
+}
+
+func TestListOmitsDataAndDataReturnsIt(t *testing.T) {
+	db := open(t)
+	if items, err := db.List(); err != nil || items == nil || len(items) != 0 {
+		t.Fatalf("empty list = %#v, %v; want empty non-nil", items, err)
+	}
+	if err := db.Add(FetchItem{Type: "album", URL: "u", Name: "n", Data: `{"big":1}`}); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := db.List()
+	if len(items) != 1 || items[0].Data != "" || items[0].Name != "n" {
+		t.Fatalf("list = %+v", items)
+	}
+	if got, err := db.Data("album|u"); err != nil || got != `{"big":1}` {
+		t.Fatalf("Data = %q, %v", got, err)
+	}
+	if _, err := db.Data("album|missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown id: err = %v", err)
 	}
 }

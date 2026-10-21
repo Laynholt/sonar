@@ -25,16 +25,19 @@ type App struct {
 
 var errNoHistory = errors.New("history is unavailable")
 
+// NewApp opens history and applies the saved proxy before wails.Run: Wails calls
+// OnStartup concurrently with the frontend, whose first calls need both.
 func NewApp() (*App, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return nil, err
 	}
-	return &App{dataDir: filepath.Join(dir, "sonar")}, nil
+	a := &App{dataDir: filepath.Join(dir, "sonar")}
+	a.init()
+	return a, nil
 }
 
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
+func (a *App) init() {
 	if err := os.MkdirAll(a.dataDir, 0o755); err != nil {
 		log.Printf("data dir: %v", err)
 	}
@@ -53,6 +56,8 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("saved proxy: %v", err)
 	}
 }
+
+func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
 func (a *App) shutdown(context.Context) {
 	if a.hist != nil {
@@ -178,6 +183,14 @@ func (a *App) GetFetchHistory() ([]history.FetchItem, error) {
 		return nil, errNoHistory
 	}
 	return a.hist.List()
+}
+
+// GetFetchHistoryData returns the cached payload of one history item.
+func (a *App) GetFetchHistoryData(id string) (string, error) {
+	if a.hist == nil {
+		return "", errNoHistory
+	}
+	return a.hist.Data(id)
 }
 
 func (a *App) AddFetchHistory(item history.FetchItem) error {

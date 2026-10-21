@@ -21,7 +21,7 @@ import { ArtistInfo } from "@/components/ArtistInfo";
 import { useMetadata } from "@/hooks/useMetadata";
 import { extractArtistID } from "@/lib/spotify-url";
 import { errorMessage } from "@/lib/utils";
-import { DeleteFetchHistoryItem, GetFetchHistory } from "../wailsjs/go/main/App";
+import { DeleteFetchHistoryItem, GetFetchHistory, GetFetchHistoryData } from "../wailsjs/go/main/App";
 import type { history } from "../wailsjs/go/models";
 import type { TrackMetadata } from "@/types/api";
 
@@ -111,6 +111,15 @@ function App() {
         metadata.loadFromCache(data, sourceUrl);
         setCurrentPage("main");
     };
+    // The history list carries no payloads; load the one being opened.
+    const openHistoryItem = async (id: string, sourceUrl: string) => {
+        try {
+            openCached(await GetFetchHistoryData(id), sourceUrl);
+        }
+        catch (err) {
+            toast.error(errorMessage(err, "Could not open history entry"));
+        }
+    };
     const loaded = metadata.loadedMetadata;
     useEffect(() => {
         setSearchQuery("");
@@ -147,8 +156,8 @@ function App() {
             onTrackClick: openTrack, onArtistClick: openArtist, onBack: metadata.resetMetadata,
         };
         if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata}/>;
-        if ("album_info" in data) return <AlbumInfo service={data.service} sourceUrl={sourceUrl} albumInfo={data.album_info} trackList={data.track_list} {...list}/>;
-        if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={metadata.handleAlbumClick} {...list}/>;
+        if ("album_info" in data) return <AlbumInfo service={data.service} sourceUrl={data.album_info.external_urls || sourceUrl} albumInfo={data.album_info} trackList={data.track_list} {...list}/>;
+        if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={data.playlist_info.external_urls || sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={metadata.handleAlbumClick} {...list}/>;
         return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={metadata.handleAlbumClick} {...list}/>;
     };
     const renderPage = () => {
@@ -160,11 +169,11 @@ function App() {
             case "about":
                 return <AboutPage />;
             case "history":
-                return <HistoryPage onHistorySelect={openCached}/>;
+                return <HistoryPage onHistorySelect={openHistoryItem}/>;
             default:
                 return (<>
                     <Header />
-                    <SearchBar url={spotifyUrl} loading={metadata.loading} onUrlChange={setSpotifyUrl} onFetch={() => fetchUrl(spotifyUrl)} onFetchUrl={fetchUrl} history={recentFetches} onHistorySelect={(item) => openCached(item.data, item.url)} onHistoryRemove={(id) => void removeRecentFetch(id)} hasResult={!!loaded} searchMode={isSearchMode} onSearchModeChange={setIsSearchMode}/>
+                    <SearchBar url={spotifyUrl} loading={metadata.loading} onUrlChange={setSpotifyUrl} onFetch={() => fetchUrl(spotifyUrl)} onFetchUrl={fetchUrl} history={recentFetches} onHistorySelect={(item) => void openHistoryItem(item.id, item.url)} onHistoryRemove={(id) => void removeRecentFetch(id)} hasResult={!!loaded} searchMode={isSearchMode} onSearchModeChange={setIsSearchMode}/>
                     {!isSearchMode && renderMetadata()}
                 </>);
         }

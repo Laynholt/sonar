@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Trash2, Search, Database, CloudUpload, Music2, Disc3, ListMusic, UserRound } from "lucide-react";
+import { Trash2, Search, Database, FolderOpen, Music2, Disc3, ListMusic, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -21,7 +21,7 @@ const formatDate = (timestamp: number) => {
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 interface HistoryPageProps {
-    onHistorySelect: (cachedData: string, sourceUrl: string) => void;
+    onHistorySelect: (id: string, sourceUrl: string) => void;
 }
 const ITEMS_PER_PAGE = 50;
 const TYPE_TABS = [
@@ -167,7 +167,7 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {paginated.map((item, index) => (<tr key={item.id} className="border-b transition-colors hover:bg-muted/50 cursor-pointer" onClick={() => onHistorySelect(item.data, item.url)}>
+                                {paginated.map((item, index) => (<tr key={item.id} className="border-b transition-colors hover:bg-muted/50 cursor-pointer" onClick={() => onHistorySelect(item.id, item.url)}>
                                         <td className="p-3 align-middle text-sm text-muted-foreground text-left font-mono">
                                             {startIndex + index + 1}
                                         </td>
@@ -194,8 +194,8 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
                                             <div className="flex items-center justify-center gap-1">
                                                 <Tooltip delayDuration={0}>
                                                     <TooltipTrigger asChild>
-                                                        <Button variant="ghost" size="icon" aria-label="Load" className="h-8 w-8 cursor-pointer" onClick={() => onHistorySelect(item.data, item.url)}>
-                                                            <CloudUpload className="h-4 w-4"/>
+                                                        <Button variant="ghost" size="icon" aria-label="Load" className="h-8 w-8 cursor-pointer" onClick={() => onHistorySelect(item.id, item.url)}>
+                                                            <FolderOpen className="h-4 w-4"/>
                                                         </Button>
                                                     </TooltipTrigger>
                                                     <TooltipContent>
