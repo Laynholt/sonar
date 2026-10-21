@@ -3,6 +3,7 @@ module sonar
 go 1.27.0
 
 require (
+	github.com/pquerna/otp v1.5.0
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/sys v0.49.0
 )
@@ -21,6 +22,7 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/charmbracelet/glamour v0.8.0 // indirect
 	github.com/charmbracelet/lipgloss v0.12.1 // indirect
 	github.com/charmbracelet/x/ansi v0.1.4 // indirect
