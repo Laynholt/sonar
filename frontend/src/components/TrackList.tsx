@@ -116,6 +116,8 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
             return plays;
         return num.toLocaleString(language);
     };
+    // Amazon exposes no play counts; an always-empty column is noise.
+    const hasPlays = tracks.some((track) => track.plays);
     return (<div className="space-y-4">
     <div className="rounded-md border">
       <div className="overflow-x-auto">
@@ -135,9 +137,9 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell w-36 truncate" title={t("track.duration")}>
                 {t("track.duration")}
               </th>
-              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell w-40 truncate" title={t("track.plays")}>
+              {hasPlays && (<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell w-40 truncate" title={t("track.plays")}>
                 {t("track.plays")}
-              </th>
+              </th>)}
               <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground w-32 truncate">
                 {t("table.actions")}
               </th>
@@ -180,9 +182,9 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               <td className="p-4 align-middle text-sm text-muted-foreground hidden lg:table-cell">
                 {formatDuration(track.duration_ms)}
               </td>
-              <td className="p-4 align-middle text-sm text-muted-foreground hidden xl:table-cell">
+              {hasPlays && (<td className="p-4 align-middle text-sm text-muted-foreground hidden xl:table-cell">
                 {track.plays ? formatPlays(track.plays) : ""}
-              </td>
+              </td>)}
               <td className="p-4 align-middle text-center">
                 <div className="flex items-center justify-center gap-1">
                   {track.external_urls && (<Tooltip>

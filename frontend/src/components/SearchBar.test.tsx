@@ -148,6 +148,17 @@ describe("search request lifecycle", () => {
     });
 });
 
+describe("search rows", () => {
+    it("hides a zero duration instead of showing 0:00", async () => {
+        const hit = result("Hit");
+        hit.duration_ms = 0;
+        vi.mocked(SearchSpotify).mockResolvedValue(new model.SearchResponse({ tracks: [hit], albums: [], artists: [], playlists: [] }));
+        await start("hit");
+        expect(view.container.textContent).toContain("Hit");
+        expect(view.container.textContent).not.toContain("0:00");
+    });
+});
+
 describe("modes and recent fetches", () => {
     const item = (id: string, name: string): history.FetchItem => ({ id, url: `https://open.spotify.com/track/${id}`, type: "track", name, info: "Some Artist", image: "", data: "{}", timestamp: 1 });
     const placeholder = () => view.container.querySelector("input")!.placeholder;
@@ -155,7 +166,19 @@ describe("modes and recent fetches", () => {
     it("uses the link prompt in link mode and an example query in search mode", async () => {
         expect(placeholder()).toBe("Golden");
         await view.render(<TooltipProvider><SearchBar {...props} searchMode={false}/></TooltipProvider>);
-        expect(placeholder()).toBe("Paste a Spotify link");
+        expect(placeholder()).toBe("Paste a Spotify / Amazon Music link");
+    });
+
+    it.each([
+        ["https://music.amazon.com/albums/B00A3SGWYC", true],
+        ["https://open.spotify.com/track/1", true],
+        ["https://example.com/x", false],
+    ])("validates %s on Enter in link mode", async (link, accepted) => {
+        const onFetch = vi.fn();
+        await view.render(<TooltipProvider><SearchBar {...props} searchMode={false} url={link} onFetch={onFetch}/></TooltipProvider>);
+        await act(async () => view.container.querySelector("#spotify-url")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+        expect(onFetch).toHaveBeenCalledTimes(accepted ? 1 : 0);
+        expect(document.body.textContent?.includes("Only Spotify / Amazon Music links")).toBe(!accepted);
     });
 
     it("lists recent fetches in link mode and routes select and remove", async () => {

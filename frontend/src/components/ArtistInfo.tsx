@@ -80,9 +80,9 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                           <span>{t("artist.rank", { rank: artistInfo.rank })}</span>
                           <span>•</span>
                         </>)}
-                      <span>{t("count.followers", { count: artistInfo.followers })}</span>
-                      {artistInfo.listeners && (<>
-                          <span>•</span>
+                      {artistInfo.followers > 0 && (<span>{t("count.followers", { count: artistInfo.followers })}</span>)}
+                      {!!artistInfo.listeners && (<>
+                          {artistInfo.followers > 0 && (<span>•</span>)}
                           <span>{t("count.listeners", { count: artistInfo.listeners })}</span>
                         </>)}
                     </div>
@@ -124,9 +124,9 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                     <span>{t("artist.rank", { rank: artistInfo.rank })}</span>
                     <span>•</span>
                   </>)}
-                <span>{t("count.followers", { count: artistInfo.followers })}</span>
-                {artistInfo.listeners && (<>
-                    <span>•</span>
+                {artistInfo.followers > 0 && (<span>{t("count.followers", { count: artistInfo.followers })}</span>)}
+                {!!artistInfo.listeners && (<>
+                    {artistInfo.followers > 0 && (<span>•</span>)}
                     <span>{t("count.listeners", { count: artistInfo.listeners })}</span>
                   </>)}
               </div>
@@ -186,7 +186,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                 <h4 className="font-semibold truncate text-sm">{album.name}</h4>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                     <span>{album.release_date?.split("-")[0]}</span>
-                    {album.total_tracks && (<>
+                    {!!album.total_tracks && (<>
                             <span>•</span>
                             <span>{t("count.tracks", { count: album.total_tracks })}</span>
                         </>)}

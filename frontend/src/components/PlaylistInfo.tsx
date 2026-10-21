@@ -88,8 +88,10 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
                   <span>
                     {t("count.tracks", { count: playlistInfo.tracks.total })}
                   </span>
-                  <span>•</span>
-                  <span>{t("count.followers", { count: playlistInfo.followers.total })}</span>
+                  {playlistInfo.followers.total > 0 && (<>
+                      <span>•</span>
+                      <span>{t("count.followers", { count: playlistInfo.followers.total })}</span>
+                    </>)}
                 </div>
               </div>
               <div className="flex gap-2">

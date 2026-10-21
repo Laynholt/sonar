@@ -163,9 +163,8 @@ function App() {
         return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("mouseup", onMouseUp); };
     });
     const openArtist = (artist: { id: string; external_urls: string }) => {
-        if (loaded?.data.service !== "spotify") {
-            // Stage 2 wires the other services; follow the artist's own link if there is one.
-            if (artist.external_urls) void chainFetch(artist.external_urls);
+        if (loaded?.data.service === "amazon") {
+            void chainFetch(artist.external_urls || `https://music.amazon.com/artists/${artist.id}`);
             return;
         }
         const artistID = extractArtistID(artist.id) || extractArtistID(artist.external_urls || "");

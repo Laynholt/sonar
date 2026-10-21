@@ -52,6 +52,11 @@ describe("TrackList", () => {
         expect(markup).toContain((1234567).toLocaleString("en"));
     });
 
+    it("shows the plays column only when some track has plays", () => {
+        expect(render([makeTrack(1), makeTrack(2)])).not.toContain(">Plays<");
+        expect(render([makeTrack(1), makeTrack(2, { plays: "5" })])).toContain(">Plays<");
+    });
+
     it("filters by search query across title, artist and album", () => {
         const tracks = [makeTrack(1), makeTrack(2, { artists: "Needle" }), makeTrack(3, { album_name: "needle album" })];
 

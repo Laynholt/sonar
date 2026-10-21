@@ -4,7 +4,7 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
 import { errorMessage } from "@/lib/utils";
 import { t } from "@/lib/i18n";
-import { serviceLabels } from "@/components/ServiceBadge";
+import { linkServices } from "@/components/ServiceBadge";
 import { extractArtistID } from "@/lib/spotify-url";
 import { AddFetchHistory } from "../../wailsjs/go/main/App";
 import type { MetadataResponse } from "@/types/api";
@@ -171,7 +171,7 @@ export function useMetadata() {
         if (!url.trim()) {
             setLoading(false);
             logger.warning("empty url provided");
-            toast.error(t("meta.enterUrl", { service: serviceLabels.spotify }));
+            toast.error(t("meta.enterUrl", { service: linkServices }));
             return;
         }
         let urlToFetch = url.trim();

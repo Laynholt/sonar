@@ -11,13 +11,16 @@ import { model } from "../../wailsjs/go/models";
 import { cn, errorMessage } from "@/lib/utils";
 import { useTypingEffect } from "@/hooks/useTypingEffect";
 import { t as translate, useI18n } from "@/lib/i18n";
-import { serviceLabels } from "@/components/ServiceBadge";
+import { linkServices, serviceLabels } from "@/components/ServiceBadge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 const FETCH_LINKS = [
     "https://open.spotify.com/track/...",
     "https://open.spotify.com/album/...",
     "https://open.spotify.com/playlist/...",
-    "https://open.spotify.com/artist/..."
+    "https://open.spotify.com/artist/...",
+    "https://music.amazon.com/albums/...",
+    "https://music.amazon.com/playlists/...",
+    "https://music.amazon.com/artists/..."
 ];
 const service = serviceLabels.spotify;
 const SEARCH_PLACEHOLDERS = [
@@ -81,7 +84,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
     }, []);
     const isSearching = searchStatus === "loading" || searchStatus === "debouncing";
     // Stable between renders: useTypingEffect restarts whenever the array changes.
-    const placeholders = useMemo(() => searchMode ? SEARCH_PLACEHOLDERS : [translate("search.paste", { service }), ...FETCH_LINKS], [searchMode, language]);
+    const placeholders = useMemo(() => searchMode ? SEARCH_PLACEHOLDERS : [translate("search.paste", { service: linkServices }), ...FETCH_LINKS], [searchMode, language]);
     const placeholderText = useTypingEffect(placeholders);
     useEffect(() => {
         try {
@@ -249,7 +252,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             if (isCurrent()) setIsLoadingMore(false);
         }
     };
-    const isSpotifyUrl = (text: string) => {
+    const isSupportedUrl = (text: string) => {
         const trimmed = text.trim();
         if (!trimmed)
             return true;
@@ -257,6 +260,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         if (!isUrl)
             return true;
         return trimmed.includes("spotify.com") ||
+            /^(https?:\/\/|www\.)[^/]*music\.amazon\./i.test(trimmed) ||
             trimmed.includes("spotify.link") ||
             trimmed.startsWith("spotify:");
     };
@@ -264,14 +268,14 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         if (searchMode)
             return;
         const pastedText = e.clipboardData.getData("text");
-        if (pastedText && !isSpotifyUrl(pastedText)) {
+        if (pastedText && !isSupportedUrl(pastedText)) {
             e.preventDefault();
             setInvalidUrl(pastedText);
             setShowInvalidUrlDialog(true);
         }
     };
     const handleFetchWithValidation = () => {
-        if (!isSpotifyUrl(url)) {
+        if (!isSupportedUrl(url)) {
             setInvalidUrl(url);
             setShowInvalidUrlDialog(true);
             return;
@@ -411,9 +415,9 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                                     {track.artists}
                                                 </p>
                                             </div>
-                                            <span className="text-sm text-muted-foreground shrink-0">
-                                                {formatDuration(track.duration_ms || 0)}
-                                            </span>
+                                            {!!track.duration_ms && (<span className="text-sm text-muted-foreground shrink-0">
+                                                {formatDuration(track.duration_ms)}
+                                            </span>)}
                                         </button>))}
 
                                 {activeTab === "albums" &&
@@ -471,7 +475,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                     <DialogHeader>
                         <DialogTitle>{t("search.invalidTitle")}</DialogTitle>
                         <DialogDescription>
-                            {t("search.invalidBody", { service })}
+                            {t("search.invalidBody", { service: linkServices })}
                         </DialogDescription>
                     </DialogHeader>
 
