@@ -18,3 +18,9 @@ export function openExternal(url: string) {
         }
     }
 }
+
+// Wails rejects bindings with a plain string, not an Error.
+export function errorMessage(err: unknown, fallback: string): string {
+    if (err instanceof Error) return err.message;
+    return typeof err === "string" && err ? err : fallback;
+}

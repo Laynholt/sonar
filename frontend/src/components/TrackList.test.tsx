@@ -68,8 +68,14 @@ describe("TrackList", () => {
         expect(render(tracks)).not.toContain('aria-label="Go to next page"');
     });
 
-    it("links each row to its Spotify page", () => {
-        expect(render([makeTrack(1)])).toContain('aria-label="Open in Spotify"');
+    it("labels the open link and gates previews by the track's service", () => {
+        const spotify = render([makeTrack(1)]);
+        const amazon = render([makeTrack(1, { service: "amazon" })]);
+
+        expect(spotify).toContain('aria-label="Open in Spotify"');
+        expect(spotify).toContain('aria-label="Play preview"');
+        expect(amazon).toContain('aria-label="Open in Amazon Music"');
+        expect(amazon).not.toContain("Play preview");
     });
 
     it("shows no download controls", () => {

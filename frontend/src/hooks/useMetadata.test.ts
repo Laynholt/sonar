@@ -264,6 +264,16 @@ describe("useMetadata async source identity", () => {
         expect(doubles.toastError).toHaveBeenCalledWith("B failed");
     });
 
+    it("shows the text of a bare-string rejection from Go", async () => {
+        const regionBlock = "Spotify is not available from your network region (HTTP 451). Turn on a VPN or set a proxy in Settings.";
+        doubles.fetchMetadata.mockRejectedValue(regionBlock);
+
+        const hook = MetadataHookHarness();
+        await hook.handleFetchMetadata(urlA);
+
+        expect(doubles.toastError).toHaveBeenCalledWith(regionBlock);
+    });
+
     it("retains the prior successful pair when a current album request fails", async () => {
         const metadataA = playlistMetadata("Collection A");
         const albumUrl = "https://open.spotify.com/album/b";

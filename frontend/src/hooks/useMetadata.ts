@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { fetchMetadata } from "@/lib/api";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
+import { errorMessage } from "@/lib/utils";
 import { extractArtistID } from "@/lib/spotify-url";
 import { AddFetchHistory } from "../../wailsjs/go/main/App";
 import type { LoadedMetadata, MetadataResponse } from "@/types/api";
@@ -144,7 +145,7 @@ export function useMetadata() {
         }
         catch (err) {
             if (!isCurrentGeneration(generation)) return;
-            const errorMsg = err instanceof Error ? err.message : "Failed to fetch metadata";
+            const errorMsg = errorMessage(err, "Failed to fetch metadata");
             logger.error(`fetch failed: ${errorMsg}`);
             toast.error(errorMsg);
         }
@@ -243,7 +244,7 @@ export function useMetadata() {
         }
         catch (err) {
             if (!isCurrentGeneration(generation)) return;
-            const errorMsg = err instanceof Error ? err.message : "Failed to fetch album metadata";
+            const errorMsg = errorMessage(err, "Failed to fetch album metadata");
             logger.error(`fetch failed: ${errorMsg}`);
             toast.error(errorMsg);
         }

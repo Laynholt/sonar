@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ExternalLink, XCircle } from "lucide-react";
 import { SearchAndSort } from "./SearchAndSort";
 import { TrackList } from "./TrackList";
-import { ServiceBadge } from "./ServiceBadge";
+import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
 interface PlaylistInfoProps {
@@ -100,7 +100,7 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
               <div className="flex gap-2">
                 <Button onClick={() => openExternal(sourceUrl)} variant="outline">
                   <ExternalLink className="h-4 w-4"/>
-                  Open in Spotify
+                  Open in {serviceLabels[service]}
                 </Button>
               </div>
             </div>

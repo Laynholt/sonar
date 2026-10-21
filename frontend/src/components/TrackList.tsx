@@ -6,6 +6,7 @@ import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, Pagi
 import type { TrackMetadata } from "@/types/api";
 import { usePreview } from "@/hooks/usePreview";
 import { openExternal } from "@/lib/utils";
+import { serviceLabels } from "./ServiceBadge";
 interface TrackListProps {
     tracks: TrackMetadata[];
     searchQuery: string;
@@ -222,17 +223,17 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
                 <div className="flex items-center justify-center gap-1">
                   {track.external_urls && (<Tooltip>
                     <TooltipTrigger asChild>
-                      <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label="Open in Spotify">
+                      <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label={`Open in ${serviceLabels[track.service]}`}>
                         <ExternalLink className="h-4 w-4"/>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Open in Spotify</p>
+                      <p>Open in {serviceLabels[track.service]}</p>
                     </TooltipContent>
                   </Tooltip>)}
-                  {track.id && (<Tooltip>
+                  {track.service === "spotify" && track.id && (<Tooltip>
                     <TooltipTrigger asChild>
-                      <Button onClick={() => playPreview(track.id!, track.name)} size="icon" variant="outline" disabled={loadingPreview === track.id}>
+                      <Button onClick={() => playPreview(track.id!, track.name)} size="icon" variant="outline" aria-label={playingTrack === track.id ? "Stop preview" : "Play preview"} disabled={loadingPreview === track.id}>
                         {loadingPreview === track.id ? (<Spinner />) : playingTrack === track.id ? (<Pause className="h-4 w-4"/>) : (<Play className="h-4 w-4"/>)}
                       </Button>
                     </TooltipTrigger>

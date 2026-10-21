@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { TrackMetadata } from "@/types/api";
 import { usePreview } from "@/hooks/usePreview";
 import { openExternal } from "@/lib/utils";
-import { ServiceBadge } from "./ServiceBadge";
+import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 interface TrackInfoProps {
     track: TrackMetadata & {
         album_name: string;
@@ -79,9 +79,9 @@ export function TrackInfo({ track, onBack, }: TrackInfoProps) {
           <div className="flex gap-2">
             <Button onClick={() => openExternal(track.external_urls)} variant="outline">
               <ExternalLink className="h-4 w-4"/>
-              Open in Spotify
+              Open in {serviceLabels[track.service]}
             </Button>
-            {track.id && (<Tooltip>
+            {track.service === "spotify" && track.id && (<Tooltip>
               <TooltipTrigger asChild>
                 <Button onClick={() => playPreview(track.id!, track.name)} variant="outline" size="icon" aria-label={playingTrack === track.id ? "Stop preview" : "Play preview"} disabled={loadingPreview === track.id}>
                   {loadingPreview === track.id ? (<Spinner />) : playingTrack === track.id ? (<Pause className="h-4 w-4"/>) : (<Play className="h-4 w-4"/>)}

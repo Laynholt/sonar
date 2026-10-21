@@ -93,6 +93,11 @@ function App() {
         if (fetched) setSpotifyUrl(fetched);
     };
     const openArtist = (artist: { id: string; external_urls: string }) => {
+        if (loaded?.data.service !== "spotify") {
+            // Stage 2 wires the other services; follow the artist's own link if there is one.
+            if (artist.external_urls) void fetchUrl(artist.external_urls);
+            return;
+        }
         const artistID = extractArtistID(artist.id) || extractArtistID(artist.external_urls || "");
         if (!artistID) {
             toast.error("Failed to open artist");
@@ -108,7 +113,7 @@ function App() {
         const { data, sourceUrl } = loaded;
         const list = {
             searchQuery, sortBy, currentPage: trackPage, itemsPerPage: ITEMS_PER_PAGE,
-            onSearchChange: setSearchQuery, onSortChange: setSortBy, onPageChange: setTrackPage,
+            onSearchChange: (value: string) => { setSearchQuery(value); setTrackPage(1); }, onSortChange: setSortBy, onPageChange: setTrackPage,
             onTrackClick: openTrack, onArtistClick: openArtist, onBack: metadata.resetMetadata,
         };
         if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata}/>;

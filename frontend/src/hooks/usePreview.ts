@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { GetPreviewURL } from "@/../wailsjs/go/main/App";
-import { toast } from "sonner";
+import { toastWithSound as toast } from "@/lib/toast-with-sound";
+import { errorMessage } from "@/lib/utils";
 export function usePreview() {
     const [loadingPreview, setLoadingPreview] = useState<string | null>(null);
     const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -61,7 +62,7 @@ export function usePreview() {
         catch (error) {
             console.error("Preview error:", error);
             toast.error("Preview not available", {
-                description: error instanceof Error ? error.message : `Could not load preview for "${trackName}"`,
+                description: errorMessage(error, `Could not load preview for "${trackName}"`),
             });
             setLoadingPreview(null);
             setPlayingTrack(null);

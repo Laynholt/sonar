@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { BadgeCheck, ExternalLink, XCircle } from "lucide-react";
 import { SearchAndSort } from "./SearchAndSort";
 import { TrackList } from "./TrackList";
-import { ServiceBadge } from "./ServiceBadge";
+import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
 import { useState } from "react";
@@ -57,7 +57,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
     return (<div className="space-y-6">
       <Card className="overflow-hidden p-0 relative">
         {artistInfo.header ? (<>
-            <div className="relative w-full h-64 bg-cover bg-center">
+            <div className="relative w-full min-h-64 bg-cover bg-center">
               <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${artistInfo.header})` }}/>
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"/>
               {onBack && (<div className="absolute top-4 right-4 z-10">
@@ -98,7 +98,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                     </div>
                     <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline" className="bg-white/10 hover:bg-white/20 text-white border-white/20">
                       <ExternalLink className="h-4 w-4"/>
-                      Open in Spotify
+                      Open in {serviceLabels[service]}
                     </Button>
                   </div>
                 </div>
@@ -142,7 +142,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
               </div>
               <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline">
                       <ExternalLink className="h-4 w-4"/>
-                      Open in Spotify
+                      Open in {serviceLabels[service]}
                     </Button>
             </div>
           </div>
