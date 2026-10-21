@@ -2,6 +2,7 @@
 package doubledouble
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -121,12 +122,13 @@ type startAnswer struct {
 }
 
 type pollAnswer struct {
-	Status         string   `json:"status"`
-	FriendlyStatus string   `json:"friendlyStatus"`
-	Percent        *float64 `json:"percent"`
-	URL            string   `json:"url"`
-	Message        string   `json:"message"`
-	Kickback       bool     `json:"kickback"`
+	Status         string `json:"status"`
+	FriendlyStatus string `json:"friendlyStatus"`
+	Percent        any    `json:"percent"`
+	Error          string `json:"error"`
+	URL            string `json:"url"`
+	Message        string `json:"message"`
+	Kickback       bool   `json:"kickback"`
 }
 
 // start asks the site to prepare the track and returns the job id.
@@ -185,12 +187,16 @@ func (c *Client) wait(ctx context.Context, id string, onStatus func(string)) (fi
 			}
 			return "", false, fmt.Errorf("doubledouble: %s", a.Message)
 		}
+		if a.Status == "" { // e.g. {"success":false,"error":"job not found"}
+			m := cmp.Or(a.Error, a.Message, "unexpected poll answer")
+			return "", false, fmt.Errorf("doubledouble: %s", m)
+		}
 		msg := a.FriendlyStatus
 		if msg == "" {
 			msg = a.Status
 		}
-		if a.Percent != nil {
-			msg += fmt.Sprintf(" (%.0f%%)", math.Round(*a.Percent))
+		if p, ok := a.Percent.(float64); ok { // the site may send a string
+			msg += fmt.Sprintf(" (%.0f%%)", math.Round(p))
 		}
 		onStatus(msg)
 		select {

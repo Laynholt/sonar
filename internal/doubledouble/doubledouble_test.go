@@ -212,3 +212,42 @@ func TestSetTokenEmptyRemoves(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDownloadPollUnknownJob(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"success":true,"id":"x"}`)) })
+	mux.HandleFunc("/dl/x", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"success":false,"error":"job not found"}`))
+	})
+	c, base := newClient(t, mux, "t1")
+	c.PollEvery = time.Hour // a poll loop would hang here
+	_, err := c.Download(context.Background(), trackURL, base, nil)
+	if err == nil || !strings.Contains(err.Error(), "job not found") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestDownloadStringPercent(t *testing.T) {
+	var polls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"success":true,"id":"x"}`)) })
+	mux.HandleFunc("/dl/x", func(w http.ResponseWriter, r *http.Request) {
+		if polls.Add(1) == 1 {
+			w.Write([]byte(`{"status":"uploading","friendlyStatus":"Packing","percent":"42%"}`))
+			return
+		}
+		w.Write([]byte(`{"status":"done","url":"./f.mp3"}`))
+	})
+	mux.HandleFunc("/f.mp3", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Write([]byte("id3"))
+	})
+	c, base := newClient(t, mux, "t1")
+	var seen []string
+	if _, err := c.Download(context.Background(), trackURL, base, func(s string) { seen = append(seen, s) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 || seen[0] != "Packing" {
+		t.Errorf("statuses %q", seen)
+	}
+}
