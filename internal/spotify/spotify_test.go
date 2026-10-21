@@ -75,6 +75,44 @@ func TestFormatAlbumSetsServiceAndIDs(t *testing.T) {
 	}
 }
 
+func TestFormatTrackLinks(t *testing.T) {
+	var tr apiTrackResponse
+	const raw = `{"id":"4PTG3Z6ehGkBFwjybzWkR8","name":"T","artists":"A, B",
+		"album":{"id":"6N9PS4QXF1D0OWPk0Sxtb4","name":"Al"},
+		"artistRefs":[{"id":"1111111111111111111111","name":"A"},{"id":"","name":"No id"},{"id":"2222222222222222222222","name":"B"}]}`
+	if err := json.Unmarshal([]byte(raw), &tr); err != nil {
+		t.Fatal(err)
+	}
+	got := (&metadataClient{}).formatTrackData(&tr).Track
+	if got.AlbumID != "6N9PS4QXF1D0OWPk0Sxtb4" || got.AlbumURL != "https://open.spotify.com/album/6N9PS4QXF1D0OWPk0Sxtb4" {
+		t.Errorf("album link: %q %q", got.AlbumID, got.AlbumURL)
+	}
+	if got.ArtistID != "1111111111111111111111" || got.ArtistURL != "https://open.spotify.com/artist/1111111111111111111111" {
+		t.Errorf("artist link: %q %q", got.ArtistID, got.ArtistURL)
+	}
+	if len(got.ArtistsData) != 2 || got.ArtistsData[1].Name != "B" ||
+		got.ArtistsData[1].ExternalURL != "https://open.spotify.com/artist/2222222222222222222222" {
+		t.Errorf("artists_data: %+v", got.ArtistsData)
+	}
+	tr.Album.ID = ""
+	if got := (&metadataClient{}).formatTrackData(&tr).Track; got.AlbumID != "" || got.AlbumURL != "" {
+		t.Errorf("album link without id: %q %q", got.AlbumID, got.AlbumURL)
+	}
+}
+
+func TestFilterTrackArtistIDs(t *testing.T) {
+	var data map[string]interface{}
+	const raw = `{"data":{"trackUnion":{"id":"4PTG3Z6ehGkBFwjybzWkR8","name":"T",
+		"artists":{"items":[{"uri":"spotify:artist:1111111111111111111111","profile":{"name":"A"}}]}}}}`
+	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+		t.Fatal(err)
+	}
+	refs, _ := filterTrack(data)["artistRefs"].([]map[string]interface{})
+	if len(refs) != 1 || refs[0]["id"] != "1111111111111111111111" || refs[0]["name"] != "A" {
+		t.Errorf("artistRefs: %+v", refs)
+	}
+}
+
 func TestLive(t *testing.T) {
 	if os.Getenv("SONAR_LIVE") != "1" {
 		t.Skip("set SONAR_LIVE=1")

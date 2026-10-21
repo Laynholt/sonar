@@ -28,6 +28,12 @@ type TrackMetadata struct {
 	Plays       string `json:"plays,omitempty"`
 	PreviewURL  string `json:"preview_url,omitempty"`
 	IsExplicit  bool   `json:"is_explicit,omitempty"`
+
+	AlbumID     string         `json:"album_id,omitempty"`
+	AlbumURL    string         `json:"album_url,omitempty"`
+	ArtistID    string         `json:"artist_id,omitempty"`
+	ArtistURL   string         `json:"artist_url,omitempty"`
+	ArtistsData []ArtistSimple `json:"artists_data,omitempty"`
 }
 
 type ArtistSimple struct {

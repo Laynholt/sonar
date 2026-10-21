@@ -67,6 +67,10 @@ type apiTrackResponse struct {
 		Medium string `json:"medium"`
 		Large  string `json:"large"`
 	} `json:"cover"`
+	ArtistRefs []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"artistRefs"`
 	IsExplicit bool `json:"is_explicit"`
 }
 
@@ -744,6 +748,22 @@ func (c *metadataClient) formatTrackData(raw *apiTrackResponse) *model.TrackResp
 		Publisher:   raw.Album.Label,
 		Plays:       raw.Plays,
 		IsExplicit:  raw.IsExplicit,
+	}
+	for _, a := range raw.ArtistRefs {
+		if a.ID == "" {
+			continue
+		}
+		trackMetadata.ArtistsData = append(trackMetadata.ArtistsData, model.ArtistSimple{
+			ID: a.ID, Name: a.Name, ExternalURL: "https://open.spotify.com/artist/" + a.ID,
+		})
+	}
+	if len(trackMetadata.ArtistsData) > 0 {
+		trackMetadata.ArtistID = trackMetadata.ArtistsData[0].ID
+		trackMetadata.ArtistURL = trackMetadata.ArtistsData[0].ExternalURL
+	}
+	if raw.Album.ID != "" {
+		trackMetadata.AlbumID = raw.Album.ID
+		trackMetadata.AlbumURL = "https://open.spotify.com/album/" + raw.Album.ID
 	}
 
 	return &model.TrackResponse{

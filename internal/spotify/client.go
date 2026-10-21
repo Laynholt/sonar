@@ -341,6 +341,7 @@ func extractArtists(artistsData map[string]interface{}) []map[string]interface{}
 		}
 		artistInfo := map[string]interface{}{
 			"name": name,
+			"id":   extractSpotifyIDFromArtistItem(itemMap),
 		}
 		artists = append(artists, artistInfo)
 	}
@@ -598,6 +599,7 @@ func filterTrack(data map[string]interface{}, albumFetchData ...map[string]inter
 				if ok {
 					artistInfo := map[string]interface{}{
 						"name": getString(profileMap, "name"),
+						"id":   extractSpotifyIDFromArtistItem(itemMap),
 					}
 					artists = append(artists, artistInfo)
 				}
@@ -616,6 +618,7 @@ func filterTrack(data map[string]interface{}, albumFetchData ...map[string]inter
 					if ok {
 						artistInfo := map[string]interface{}{
 							"name": getString(profileMap, "name"),
+							"id":   extractSpotifyIDFromArtistItem(itemMap),
 						}
 						artists = append(artists, artistInfo)
 					}
@@ -876,6 +879,7 @@ func filterTrack(data map[string]interface{}, albumFetchData ...map[string]inter
 		"id":          getString(trackData, "id"),
 		"name":        getString(trackData, "name"),
 		"artists":     artistsString,
+		"artistRefs":  artists,
 		"album":       albumInfo,
 		"duration":    durationString,
 		"track":       int(getFloat64(trackData, "trackNumber")),
