@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
+
 	"sonar/internal/amazon"
 	"sonar/internal/convert"
 	"sonar/internal/doubledouble"
@@ -29,6 +31,7 @@ type App struct {
 	ctx     context.Context
 	dataDir string // holds history.db, config.json, queue.json and matches.json
 	hist    *history.DB
+	second  bool // another instance holds history.db, and owns queue.json: this one neither restores nor saves it
 
 	dd            *doubledouble.Client
 	sources       *source.Balancer
@@ -68,6 +71,7 @@ func (a *App) init() {
 	// A second instance holds the lock; the app still runs, without history.
 	if h, err := history.Open(filepath.Join(a.dataDir, "history.db")); err != nil {
 		log.Printf("history: %v", err)
+		a.second = errors.Is(err, bolt.ErrTimeout)
 	} else {
 		a.hist = h
 	}
@@ -94,9 +98,11 @@ func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 // shutdown saves the queue before Close: Close cancels the downloads, and a save after it would drop them.
 func (a *App) shutdown(context.Context) {
 	a.shutOnce.Do(func() {
-		close(a.saveStop)
-		<-a.saverDone
-		a.saveQueue()
+		if !a.second {
+			close(a.saveStop)
+			<-a.saverDone
+			a.saveQueue()
+		}
 		a.stopCheck(5 * time.Second)
 		a.dl.Close()
 		if a.hist != nil {

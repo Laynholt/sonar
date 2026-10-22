@@ -50,7 +50,7 @@ type PendingQueue struct {
 
 func (a *App) queuePath() string { return filepath.Join(a.dataDir, "queue.json") }
 
-// startQueue wires sources and a new queue, restores queue.json and starts the saver.
+// startQueue wires sources and a new queue, restores queue.json and starts the saver; a second instance does neither.
 // Both OnChange hooks are set before Restore and before any Enqueue: neither is read under a lock.
 func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder resolve.Finder) {
 	a.cache = resolve.OpenCache(filepath.Join(a.dataDir, "matches.json"))
@@ -59,6 +59,9 @@ func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder 
 	a.saveCh, a.saveStop, a.saverDone = make(chan struct{}, 1), make(chan struct{}), make(chan struct{})
 	a.sources.OnChange = func() { a.dl.Wake(); a.saveSoon() }
 	a.dl.OnChange = a.saveSoon
+	if a.second {
+		return
+	}
 
 	// A corrupt file is left on disk until the next save replaces it.
 	st, err := download.LoadState(a.queuePath())
@@ -141,7 +144,8 @@ func (a *App) fetch(ctx context.Context, site, id string, o download.Options, pa
 	return convert.Convert(ctx, ff, f, o.Format)
 }
 
-// DownloadTracks validates the whole request before it queues anything.
+// DownloadTracks validates the whole request before it queues anything; tracks with a bad Spotify ID are skipped,
+// and only a request left with none of its tracks fails.
 func (a *App) DownloadTracks(req DownloadRequest) error {
 	o := req.Options
 	if o.Format == "" {
@@ -173,9 +177,9 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 	if o.Dir == "" {
 		o.Dir = a.DefaultDownloadDir()
 	}
-	tracks := slices.Clone(req.Tracks)
-	for i := range tracks {
-		t := &tracks[i]
+	tracks := make([]download.Track, 0, len(req.Tracks))
+	var skipped error
+	for _, t := range req.Tracks {
 		// The queue matches every track without an Amazon ID, so only these two services may pass.
 		switch t.Service {
 		case "", "amazon":
@@ -183,8 +187,10 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 				return err
 			}
 		case "spotify":
-			if !spotifyID.MatchString(t.ID) {
-				return fmt.Errorf("not a Spotify track ID: %q", t.ID)
+			if !spotifyID.MatchString(t.ID) { // one odd track must not stop a whole playlist
+				skipped = fmt.Errorf("not a Spotify track ID: %q", t.ID)
+				log.Printf("download: skipping %v", skipped)
+				continue
 			}
 			if k := req.Collection.Kind; (k == "album" || k == "artist") && t.AlbumID != "" {
 				t.Group = "album:" + t.AlbumID // each release is matched as a whole
@@ -192,6 +198,10 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 		default:
 			return fmt.Errorf("unknown service %q", t.Service)
 		}
+		tracks = append(tracks, t)
+	}
+	if len(tracks) == 0 && skipped != nil {
+		return skipped
 	}
 	a.sources.SetGuard(o.GuardLimit)
 	a.dl.Enqueue(req.Collection, o, tracks)

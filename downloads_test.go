@@ -17,6 +17,7 @@ import (
 	"sonar/internal/amazon"
 	"sonar/internal/doubledouble"
 	"sonar/internal/download"
+	"sonar/internal/history"
 	"sonar/internal/match"
 	"sonar/internal/source"
 )
@@ -162,7 +163,8 @@ func TestDownloadTracksAcceptsSpotify(t *testing.T) {
 		tracks []download.Track
 		groups []string
 	}{
-		{"album", []download.Track{sp("6rqhFgbbKwnb9MLmUQDhG6", "al1"), sp("4uLU6hMCjMI75M1A2tKUQC", "al1")}, []string{"album:al1", "album:al1"}},
+		// A bad Spotify ID is skipped, not fatal to the rest.
+		{"album", []download.Track{sp("6rqhFgbbKwnb9MLmUQDhG6", "al1"), sp("nope", "al1"), sp("4uLU6hMCjMI75M1A2tKUQC", "al1")}, []string{"album:al1", "album:al1"}},
 		{"artist", []download.Track{sp("6rqhFgbbKwnb9MLmUQDhG6", "al1"), sp("4uLU6hMCjMI75M1A2tKUQC", "al2")}, []string{"album:al1", "album:al2"}},
 		{"playlist", []download.Track{sp("6rqhFgbbKwnb9MLmUQDhG6", "al1"), sp("4uLU6hMCjMI75M1A2tKUQC", "al2")}, []string{"", ""}},
 		{"track", []download.Track{sp("6rqhFgbbKwnb9MLmUQDhG6", "al1")}, []string{""}},
@@ -619,6 +621,42 @@ func TestGuardWaitTakesTheDialogsMinutes(t *testing.T) {
 	}
 	if d := time.UnixMilli(site(a, "lucida").PausedUntil).Sub(time.Now().Add(15 * time.Minute)); d < -time.Minute || d > time.Minute {
 		t.Fatalf("want a 15-minute pause; off by %v", d)
+	}
+}
+
+// A second instance finds history.db locked: it must neither restore nor rewrite the first one's queue.json.
+func TestSecondInstanceLeavesQueueFileAlone(t *testing.T) {
+	dir := t.TempDir()
+	h, err := history.Open(filepath.Join(dir, "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	tr := download.Track{ID: "B00A3SGXA1", Title: "T"}
+	path := filepath.Join(dir, "queue.json")
+	err = download.SaveState(path, download.State{Version: 1, Items: []download.Saved{{
+		Item:       download.Item{ID: tr.ID, Track: tr, Status: download.Queued, AmazonID: tr.ID},
+		Collection: download.Collection{Kind: "track", ID: tr.ID, Name: "T"},
+		Options:    download.Options{Dir: t.TempDir(), Format: "original", FilenameTemplate: "{title}"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+
+	a := &App{dataDir: dir}
+	a.init()
+	if a.hist != nil {
+		t.Fatal("the second instance opened history")
+	}
+	if st := a.GetDownloadState(); st.Held || len(st.Items) != 0 {
+		t.Fatalf("the second instance restored the queue: %+v", st)
+	}
+	a.ClearQueue() // a change the first instance would save
+	time.Sleep(50 * time.Millisecond)
+	a.shutdown(nil)
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatalf("queue.json was rewritten: %s", after)
 	}
 }
 
