@@ -20,7 +20,6 @@ export interface DownloadCardProps extends DownloadRowProps {
 interface DownloadButtonProps {
     item?: DownloadItem;
     disabled?: boolean;
-    disabledReason?: string;
     onDownload: () => void;
     onRetry: () => void;
 }
@@ -35,11 +34,11 @@ function WithTip({ tip, children }: { tip: string; children: React.ReactNode }) 
     </Tooltip>);
 }
 
-export function DownloadButton({ item, disabled, disabledReason, onDownload, onRetry }: DownloadButtonProps) {
+export function DownloadButton({ item, disabled, onDownload, onRetry }: DownloadButtonProps) {
     const { t } = useI18n();
     const status = item?.status;
     if (disabled) {
-        return (<WithTip tip={disabledReason ?? t("download.track")}>
+        return (<WithTip tip={t("download.track")}>
           <Button size="icon" variant="outline" disabled aria-label={t("download.track")}><Download className="h-4 w-4"/></Button>
         </WithTip>);
     }

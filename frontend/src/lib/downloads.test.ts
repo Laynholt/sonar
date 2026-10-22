@@ -270,4 +270,21 @@ describe("downloads store with Spotify tracks and review", () => {
             expect(sent.map((x) => x.id)).toEqual(["a", "b", "d", "e"]);
         });
     });
+
+    it("copes with an artist payload saved before top_tracks existed", async () => {
+        const { store } = await load();
+        expect(store.artistTracks({ track_list: [{ ...track(1), id: "a" }], album_list: [] }).map((x) => x.id)).toEqual(["a"]);
+    });
+
+    it("never returns a track id twice, keeping the first", async () => {
+        const { store } = await load();
+        const mk = (id: string, album_id: string, name = id) => ({ ...track(1), id, album_id, name });
+        const sent = store.artistTracks({
+            track_list: [mk("a", "AL1", "first"), mk("b", "AL1")],
+            top_tracks: [mk("a", "", "second"), mk("c", "zz"), mk("c", "zz")],
+            album_list: [{ id: "AL1" }],
+        });
+        expect(sent.map((x) => x.id)).toEqual(["a", "b", "c"]);
+        expect(sent[0].name).toBe("first");
+    });
 });

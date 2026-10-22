@@ -145,10 +145,13 @@ export const clearQueue = () => then(ClearQueue());
 export const guardWait = (site: string) => then(GuardWait(site));
 export const guardContinue = (site: string) => then(GuardContinue(site));
 
-/** The artist's discography tracks, then the top tracks that are not on a listed album. */
-export const artistTracks = (a: { track_list: TrackMetadata[]; top_tracks: TrackMetadata[]; album_list: { id: string }[] }) => {
+/** The artist's discography tracks, then the top tracks that are not on a listed album; each track id once, first wins. */
+export const artistTracks = (a: { track_list: TrackMetadata[]; top_tracks?: TrackMetadata[]; album_list: { id: string }[] }) => {
     const listed = new Set(a.album_list.map((x) => x.id));
-    return [...a.track_list, ...a.top_tracks.filter((x) => !listed.has(x.album_id ?? ""))];
+    const seen = new Set<string>();
+    // top_tracks is missing in artist payloads saved in history before it existed.
+    return [...a.track_list, ...(a.top_tracks ?? []).filter((x) => !listed.has(x.album_id ?? ""))]
+        .filter((x) => !x.id || (!seen.has(x.id) && seen.add(x.id)));
 };
 
 export async function stopQueue(queueId: string): Promise<void> {

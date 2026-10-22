@@ -103,7 +103,7 @@ export interface ArtistDiscographyResponse {
     artist_info: ArtistInfo;
     album_list: DiscographyAlbum[];
     track_list: TrackMetadata[];
-    top_tracks: TrackMetadata[]; // always an array; the backend sends [] when there are none
+    top_tracks?: TrackMetadata[]; // absent in artist payloads saved in history before it existed
 }
 export type MetadataResponse = TrackResponse | AlbumResponse | PlaylistResponse | ArtistDiscographyResponse;
 export interface LoadedMetadata {

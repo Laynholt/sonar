@@ -161,16 +161,6 @@ describe("TrackList downloads", () => {
         await view.unmount();
     });
 
-    it("enables the button for a Spotify track", async () => {
-        const onDownloadTrack = vi.fn();
-        const view = await mount(<TrackList {...base} tracks={[makeTrack(1)]} canDownload onDownloadTrack={onDownloadTrack}/>);
-
-        expect(downloadButton(view.container).disabled).toBe(false);
-        downloadButton(view.container).click();
-        expect(onDownloadTrack).toHaveBeenCalledWith(expect.objectContaining({ service: "spotify" }), 0);
-        await view.unmount();
-    });
-
     it("disables the button without a download target and no longer blames Spotify", async () => {
         const view = await mount(<TrackList {...base} tracks={[makeTrack(1)]} canDownload={false} onDownloadTrack={vi.fn()}/>);
 

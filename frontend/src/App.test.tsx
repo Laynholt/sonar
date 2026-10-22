@@ -64,6 +64,17 @@ function setValue(el: HTMLInputElement, value: string) {
 }
 
 describe("App main page", () => {
+    it("enables the download buttons on a Spotify page", async () => {
+        await mountApp();
+        await act(async () => { setValue(container!.querySelector("#spotify-url")!, "https://open.spotify.com/playlist/x"); });
+        await act(async () => { [...container!.querySelectorAll("button")].find((b) => b.textContent === "Fetch")!.click(); });
+
+        const all = [...container!.querySelectorAll("button")].find((b) => b.textContent === "Download all")!;
+        const row = container!.querySelector<HTMLButtonElement>('tbody button[aria-label="Download"]')!;
+        expect([all.disabled, row.disabled]).toEqual([false, false]);
+        expect(document.body.textContent).not.toContain("next update");
+    });
+
     it("returns to page 1 when a search is typed on a later page", async () => {
         await mountApp();
 
