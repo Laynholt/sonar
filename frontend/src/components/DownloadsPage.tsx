@@ -33,7 +33,8 @@ const head = "h-10 px-4 text-left align-middle font-medium text-muted-foreground
 
 export function DownloadsPage() {
     const { t, language } = useI18n();
-    const { items, activeCount, guard } = useDownloads();
+    const { items, activeCount, sites } = useDownloads();
+    const paused = sites.find((site) => site.paused_until > 0);
     const speed = useDownloadSpeed(items);
     const [tab, setTab] = useState("all");
     const [tagsFor, setTagsFor] = useState<DownloadItem | null>(null);
@@ -90,9 +91,9 @@ export function DownloadsPage() {
             </div>
         </div>
 
-        {guard.paused_until > 0 && (<div className="flex items-center justify-between gap-4 rounded-md border p-4 text-sm">
-            <span>{t("download.pausedUntil", { time: hhmm(guard.paused_until) })}</span>
-            <Button variant="outline" size="sm" className="cursor-pointer" onClick={() => run(guardContinue)}>{t("download.resumeNow")}</Button>
+        {paused && (<div className="flex items-center justify-between gap-4 rounded-md border p-4 text-sm">
+            <span>{t("download.pausedUntil", { time: hhmm(paused.paused_until) })}</span>
+            <Button variant="outline" size="sm" className="cursor-pointer" onClick={() => run(() => guardContinue(paused.name))}>{t("download.resumeNow")}</Button>
         </div>)}
 
         {items.length > 0 && (<div className="rounded-md border p-4 space-y-3 text-sm">

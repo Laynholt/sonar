@@ -188,7 +188,7 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               </td>)}
               <td className="p-4 align-middle text-center">
                 <div className="flex items-center justify-center gap-1">
-                  {onDownloadTrack && (<DownloadButton item={downloadItems?.get(track.id ?? "")} disabled={!canDownload} disabledReason={t("download.spotifyLater")} onDownload={() => onDownloadTrack(track, tracks.indexOf(track))} onRetry={() => track.id && onRetryDownload?.(track.id)}/>)}
+                  {onDownloadTrack && (<DownloadButton item={downloadItems?.get(track.id ?? "")} disabled={!canDownload} onDownload={() => onDownloadTrack(track, tracks.indexOf(track))} onRetry={() => track.id && onRetryDownload?.(track.id)}/>)}
                   {track.external_urls && (<Tooltip>
                     <TooltipTrigger asChild>
                       <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label={t("service.open", { service: serviceLabels[track.service] })}>

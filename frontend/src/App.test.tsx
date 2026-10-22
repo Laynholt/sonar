@@ -8,7 +8,7 @@ import { stopPreview } from "@/hooks/usePreview";
 import { fetchMetadata } from "@/lib/api";
 import { getLanguage, setLanguage } from "@/lib/i18n";
 import { getSettings, saveSettings } from "@/lib/settings";
-import { AddFetchHistory, GetFetchHistory, GetFetchHistoryData, SaveSettings } from "../wailsjs/go/main/App";
+import { AddFetchHistory, DownloadTracks, GetFetchHistory, GetFetchHistoryData, SaveSettings } from "../wailsjs/go/main/App";
 
 const albumUrl = "https://open.spotify.com/album/al";
 const playlistUrl = "https://open.spotify.com/playlist/x";
@@ -30,7 +30,7 @@ const album: MetadataResponse = {
 vi.mock("@/components/ui/select", () => import("./test/nativeSelect"));
 vi.mock("@/lib/api", () => ({ fetchMetadata: vi.fn() }));
 vi.mock("@/hooks/usePreview", async (original) => ({ ...await original<typeof import("@/hooks/usePreview")>(), stopPreview: vi.fn() }));
-vi.mock("../wailsjs/go/main/App", () => ({ AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), GetFetchHistoryData: vi.fn(), DeleteFetchHistoryItem: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
+vi.mock("../wailsjs/go/main/App", () => ({ DownloadTracks: vi.fn().mockResolvedValue(undefined), GetDownloadState: vi.fn().mockResolvedValue({ items: [], sites: [], held: false }), AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), GetFetchHistoryData: vi.fn(), DeleteFetchHistoryItem: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
 vi.mock("../wailsjs/runtime/runtime", () => ({ Environment: vi.fn().mockResolvedValue({ platform: "windows" }), WindowMinimise: vi.fn(), WindowToggleMaximise: vi.fn(), Quit: vi.fn(), BrowserOpenURL: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
@@ -214,11 +214,28 @@ describe("artist tabs over the click chain", () => {
     const artist: MetadataResponse = {
         service: "spotify",
         artist_info: { name: "Some Artist", images: "", followers: 1, external_urls: artistUrl, discography_type: "all", total_albums: 0 },
-        album_list: [],
+        album_list: [{ id: "al", name: "Album", album_type: "album", release_date: "2026", total_tracks: 1, artists: "Some Artist", images: "", external_urls: albumUrl }],
+        top_tracks: [
+            { service: "spotify", id: "top-on-album", name: "On album", artists: "Some Artist", album_name: "Album", duration_ms: 1000, images: "", release_date: "2026", track_number: 1, external_urls: "", album_id: "al" },
+            { service: "spotify", id: "top-single", name: "Single", artists: "Some Artist", album_name: "Other", duration_ms: 1000, images: "", release_date: "2026", track_number: 1, external_urls: "", album_id: "zz" },
+        ],
         track_list: [{ service: "spotify", id: "s1", name: "Song 1", artists: "Some Artist", album_name: "Album", duration_ms: 1000, images: "", release_date: "2026", track_number: 1, external_urls: "", album_id: "al", album_url: albumUrl }],
     };
     const searchBox = () => container!.querySelector<HTMLInputElement>('input[placeholder="Search tracks..."]');
     const click = (selector: string, text: string) => act(async () => { [...container!.querySelectorAll<HTMLElement>(selector)].find((el) => el.textContent === text)!.click(); });
+
+    it("downloads the discography, then the top tracks that are not on a listed album", async () => {
+        vi.mocked(fetchMetadata).mockImplementation(async () => artist);
+        await mountApp();
+        await act(async () => { setValue(container!.querySelector("#spotify-url")!, artistUrl); });
+        await click("button", "Fetch");
+
+        await act(async () => { [...container!.querySelectorAll("button")].find((b) => b.textContent === "Download all")!.click(); });
+
+        const request = vi.mocked(DownloadTracks).mock.calls[0][0];
+        expect(request.collection.kind).toBe("artist");
+        expect(request.tracks.map((x) => x.id)).toEqual(["s1", "top-single"]);
+    });
 
     it("brings Back to the Tracks tab with its query", async () => {
         vi.mocked(fetchMetadata).mockImplementation(async (url) => (url === albumUrl ? album : artist));

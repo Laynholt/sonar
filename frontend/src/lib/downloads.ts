@@ -1,5 +1,5 @@
-import { CancelAllDownloads, CancelDownload, ClearFinishedDownloads, DownloadTracks, GetDownloadGuard, GetDownloadQueue, GuardContinue, GuardWait, RetryDownload, RetryFailedDownloads } from "../../wailsjs/go/main/App";
-import type { download, main } from "../../wailsjs/go/models";
+import { CancelAllDownloads, CancelDownload, ChooseCandidate, ClearFinishedDownloads, ClearQueue, DownloadTracks, GetDownloadState, GuardContinue, GuardWait, ResumeQueue, RetryDownload, RetryFailedDownloads, SkipReview, UseAmazonLink } from "../../wailsjs/go/main/App";
+import type { download, main, source } from "../../wailsjs/go/models";
 import type { TrackMetadata } from "@/types/api";
 import { t } from "./i18n";
 import { logger } from "./logger";
@@ -8,16 +8,15 @@ import { toastWithSound } from "./toast-with-sound";
 import { errorMessage } from "./utils";
 
 export type DownloadItem = download.Item;
-export type DownloadGuard = main.DownloadGuard;
 export type DownloadSource = TrackMetadata & { position: number };
 export type CollectionKind = "track" | "album" | "playlist" | "artist";
-export interface BatchProgress { done: number; total: number; failed: number; active: boolean }
+export interface BatchProgress { done: number; total: number; failed: number; review: number; active: boolean }
 
 const POLL_MS = 500;
-const noGuard: DownloadGuard = { site: "", count: 0, asking: false, paused_until: 0 } as DownloadGuard;
 
 let items: DownloadItem[] = [];
-let guard = noGuard;
+let sites: source.Status[] = [];
+let held = false;
 let key = "";
 let timer: ReturnType<typeof setTimeout> | undefined;
 let started = 0;
@@ -34,17 +33,20 @@ export function subscribe(listener: () => void) {
     return () => { listeners.delete(listener); };
 }
 export const getSnapshot = () => items;
-export const getGuard = () => guard;
+export const getSites = () => sites;
+export const getHeld = () => held;
 
-const isActive = (i: DownloadItem) => i.status === "queued" || i.status === "downloading";
+// A review item waits for the user, so it does not count as active.
+const isActive = (i: DownloadItem) => i.status === "matching" || i.status === "queued" || i.status === "downloading";
 
 export function batchProgress(all: DownloadItem[], queueId: string): BatchProgress {
     const ids = batches.get(queueId)?.ids;
     const own = all.filter((i) => i.queue_id === queueId && (!ids || ids.has(i.id)));
     return {
-        done: own.filter((i) => i.status === "completed" || i.status === "skipped").length,
+        done: own.filter((i) => i.status === "completed" || i.status === "skipped" || i.status === "ignored").length,
         total: own.length,
         failed: own.filter((i) => i.status === "failed" || i.status === "cancelled").length,
+        review: own.filter((i) => i.status === "review").length,
         active: own.some(isActive),
     };
 }
@@ -58,8 +60,9 @@ function summarize(refreshId: number) {
         batches.delete(queueId);
         if (!own.length) continue;
         const count = (...statuses: string[]) => own.filter((i) => statuses.includes(i.status)).length;
-        const done = count("completed"), skipped = count("skipped"), failed = count("failed", "cancelled");
-        const text = t("download.summary", { done, skipped, failed });
+        const done = count("completed"), skipped = count("skipped", "ignored"), failed = count("failed", "cancelled");
+        const review = count("review"), notFound = count("not_found");
+        const text = [t("download.summary", { done, skipped, failed }), review && t("download.summaryReview", { count: review }), notFound && t("download.summaryNotFound", { count: notFound })].filter(Boolean).join(" · ");
         if (!failed) toastWithSound.success(text);
         else if (done + skipped) toastWithSound.warning(text);
         else toastWithSound.error(text);
@@ -69,20 +72,21 @@ function summarize(refreshId: number) {
 // One timer at most: every refresh replaces it, so quick actions never stack loops.
 function schedule() {
     clearTimeout(timer);
-    timer = items.some(isActive) || batches.size > 0 || guard.paused_until > 0 ? setTimeout(() => void refreshDownloads(), POLL_MS) : undefined;
+    timer = items.some(isActive) || batches.size > 0 || sites.some((s) => s.paused_until > 0) ? setTimeout(() => void refreshDownloads(), POLL_MS) : undefined;
 }
 
 export async function refreshDownloads(): Promise<void> {
     const id = ++started;
     try {
-        const [nextItems, nextGuard] = await Promise.all([GetDownloadQueue(), GetDownloadGuard()]);
+        const state = await GetDownloadState();
         if (id > applied) {
             applied = id;
-            const nextKey = JSON.stringify([nextItems, nextGuard]);
+            const nextKey = JSON.stringify(state);
             if (nextKey !== key) {
                 key = nextKey;
-                items = nextItems ?? [];
-                guard = nextGuard;
+                items = state.items ?? [];
+                sites = state.sites ?? [];
+                held = state.held;
                 listeners.forEach((listener) => listener());
             }
             summarize(id);
@@ -107,6 +111,7 @@ export async function startDownload(collection: { kind: CollectionKind; id: stri
         tracks: tracks.map((s) => ({
             id: s.id ?? "", title: s.name, artist: s.artists, album: s.album_name, album_artist: s.album_artist ?? "",
             release_date: s.release_date, track_number: s.track_number, disc_number: s.disc_number ?? 0, position: s.position,
+            service: s.service, album_id: s.album_id ?? "", duration_ms: s.duration_ms, explicit: !!s.is_explicit, image: s.images,
         })),
     } as main.DownloadRequest;
     // Registered before the call: the first poll may already see the items and must not miss the batch.
@@ -132,8 +137,19 @@ export const cancelAllDownloads = () => then(CancelAllDownloads());
 export const retryDownload = (id: string) => then(RetryDownload(id));
 export const retryFailedDownloads = () => then(RetryFailedDownloads());
 export const clearFinishedDownloads = () => then(ClearFinishedDownloads());
-export const guardWait = () => then(GuardWait());
-export const guardContinue = () => then(GuardContinue());
+export const chooseCandidate = (id: string, amazonId: string) => then(ChooseCandidate(id, amazonId));
+export const useAmazonLink = (id: string, link: string) => then(UseAmazonLink(id, link));
+export const skipReview = (id: string) => then(SkipReview(id));
+export const resumeQueue = () => then(ResumeQueue());
+export const clearQueue = () => then(ClearQueue());
+export const guardWait = (site: string) => then(GuardWait(site));
+export const guardContinue = (site: string) => then(GuardContinue(site));
+
+/** The artist's discography tracks, then the top tracks that are not on a listed album. */
+export const artistTracks = (a: { track_list: TrackMetadata[]; top_tracks: TrackMetadata[]; album_list: { id: string }[] }) => {
+    const listed = new Set(a.album_list.map((x) => x.id));
+    return [...a.track_list, ...a.top_tracks.filter((x) => !listed.has(x.album_id ?? ""))];
+};
 
 export async function stopQueue(queueId: string): Promise<void> {
     await Promise.all(items.filter((i) => i.queue_id === queueId && isActive(i)).map((i) => CancelDownload(i.id)));

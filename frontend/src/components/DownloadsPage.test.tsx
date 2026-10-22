@@ -29,10 +29,10 @@ const all = [
     item("f", "failed", { error: "boom" }),
     item("x", "cancelled"),
 ];
-const noGuard = { site: "", count: 0, asking: false, paused_until: 0 };
+const noSites: Record<string, unknown>[] = [];
 let view: Awaited<ReturnType<typeof mount>>;
-const show = async (items: DownloadItem[], guard: Record<string, unknown> = noGuard, activeCount = 2) => {
-    vi.mocked(useDownloads).mockReturnValue({ items, byTrackId: new Map(), activeCount, guard } as unknown as ReturnType<typeof useDownloads>);
+const show = async (items: DownloadItem[], sites: Record<string, unknown>[] = noSites, activeCount = 2) => {
+    vi.mocked(useDownloads).mockReturnValue({ items, byTrackId: new Map(), activeCount, sites, held: false } as unknown as ReturnType<typeof useDownloads>);
     view = await mount(<TooltipProvider><DownloadsPage/></TooltipProvider>);
 };
 const rows = () => view.container.querySelectorAll("tbody tr").length;
@@ -44,7 +44,7 @@ beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.mocked(getSettings).mockReturnValue({ downloadSource: "auto" } as ReturnType<typeof getSettings>);
     vi.mocked(OpenFolder).mockResolvedValue(undefined);
-    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "doubledouble", available: false, needs_check: true, reason: "" }]);
+    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "doubledouble", available: false, needs_check: true, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 }]);
     for (const action of [cancelDownload, cancelAllDownloads, retryDownload, retryFailedDownloads, clearFinishedDownloads, guardContinue]) vi.mocked(action).mockResolvedValue(undefined);
 });
 afterEach(async () => { await view.unmount(); vi.unstubAllGlobals(); });
@@ -109,16 +109,16 @@ describe("DownloadsPage", () => {
     });
 
     it("disables the header actions that have nothing to act on", async () => {
-        await show([item("c", "completed", { path: "p" })], noGuard, 0);
+        await show([item("c", "completed", { path: "p" })], noSites, 0);
         expect(button(view.container, "Retry failed").disabled).toBe(true);
         expect(button(view.container, "Stop all").disabled).toBe(true);
         expect(button(view.container, "Clear finished").disabled).toBe(false);
     });
 
     it("enables Retry failed only for failed items, not cancelled ones", async () => {
-        await show([item("x", "cancelled"), item("c", "completed", { path: "p" })], noGuard, 0);
+        await show([item("x", "cancelled"), item("c", "completed", { path: "p" })], noSites, 0);
         expect(button(view.container, "Retry failed").disabled).toBe(true);
-        vi.mocked(useDownloads).mockReturnValue({ items: [item("f", "failed")], byTrackId: new Map(), activeCount: 0, guard: noGuard } as unknown as ReturnType<typeof useDownloads>);
+        vi.mocked(useDownloads).mockReturnValue({ items: [item("f", "failed")], byTrackId: new Map(), activeCount: 0, sites: noSites, held: false } as unknown as ReturnType<typeof useDownloads>);
         await view.render(<TooltipProvider><DownloadsPage/></TooltipProvider>);
         expect(button(view.container, "Retry failed").disabled).toBe(false);
     });
@@ -134,17 +134,17 @@ describe("DownloadsPage", () => {
     });
 
     it("shows the empty state", async () => {
-        await show([], noGuard, 0);
+        await show([], noSites, 0);
         expect(view.container.textContent).toContain("No downloads yet");
         expect(rows()).toBe(0);
     });
 
     it("shows the paused banner with the local time and resumes", async () => {
         const until = new Date(2026, 0, 5, 7, 4).getTime();
-        await show(all, { ...noGuard, paused_until: until });
+        await show(all, [{ name: "lucida", paused_until: until }]);
         expect(view.container.textContent).toContain("Downloads paused until 07:04");
         await act(async () => button(view.container, "Resume now").click());
-        expect(guardContinue).toHaveBeenCalled();
+        expect(guardContinue).toHaveBeenCalledWith("lucida");
     });
 
     it("shows no banner when not paused", async () => {

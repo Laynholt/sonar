@@ -22,7 +22,7 @@ describe("AlbumInfo downloads", () => {
         await view.unmount();
     });
 
-    it("disables Download all when the service cannot download", async () => {
+    it("disables Download all when the collection cannot be downloaded", async () => {
         const view = await mount(card({ canDownload: false, onDownloadAll: vi.fn() }));
 
         expect(button(view.container, "Download all").disabled).toBe(true);
@@ -31,7 +31,7 @@ describe("AlbumInfo downloads", () => {
 
     it("shows progress and a Stop button while active", async () => {
         const onStopDownload = vi.fn();
-        const view = await mount(card({ canDownload: true, onDownloadAll: vi.fn(), downloadProgress: { done: 1, total: 3, failed: 0, active: true }, onStopDownload }));
+        const view = await mount(card({ canDownload: true, onDownloadAll: vi.fn(), downloadProgress: { done: 1, total: 3, failed: 0, review: 0, active: true }, onStopDownload }));
 
         expect(view.container.textContent).toContain("1 of 3 · 0 failed");
         button(view.container, "Stop").click();
@@ -41,7 +41,7 @@ describe("AlbumInfo downloads", () => {
     });
 
     it("hides progress when idle", async () => {
-        const view = await mount(card({ canDownload: true, onDownloadAll: vi.fn(), downloadProgress: { done: 3, total: 3, failed: 0, active: false } }));
+        const view = await mount(card({ canDownload: true, onDownloadAll: vi.fn(), downloadProgress: { done: 3, total: 3, failed: 0, review: 0, active: false } }));
 
         expect(view.container.textContent).not.toContain("3 of 3");
         expect(() => button(view.container, "Stop")).toThrow();

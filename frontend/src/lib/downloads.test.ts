@@ -1,29 +1,33 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrackMetadata } from "@/types/api";
-import type { DownloadGuard, DownloadItem } from "./downloads";
+import type { source } from "../../wailsjs/go/models";
+import type { DownloadItem } from "./downloads";
 
 vi.mock("../../wailsjs/go/main/App", () => ({
-    DownloadTracks: vi.fn(), GetDownloadQueue: vi.fn(), GetDownloadGuard: vi.fn(),
+    DownloadTracks: vi.fn(), GetDownloadState: vi.fn(),
+    ChooseCandidate: vi.fn(), UseAmazonLink: vi.fn(), SkipReview: vi.fn(), ResumeQueue: vi.fn(), ClearQueue: vi.fn(),
     CancelDownload: vi.fn(), CancelAllDownloads: vi.fn(), RetryDownload: vi.fn(),
     RetryFailedDownloads: vi.fn(), ClearFinishedDownloads: vi.fn(), GuardWait: vi.fn(), GuardContinue: vi.fn(),
     LoadSettings: vi.fn(), SaveSettings: vi.fn(),
 }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
 
-const idle = { site: "", count: 0, asking: false, paused_until: 0 } as DownloadGuard;
+const idle = { name: "", available: true, needs_check: false, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 } as source.Status;
 const track = (n: number): TrackMetadata => ({
     service: "amazon", id: `B0${n}`, name: `Song ${n}`, artists: "Artist", album_name: "Album", album_artist: "Album Artist",
     duration_ms: 1000, images: "", release_date: "2020", track_number: n + 4, disc_number: 2, external_urls: "",
 });
 const item = (id: string, status: string, queue_id = "album:A1") => ({ id, queue_id, track: {}, status, message: "", path: "", error: "" }) as DownloadItem;
 
+const state = (api: typeof import("../../wailsjs/go/main/App"), items: DownloadItem[], sites: source.Status[] = [], held = false) =>
+    vi.mocked(api.GetDownloadState).mockResolvedValue({ items, sites, held } as Awaited<ReturnType<typeof api.GetDownloadState>>);
+
 async function load() {
     vi.resetModules();
     const api = await import("../../wailsjs/go/main/App");
     vi.mocked(api.DownloadTracks).mockResolvedValue();
-    vi.mocked(api.GetDownloadQueue).mockResolvedValue([]);
-    vi.mocked(api.GetDownloadGuard).mockResolvedValue(idle);
+    state(api, []);
     const toast = (await import("@/lib/toast-with-sound")).toastWithSound;
     return { api, toast, store: await import("./downloads"), settings: await import("./settings") };
 }
@@ -42,7 +46,7 @@ describe("downloads store", () => {
         expect(req.collection).toEqual({ kind: "album", id: "A1", name: "Album" });
         expect(req.options).toEqual(settings.downloadOptions(settings.getSettings()));
         expect(req.options).toHaveProperty("source");
-        expect(req.tracks[0]).toEqual({ id: "B01", title: "Song 1", artist: "Artist", album: "Album", album_artist: "Album Artist", release_date: "2020", track_number: 5, disc_number: 2, position: 5 });
+        expect(req.tracks[0]).toEqual({ id: "B01", title: "Song 1", artist: "Artist", album: "Album", album_artist: "Album Artist", release_date: "2020", track_number: 5, disc_number: 2, position: 5, service: "amazon", album_id: "", duration_ms: 1000, explicit: false, image: "" });
         expect(req.tracks.map((t) => t.position)).toEqual([5, 6]);
     });
 
@@ -56,57 +60,58 @@ describe("downloads store", () => {
 
     it("polls while something is active, then stops", async () => {
         const { api, store } = await load();
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "downloading")]);
+        state(api, [item("B01", "downloading")]);
         await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
-        const callsAfterStart = vi.mocked(api.GetDownloadQueue).mock.calls.length;
+        const callsAfterStart = vi.mocked(api.GetDownloadState).mock.calls.length;
 
         await vi.advanceTimersByTimeAsync(1600);
-        expect(vi.mocked(api.GetDownloadQueue).mock.calls.length).toBe(callsAfterStart + 3);
+        expect(vi.mocked(api.GetDownloadState).mock.calls.length).toBe(callsAfterStart + 3);
 
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "completed")]);
+        state(api, [item("B01", "completed")]);
         await vi.advanceTimersByTimeAsync(600);
-        const settled = vi.mocked(api.GetDownloadQueue).mock.calls.length;
+        const settled = vi.mocked(api.GetDownloadState).mock.calls.length;
         await vi.advanceTimersByTimeAsync(5000);
-        expect(vi.mocked(api.GetDownloadQueue).mock.calls.length).toBe(settled);
+        expect(vi.mocked(api.GetDownloadState).mock.calls.length).toBe(settled);
     });
 
     it("keeps polling during a guard pause and never runs two loops", async () => {
         const { api, store } = await load();
-        vi.mocked(api.GetDownloadGuard).mockResolvedValue({ site: "lucida", count: 50, asking: false, paused_until: Date.now() + 60_000 } as DownloadGuard);
+        state(api, [], [{ ...idle, name: "lucida", count: 50, paused_until: Date.now() + 60_000 }]);
         await Promise.all([store.refreshDownloads(), store.refreshDownloads(), store.refreshDownloads()]);
-        const before = vi.mocked(api.GetDownloadQueue).mock.calls.length;
+        const before = vi.mocked(api.GetDownloadState).mock.calls.length;
 
         await vi.advanceTimersByTimeAsync(1000);
 
-        expect(vi.mocked(api.GetDownloadQueue).mock.calls.length - before).toBe(2);
-        expect(store.getGuard().paused_until).toBeGreaterThan(0);
+        expect(vi.mocked(api.GetDownloadState).mock.calls.length - before).toBe(2);
+        expect(store.getSites()[0].paused_until).toBeGreaterThan(0);
     });
 
-    it("reflects the guard and keeps snapshots stable until the data changes", async () => {
+    it("reflects the sites and held flag and keeps snapshots stable until the data changes", async () => {
         const { api, store } = await load();
-        const guard = { site: "lucida", count: 50, asking: true, paused_until: 0 } as DownloadGuard;
-        vi.mocked(api.GetDownloadGuard).mockResolvedValue(guard);
+        const sites = [{ ...idle, name: "lucida", count: 50, limit: 50, asking: true }];
+        state(api, [], sites, true);
         const listener = vi.fn();
         store.subscribe(listener);
 
         await store.refreshDownloads();
         const items = store.getSnapshot();
-        const g = store.getGuard();
+        const g = store.getSites();
         await store.refreshDownloads();
 
-        expect(g).toEqual(guard);
+        expect(g).toEqual(sites);
+        expect(store.getHeld()).toBe(true);
         expect(store.getSnapshot()).toBe(items);
-        expect(store.getGuard()).toBe(g);
+        expect(store.getSites()).toBe(g);
         expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it("shows one summary toast when the batch finishes", async () => {
         const { api, toast, store } = await load();
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "downloading"), item("B02", "queued"), item("B03", "queued")]);
+        state(api, [item("B01", "downloading"), item("B02", "queued"), item("B03", "queued")]);
         await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1), track(2), track(3)]));
         expect(toast.success).not.toHaveBeenCalled();
 
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "completed"), item("B02", "completed"), item("B03", "skipped")]);
+        state(api, [item("B01", "completed"), item("B02", "completed"), item("B03", "skipped")]);
         await vi.advanceTimersByTimeAsync(600);
         await vi.advanceTimersByTimeAsync(3000);
 
@@ -116,11 +121,11 @@ describe("downloads store", () => {
 
     it("warns on partial failure and errors when nothing downloaded", async () => {
         const { api, toast, store } = await load();
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "completed"), item("B02", "failed"), item("B03", "cancelled")]);
+        state(api, [item("B01", "completed"), item("B02", "failed"), item("B03", "cancelled")]);
         await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1), track(2), track(3)]));
         expect(toast.warning).toHaveBeenCalledWith("Downloaded 1 · skipped 0 · failed 2");
 
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B04", "failed", "playlist:P1")]);
+        state(api, [item("B04", "failed", "playlist:P1")]);
         await store.startDownload({ kind: "playlist", id: "P1", name: "P" }, store.toSources("playlist", [track(4)]));
         expect(toast.error).toHaveBeenCalledWith("Downloaded 0 · skipped 0 · failed 1");
     });
@@ -133,7 +138,7 @@ describe("downloads store", () => {
 
         expect(toast.error).toHaveBeenCalledWith("FFmpeg is required");
         expect(toast.success).not.toHaveBeenCalled();
-        expect(vi.mocked(api.GetDownloadQueue)).not.toHaveBeenCalled();
+        expect(vi.mocked(api.GetDownloadState)).not.toHaveBeenCalled();
     });
 
     it("does not start a collection without an id", async () => {
@@ -146,7 +151,8 @@ describe("downloads store", () => {
 
     it("keeps polling after a failed refresh and still reports the summary", async () => {
         const { api, toast, store } = await load();
-        vi.mocked(api.GetDownloadQueue).mockRejectedValueOnce("offline").mockResolvedValue([item("B01", "completed")]);
+        vi.mocked(api.GetDownloadState).mockRejectedValueOnce("offline");
+        state(api, [item("B01", "completed")]);
 
         await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
         expect(toast.success).not.toHaveBeenCalled();
@@ -157,7 +163,7 @@ describe("downloads store", () => {
 
     it("reports a re-run whose items are all skipped even though the data did not change", async () => {
         const { api, toast, store } = await load();
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "skipped")]);
+        state(api, [item("B01", "skipped")]);
         await store.refreshDownloads();
 
         await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
@@ -168,13 +174,13 @@ describe("downloads store", () => {
     it("counts only the tracks of the current batch, not older runs in the queue", async () => {
         const { api, toast, store } = await load();
         const old = Array.from({ length: 10 }, (_, n) => item(`B0${n + 1}`, "completed"));
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue(old);
+        state(api, old);
         await store.refreshDownloads();
 
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "queued"), ...old.slice(1)]);
+        state(api, [item("B01", "queued"), ...old.slice(1)]);
         await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
-        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toEqual({ done: 0, total: 1, failed: 0, active: true });
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue(old);
+        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toEqual({ done: 0, total: 1, failed: 0, review: 0, active: true });
+        state(api, old);
         await vi.advanceTimersByTimeAsync(600);
 
         expect(toast.success).toHaveBeenCalledTimes(1);
@@ -184,11 +190,84 @@ describe("downloads store", () => {
     it("computes batch progress and stops only that queue's active items", async () => {
         const { api, store } = await load();
         const items = [item("a", "completed"), item("b", "skipped"), item("c", "failed"), item("d", "cancelled"), item("e", "downloading"), item("f", "queued"), item("g", "queued", "playlist:P")];
-        vi.mocked(api.GetDownloadQueue).mockResolvedValue(items);
+        state(api, items);
         await store.refreshDownloads();
 
-        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toEqual({ done: 2, total: 6, failed: 2, active: true });
+        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toEqual({ done: 2, total: 6, failed: 2, review: 0, active: true });
         await store.stopQueue("album:A1");
         expect(vi.mocked(api.CancelDownload).mock.calls.map((c) => c[0])).toEqual(["e", "f"]);
+    });
+});
+
+describe("downloads store with Spotify tracks and review", () => {
+    it("sends service, album_id, duration_ms, explicit and image for a Spotify track", async () => {
+        const { api, store } = await load();
+        const spotify = { ...track(1), service: "spotify" as const, id: "S1", album_id: "AL1", duration_ms: 215000, is_explicit: true, images: "https://i/c.jpg" };
+
+        await store.startDownload({ kind: "track", id: "S1", name: "Song 1" }, store.toSources("track", [spotify]));
+
+        expect(vi.mocked(api.DownloadTracks).mock.calls[0][0].tracks[0]).toMatchObject({ id: "S1", service: "spotify", album_id: "AL1", duration_ms: 215000, explicit: true, image: "https://i/c.jpg" });
+    });
+
+    it("waits for matching items but not for review items, and counts the review ones", async () => {
+        const { api, toast, store } = await load();
+        state(api, [item("B01", "completed"), item("B02", "matching"), item("B03", "review")]);
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1), track(2), track(3)]));
+        expect(toast.success).not.toHaveBeenCalled();
+        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toMatchObject({ review: 1, active: true });
+
+        state(api, [item("B01", "completed"), item("B02", "completed"), item("B03", "review")]);
+        await vi.advanceTimersByTimeAsync(600);
+
+        expect(toast.success).toHaveBeenCalledTimes(1);
+        expect(toast.success).toHaveBeenCalledWith("Downloaded 2 · skipped 0 · failed 0 · 1 awaiting a decision");
+        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toMatchObject({ review: 1, active: false });
+    });
+
+    it("counts ignored as skipped and reports not found, leaving zero extras out", async () => {
+        const { api, toast, store } = await load();
+        state(api, [item("B01", "completed"), item("B02", "ignored"), item("B03", "not_found"), item("B04", "not_found")]);
+
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1), track(2), track(3), track(4)]));
+
+        expect(toast.success).toHaveBeenCalledWith("Downloaded 1 · skipped 1 · failed 0 · 2 not found");
+    });
+
+    it("calls the new actions and refreshes after each", async () => {
+        const { api, store } = await load();
+        for (const f of [api.ChooseCandidate, api.UseAmazonLink, api.SkipReview, api.ResumeQueue, api.ClearQueue, api.GuardWait, api.GuardContinue]) vi.mocked(f).mockResolvedValue();
+
+        await store.chooseCandidate("S1", "B0X");
+        await store.useAmazonLink("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
+        await store.skipReview("S1");
+        await store.resumeQueue();
+        await store.clearQueue();
+        await store.guardWait("lucida");
+        await store.guardContinue("lucida");
+
+        expect(api.ChooseCandidate).toHaveBeenCalledWith("S1", "B0X");
+        expect(api.UseAmazonLink).toHaveBeenCalledWith("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
+        expect(api.SkipReview).toHaveBeenCalledWith("S1");
+        expect(api.GuardWait).toHaveBeenCalledWith("lucida");
+        expect(api.GuardContinue).toHaveBeenCalledWith("lucida");
+        expect(vi.mocked(api.GetDownloadState)).toHaveBeenCalledTimes(7);
+    });
+
+    it("sends the guard wait from the settings", async () => {
+        const { settings } = await load();
+        expect(settings.downloadOptions({ ...settings.DEFAULT_SETTINGS, rateGuardWait: 60 }).guard_wait).toBe(60);
+        expect(settings.downloadOptions(settings.DEFAULT_SETTINGS).guard_wait).toBe(30);
+    });
+
+    it("sends the discography, then top tracks that are not on a listed album", () => {
+        return load().then(({ store }) => {
+            const mk = (id: string, album_id: string) => ({ ...track(1), id, album_id });
+            const sent = store.artistTracks({
+                track_list: [mk("a", "AL1"), mk("b", "AL2")],
+                top_tracks: [mk("c", "AL1"), mk("d", "OTHER"), mk("e", "")],
+                album_list: [{ id: "AL1" }, { id: "AL2" }],
+            });
+            expect(sent.map((x) => x.id)).toEqual(["a", "b", "d", "e"]);
+        });
     });
 });

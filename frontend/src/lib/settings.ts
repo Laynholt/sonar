@@ -19,6 +19,7 @@ export interface Settings {
     ffmpegPath: string;
     rateGuard: boolean;
     rateGuardLimit: number;
+    rateGuardWait: 15 | 30 | 60 | 120;
     recentLimit: number;
 }
 
@@ -38,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ffmpegPath: "",
     rateGuard: true,
     rateGuardLimit: 50,
+    rateGuardWait: 30,
     recentLimit: 20,
 };
 
@@ -52,6 +54,7 @@ export function downloadOptions(s: Settings): download.Options {
         playlist_folder: s.playlistFolder,
         ffmpeg_path: s.ffmpegPath,
         guard_limit: s.rateGuard ? s.rateGuardLimit : 0,
+        guard_wait: s.rateGuardWait,
     };
 }
 

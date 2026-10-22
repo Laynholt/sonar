@@ -72,7 +72,7 @@ export function DownloadAll({ label, canDownload, onDownload, progress, onStop, 
     if (!onDownload) return null;
     const button = (<Button onClick={onDownload} disabled={!canDownload} size={size}><Download className="h-4 w-4"/>{t(label)}</Button>);
     return (<>
-      {canDownload ? button : <WithTip tip={t("download.spotifyLater")}>{button}</WithTip>}
+      {button}
       {progress?.active && (<>
         <span className="text-sm text-muted-foreground">{t("download.progress", { done: progress.done, total: progress.total, failed: progress.failed })}</span>
         {onStop && <Button variant="outline" size={size} onClick={onStop}>{t("download.stop")}</Button>}
