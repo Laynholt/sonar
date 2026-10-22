@@ -642,6 +642,36 @@ func TestGroupResolvedTogether(t *testing.T) {
 	}
 }
 
+// A group may fall back to matching track by track, so its deadline grows with its size.
+func TestMatchTimeoutScalesWithGroup(t *testing.T) {
+	left := map[int]time.Duration{}
+	var mu sync.Mutex
+	r := &fakeResolve{fn: func(ctx context.Context, ts []Track) []Resolution {
+		d, _ := ctx.Deadline()
+		mu.Lock()
+		left[len(ts)] = time.Until(d)
+		mu.Unlock()
+		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+	}}
+	q := newMQ(t, &fakeFetch{}, r)
+	ts := spotify("g1", "g2", "g3", "s4")
+	for i := range 3 {
+		ts[i].Group = "album:X"
+	}
+	q.Enqueue(album, testOpts(t), ts)
+	waitFor(t, q, allIn(Completed, "g1", "g2", "g3", "s4"))
+	mu.Lock()
+	defer mu.Unlock()
+	for n, d := range left {
+		if want := matchTimeout * time.Duration(n); d > want || d < want-time.Minute {
+			t.Errorf("a job of %d tracks had %v left, want about %v", n, d, want)
+		}
+	}
+	if len(left) != 2 {
+		t.Errorf("deadlines seen for job sizes %v, want 1 and 3", left)
+	}
+}
+
 func TestPlaylistMatchedOneByOne(t *testing.T) {
 	gate, release := make(chan struct{}), make(chan struct{})
 	r := &fakeResolve{}

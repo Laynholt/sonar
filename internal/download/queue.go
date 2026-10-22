@@ -27,7 +27,7 @@ const (
 // trackTimeout bounds one track; the HTTP clients have no total timeout of their own.
 const trackTimeout = 15 * time.Minute
 
-// matchTimeout bounds one Resolve call.
+// matchTimeout bounds one Resolve call per track in its job: a group may fall back to matching track by track.
 const matchTimeout = 5 * time.Minute
 
 type Item struct {
@@ -403,7 +403,7 @@ func (q *Queue) matcher() {
 
 		var res []Resolution
 		if q.resolve != nil {
-			ctx, cancel := context.WithTimeout(q.base, matchTimeout)
+			ctx, cancel := context.WithTimeout(q.base, matchTimeout*time.Duration(len(job)))
 			res = q.resolve(ctx, tracks)
 			cancel()
 		}
