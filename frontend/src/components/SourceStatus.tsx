@@ -20,13 +20,15 @@ export function SourceStatus({ compact }: { compact?: boolean }) {
         try {
             await PassDoubleDoubleCheck();
             toast.success(t("download.checkPassed"));
-            await load();
         }
         catch (error) { toast.error(String(error)); }
-        finally { setChecking(false); }
+        finally {
+            setChecking(false);
+            await load();
+        }
     };
     return (<ul className={compact ? "flex flex-wrap gap-x-4 gap-y-1 text-xs" : "space-y-1 text-xs"}>
-      {statuses.map((status) => (<li key={status.name} className="flex items-center gap-2">
+      {statuses.map((status) => (<li key={status.name} className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{status.name}</span>
         {status.needs_check
             ? <span className="text-muted-foreground">{t("download.siteNeedsCheck")}</span>

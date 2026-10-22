@@ -57,6 +57,8 @@ function Row({ id, label, description, children, wide }: { id: string; label: st
 // Radix Select rejects an empty item value, so the "no subfolder" preset gets a stand-in.
 const NONE = "none";
 const CUSTOM = "custom";
+// Keeps a pasted huge number out of the Go int.
+const MAX_GUARD_LIMIT = 100000;
 
 function TemplateSelect({ id, value, presets, onChange }: { id: string; value: string; presets: readonly string[]; onChange: (value: string) => void }) {
     const { t } = useI18n();
@@ -98,12 +100,16 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
     useEffect(() => {
         if (!needsFFmpeg) return;
         let stale = false;
+        setFfmpegFound(null);
         FindFFmpeg(settings.ffmpegPath).then((path) => { if (!stale) setFfmpegFound(path); }, () => { if (!stale) setFfmpegFound(""); });
         return () => { stale = true; };
     }, [needsFFmpeg, settings.ffmpegPath]);
     const browse = async (pick: () => Promise<string>, apply: (path: string) => void) => {
-        const path = await pick();
-        if (path) apply(path);
+        try {
+            const path = await pick();
+            if (path) apply(path);
+        }
+        catch (error) { toast.error(String(error)); }
     };
     return (<>
     <Row id="download-path" label={t("settings.downloadFolder")} description={t("settings.downloadFolderDesc")} wide>
@@ -167,12 +173,13 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
         <Switch id="rate-guard" checked={settings.rateGuard} onCheckedChange={(checked) => set({ rateGuard: checked })}/>
         {settings.rateGuard && <Input type="number" min={1} step={1} value={limitText} className="w-20" onChange={(e) => {
             setLimitText(e.target.value);
-            if (/^[1-9]\d*$/.test(e.target.value)) set({ rateGuardLimit: Number(e.target.value) });
+            const limit = Number(e.target.value);
+            if (/^[1-9]\d*$/.test(e.target.value) && limit <= MAX_GUARD_LIMIT) set({ rateGuardLimit: limit });
         }} onBlur={() => setLimitText(String(settings.rateGuardLimit))}/>}
       </div>
     </Row>
     <Row id="download-preview" label={t("settings.preview")} wide>
-      <p className="text-xs font-mono text-muted-foreground break-all">{preview}</p>
+      <p id="download-preview" className="text-xs font-mono text-muted-foreground break-all">{preview}</p>
     </Row>
     </>);
 }
@@ -189,11 +196,14 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
     const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'));
     const [isSaving, setIsSaving] = useState(false);
     const [section, setSection] = useState<SectionId>("general");
+    // Remounts the Downloads section on reset, so its local state follows the restored settings.
+    const [resetCount, setResetCount] = useState(0);
     const hasUnsavedChanges = JSON.stringify(savedSettings) !== JSON.stringify(tempSettings);
     const resetToSaved = useCallback(() => {
         const freshSavedSettings = getSettings();
         flushSync(() => {
             setTempSettings(freshSavedSettings);
+            setResetCount((count) => count + 1);
             setIsDark(document.documentElement.classList.contains('dark'));
         });
     }, []);
@@ -280,7 +290,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
             </Row>
           </>)}
 
-          {section === "downloads" && <DownloadsSection settings={tempSettings} set={set}/>}
+          {section === "downloads" && <DownloadsSection key={resetCount} settings={tempSettings} set={set}/>}
 
           {section === "appearance" && (<>
             <Row id="theme-mode" label={t("settings.mode")} description={t("settings.modeDesc")}>

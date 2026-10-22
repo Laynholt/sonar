@@ -3,6 +3,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLanguage, setLanguage } from "@/lib/i18n";
 import { toastWithSound } from "@/lib/toast-with-sound";
+import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import { SettingsPage } from "./SettingsPage";
 import { mount, button, change, deferred } from "../test/render";
 import { GetSourceStatus, PassDoubleDoubleCheck, PreviewDownloadPath, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
@@ -126,7 +127,9 @@ describe("SettingsPage", () => {
         it("a failed check shows the error and re-enables the button", async () => {
             vi.mocked(PassDoubleDoubleCheck).mockRejectedValue(new Error("timed out"));
             await open();
+            const calls = vi.mocked(GetSourceStatus).mock.calls.length;
             await act(async () => button(view.container, "Pass check").click());
+            expect(vi.mocked(GetSourceStatus).mock.calls.length).toBeGreaterThan(calls);
             expect(vi.mocked(toastWithSound.error)).toHaveBeenCalledWith(expect.stringContaining("timed out"));
             expect(button(view.container, "Pass check").disabled).toBe(false);
         });
@@ -143,6 +146,41 @@ describe("SettingsPage", () => {
             expect(lastOptions()).toMatchObject({ ffmpeg_path: "C:\\ff\\ffmpeg.exe", format: "mp3-320" });
         });
 
+        it("the Download FFmpeg link opens ffmpeg.org", async () => {
+            await open();
+            await pick(selectWith("mp3-320"), "mp3-320");
+            await act(async () => button(view.container, "Download FFmpeg").click());
+            expect(BrowserOpenURL).toHaveBeenCalledWith("https://ffmpeg.org/download.html");
+        });
+
+        it("shows where FFmpeg was found", async () => {
+            vi.mocked(FindFFmpeg).mockResolvedValue("C:\\bin\\ffmpeg.exe");
+            await open();
+            await pick(selectWith("mp3-320"), "mp3-320");
+            expect(view.container.textContent).toContain("Found: C:\\bin\\ffmpeg.exe");
+            expect(view.container.textContent).not.toContain("FFmpeg not found");
+        });
+
+        it("a failed Browse shows the error", async () => {
+            vi.mocked(SelectDownloadFolder).mockRejectedValue(new Error("dialog failed"));
+            await open();
+            await act(async () => button(view.container, "Browse").click());
+            expect(vi.mocked(toastWithSound.error)).toHaveBeenCalledWith(expect.stringContaining("dialog failed"));
+        });
+
+        it("No subfolder saves an empty folder template", async () => {
+            await open();
+            await pick(selectWith("{artist}"), "{artist}");
+            expect(lastOptions()).toMatchObject({ folder_template: "{artist}" });
+            await pick(selectWith("none"), "none");
+            expect(lastOptions()).toMatchObject({ folder_template: "" });
+        });
+
+        it("opening the tab alone does not mark the page unsaved", async () => {
+            await open();
+            expect(onUnsavedChangesChange).not.toHaveBeenCalledWith(true);
+        });
+
         it("the rate guard limit goes into the options", async () => {
             await open();
             const limit = view.container.querySelector('input[type="number"]') as HTMLInputElement;
@@ -153,6 +191,8 @@ describe("SettingsPage", () => {
             expect(lastOptions()).toMatchObject({ guard_limit: 30 });
             await act(async () => limit.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
             expect(limit.value).toBe("30");
+            await act(async () => change(limit, "99999999999999999999"));
+            expect(lastOptions()).toMatchObject({ guard_limit: 30 });
             await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
             expect(view.container.querySelector('input[type="number"]')).toBeNull();
             expect(lastOptions()).toMatchObject({ guard_limit: 0 });
