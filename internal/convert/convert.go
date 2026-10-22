@@ -43,7 +43,7 @@ func isFile(p string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-// FindFFmpeg returns custom if it is an existing regular file, else <exe dir>fmpegfmpeg.exe, else ffmpeg from PATH, else "".
+// FindFFmpeg returns custom if it is an existing regular file, else <exe dir>/ffmpeg/ffmpeg.exe, else ffmpeg from PATH, else "".
 func FindFFmpeg(custom string) string {
 	if custom != "" && isFile(custom) {
 		return custom

@@ -66,7 +66,7 @@ func (a *App) StartFFmpegInstall(dir string) error {
 
 func (a *App) runFFmpegInstall(ctx context.Context, dir string) {
 	path, err := a.installFFmpeg(ctx, dir)
-	cancelled := ctx.Err() != nil // before ffCancel, which cancels ctx
+	cancelled := err != nil && ctx.Err() != nil // before ffCancel, which cancels ctx; a finished install stays done
 	a.ffMu.Lock()
 	defer a.ffMu.Unlock()
 	a.ffCancel()
