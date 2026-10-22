@@ -210,6 +210,7 @@ export const en = {
     "widget.hide": "Hide",
     "widget.badgeLabel": "Downloading: {percent}%, {speed} MB/s",
     "widget.badgeSpeedUnit": "MB/s",
+    "widget.badgeDoneLabel": "Downloads finished",
     "widget.left": "{time} left",
     "download.passCheck": "Pass check",
     "download.checkWaiting": "Pass the check in the browser window…",

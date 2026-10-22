@@ -141,6 +141,22 @@ describe("DownloadWidget", () => {
             expect(view.container.querySelector("[data-testid=badge-attention]")).toBeNull();
         });
 
+        it("starts a new run from idle expanded, counting only its own items", async () => {
+            await show(running());
+            await hide();
+            await show([item("a", "completed")]);
+            await show([item("a", "completed"), item("b", "downloading")]);
+            expect(view.container.querySelector("[role=status]")).not.toBeNull();
+            expect(text()).toContain("0 of 1");
+        });
+
+        it("labels a finished badge as finished", async () => {
+            await show(running());
+            await hide();
+            await show([item("a", "completed")]);
+            expect(view.container.querySelector("button[aria-label=\"Downloads finished\"]")).not.toBeNull();
+        });
+
         it("starts the next run expanded", async () => {
             await show(running());
             await hide();

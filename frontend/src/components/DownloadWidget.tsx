@@ -52,14 +52,17 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
     const speed = useDownloadSpeed(items);
     const [run, setRun] = useState<Run | null>(null);
     const prevItems = useRef(items);
+    const wasActive = useRef(false);
     useEffect(() => {
         const before = prevItems.current;
         prevItems.current = items;
-        setRun((r) => {
+        const started = activeCount > 0 && !wasActive.current;
+        wasActive.current = activeCount > 0;
+        setRun((old) => {
+            // Downloads appearing from idle start a new, expanded run, however the last one ended.
+            const r = started ? null : old;
             if (!r && activeCount === 0) return r;
             if (r?.mode === "closed" && activeCount === 0) return null;
-            // Nothing of the run is left (the list was cleared): the next downloads start a new, expanded run.
-            if (r && activeCount === 0 && !items.some((i) => r.seen.has(i.id) || !r.before.has(i.id))) return null;
             const next = r ?? { before: new Set(before.map((i) => i.id)), seen: new Set<string>(), mode: "open" as const };
             const active = items.filter(isActive).map((i) => i.id);
             return active.some((id) => !next.seen.has(id)) ? { ...next, seen: new Set([...next.seen, ...active]) } : next;
@@ -114,7 +117,7 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
         const onBadgeUp = (e: PointerEvent<HTMLElement>) => {
             const moved = drag.current ? Math.hypot(e.clientX - drag.current.x, e.clientY - drag.current.y) : Infinity;
             onPointerUp(e);
-            if (e.type === "pointerup" && moved < 4) expand();
+            if (moved < 4) expand();
         };
         return (<DownloadBadge ref={cardRef} className={`fixed ${CORNERS[corner]} z-40`} progress={(done + failed + partial) / own.length} speed={mb(speed.total, language)}
             done={!running} attention={review > 0 || sites.some((s) => s.asking)} onExpand={expand}

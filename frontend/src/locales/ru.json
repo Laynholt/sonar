@@ -209,6 +209,7 @@
     "widget.hide": "Скрыть",
     "widget.badgeLabel": "Загрузка: {percent}%, {speed} МБ/с",
     "widget.badgeSpeedUnit": "МБ/с",
+    "widget.badgeDoneLabel": "Загрузка завершена",
     "widget.left": "осталось {time}",
     "download.passCheck": "Пройти проверку",
     "download.checkWaiting": "Пройдите проверку в окне браузера…",

@@ -19,9 +19,9 @@ interface Props {
 }
 
 /** The collapsed download widget: a round progress ring with the speed, or a check once finished. */
-export function DownloadBadge({ progress, speed, done, attention, onExpand, className, ...rest }: Props) {
+export function DownloadBadge({ ref, progress, speed, done, attention, onExpand, className, ...rest }: Props) {
     const { t } = useI18n();
-    return (<button type="button" {...rest} aria-label={t("widget.badgeLabel", { percent: Math.round(progress * 100), speed })}
+    return (<button ref={ref} type="button" {...rest} aria-label={done ? t("widget.badgeDoneLabel") : t("widget.badgeLabel", { percent: Math.round(progress * 100), speed })}
         className={`${className} h-[60px] w-[60px] rounded-full bg-neutral-900 text-white shadow-lg cursor-grab active:cursor-grabbing select-none touch-none`}
         onClick={(e) => { if (e.detail === 0) onExpand(); }}>
       <svg viewBox="0 0 60 60" className="absolute inset-0 -rotate-90" aria-hidden>
@@ -30,7 +30,7 @@ export function DownloadBadge({ progress, speed, done, attention, onExpand, clas
             strokeDasharray={LENGTH} strokeDashoffset={LENGTH * (1 - Math.min(1, progress))}/>
       </svg>
       {done
-        ? <Check data-testid="badge-done" className="relative mx-auto h-5 w-5 text-[#5DCAA5]"/>
+        ? <Check data-testid="badge-done" className="relative h-5 w-5 text-[#5DCAA5]"/>
         : <span className="relative flex flex-col items-center text-[11px] leading-tight tabular-nums"><span>{speed}</span><span className="text-[9px] text-neutral-400">{t("widget.badgeSpeedUnit")}</span></span>}
       {attention && <span data-testid="badge-attention" className="absolute right-0 top-0 h-3 w-3 rounded-full bg-amber-500 ring-2 ring-neutral-900"/>}
     </button>);
