@@ -2,6 +2,7 @@ package download
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -9,10 +10,14 @@ import (
 type Status string
 
 const (
+	Matching    Status = "matching" // waiting for or in a Resolve call
+	Review      Status = "review"   // no confident match; the user chooses or skips
 	Queued      Status = "queued"
 	Downloading Status = "downloading"
 	Completed   Status = "completed"
 	Skipped     Status = "skipped"
+	Ignored     Status = "ignored"   // skipped in review with candidates on offer
+	NotFound    Status = "not_found" // skipped in review with no candidates
 	Failed      Status = "failed"
 	Cancelled   Status = "cancelled"
 )
@@ -20,20 +25,50 @@ const (
 // trackTimeout bounds one track; the HTTP clients have no total timeout of their own.
 const trackTimeout = 15 * time.Minute
 
+// matchTimeout bounds one Resolve call.
+const matchTimeout = 5 * time.Minute
+
 type Item struct {
-	ID      string `json:"id"`
-	QueueID string `json:"queue_id"`
-	Track   Track  `json:"track"`
-	Status  Status `json:"status"`
-	Message string `json:"message"`
-	Path    string `json:"path"`
-	Error   string `json:"error"`
-	Bytes   int64  `json:"bytes"` // written so far
-	Size    int64  `json:"size"`  // expected file size, 0 when the site does not say
+	ID         string      `json:"id"`
+	QueueID    string      `json:"queue_id"`
+	Track      Track       `json:"track"`
+	Status     Status      `json:"status"`
+	Message    string      `json:"message"`
+	Path       string      `json:"path"`
+	Error      string      `json:"error"`
+	Bytes      int64       `json:"bytes"` // written so far
+	Size       int64       `json:"size"`  // expected file size, 0 when the site does not say
+	AmazonID   string      `json:"amazon_id"`
+	Via        string      `json:"via"`
+	Candidates []Candidate `json:"candidates,omitempty"`
+	Site       string      `json:"site"`
 }
 
+type Candidate struct {
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	Artist      string  `json:"artist"`
+	Album       string  `json:"album"`
+	ReleaseDate string  `json:"release_date"`
+	Image       string  `json:"image"`
+	DurationMS  int     `json:"duration_ms"`
+	Explicit    bool    `json:"explicit"`
+	Score       float64 `json:"score"`
+	Recommended bool    `json:"recommended"`
+}
+
+type Resolution struct {
+	AmazonID   string
+	Via        string
+	Candidates []Candidate
+	Err        error
+}
+
+// Resolve returns one Resolution per track, same order. AmazonID != "" means confident.
+type Resolve func(ctx context.Context, tracks []Track) []Resolution
+
 // Fetch downloads one track to pathNoExt+extension and returns the file path.
-// onStatus must not be called after Fetch returns.
+// trackID is the entry's AmazonID. onStatus must not be called after Fetch returns.
 type Fetch func(ctx context.Context, trackID string, o Options, pathNoExt string, onStatus func(string)) (string, error)
 
 type entry struct {
@@ -43,31 +78,38 @@ type entry struct {
 	cancel    context.CancelFunc // set while Downloading
 }
 
-// Queue runs downloads on a fixed set of workers; one entry per track ID, in first-enqueue order.
+// Queue matches tracks one job at a time and downloads them on a fixed set of workers;
+// one entry per track ID, in first-enqueue order.
 type Queue struct {
-	fetch  Fetch
-	mu     sync.Mutex
-	cond   *sync.Cond
-	order  []*entry
-	byID   map[string]*entry
-	closed bool
-	wg     sync.WaitGroup
+	fetch      Fetch
+	resolve    Resolve
+	base       context.Context // parent of every Resolve call; cancelled by Close
+	cancelBase context.CancelFunc
+	mu         sync.Mutex
+	cond       *sync.Cond
+	order      []*entry
+	byID       map[string]*entry
+	closed     bool
+	wg         sync.WaitGroup
 
-	held      bool        // workers start nothing while held
+	held      bool        // workers and the matcher start nothing while held
 	heldUntil time.Time   // zero = until Resume
 	holdTimer *time.Timer // auto-resume for a timed hold
 }
 
-func NewQueue(fetch Fetch, workers int) *Queue {
-	q := &Queue{fetch: fetch, byID: map[string]*entry{}}
+func NewQueue(fetch Fetch, resolve Resolve, workers int) *Queue {
+	q := &Queue{fetch: fetch, resolve: resolve, byID: map[string]*entry{}}
+	q.base, q.cancelBase = context.WithCancel(context.Background())
 	q.cond = sync.NewCond(&q.mu)
+	q.wg.Add(workers + 1)
 	for i := 0; i < workers; i++ {
-		q.wg.Add(1)
 		go q.worker()
 	}
+	go q.matcher()
 	return q
 }
 
+// Enqueue adds tracks and releases a hold. A track already matching, in review, queued or downloading is left as it is.
 func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -76,7 +118,7 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 	}
 	for _, t := range tracks {
 		e := q.byID[t.ID]
-		if e != nil && (e.Status == Queued || e.Status == Downloading) {
+		if e != nil && (e.Status == Matching || e.Status == Review || e.Status == Queued || e.Status == Downloading) {
 			continue
 		}
 		if e == nil {
@@ -84,9 +126,22 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 			q.byID[t.ID] = e
 			q.order = append(q.order, e)
 		}
-		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t, Status: Queued}, o: o, pathNoExt: PathNoExt(t, c, o)}
+		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t}, o: o, pathNoExt: PathNoExt(t, c, o)}
+		if t.Service == "" || t.Service == "amazon" {
+			e.AmazonID = t.ID
+		}
+		e.Status = e.start()
 	}
+	q.releaseLocked()
 	q.cond.Broadcast()
+}
+
+// start is where a fresh or retried entry begins: matching until it has an Amazon ID.
+func (e *entry) start() Status {
+	if e.AmazonID == "" {
+		return Matching
+	}
+	return Queued
 }
 
 func (q *Queue) Snapshot() []Item {
@@ -97,6 +152,34 @@ func (q *Queue) Snapshot() []Item {
 		out = append(out, e.Item)
 	}
 	return out
+}
+
+// Choose downloads amazonID for an item in review.
+func (q *Queue) Choose(id, amazonID string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	e := q.byID[id]
+	if e == nil || e.Status != Review {
+		return errors.New("track is not waiting for a choice")
+	}
+	if amazonID == "" {
+		return errors.New("no Amazon track chosen")
+	}
+	e.Status, e.AmazonID, e.Via = Queued, amazonID, "manual"
+	q.cond.Broadcast()
+	return nil
+}
+
+// Skip gives up on an item in review: not_found when nothing was offered, ignored otherwise.
+func (q *Queue) Skip(id string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if e := q.byID[id]; e != nil && e.Status == Review {
+		e.Status = Ignored
+		if len(e.Candidates) == 0 {
+			e.Status = NotFound
+		}
+	}
 }
 
 func (q *Queue) Cancel(id string) {
@@ -119,10 +202,11 @@ func (q *Queue) cancelAllLocked() {
 	}
 }
 
-// stop cancels a queued item at once and a downloading one through its context; finished items are left alone.
+// stop cancels a waiting item at once and a downloading one through its context; finished items are left alone.
+// A Resolve call already running for a matching item is not interrupted; its result is dropped.
 func (e *entry) stop() {
 	switch e.Status {
-	case Queued:
+	case Matching, Review, Queued:
 		e.Status = Cancelled
 	case Downloading:
 		e.cancel()
@@ -148,23 +232,28 @@ func (q *Queue) RetryFailed() {
 	}
 }
 
+// requeue sends a failed or cancelled item back to matching when it never got an Amazon ID, else to the download queue.
 func (q *Queue) requeue(e *entry) {
 	if q.closed || (e.Status != Failed && e.Status != Cancelled) {
 		return
 	}
-	e.Status, e.Error, e.Message, e.Path, e.Bytes, e.Size = Queued, "", "", "", 0, 0
+	e.Status, e.Error, e.Message, e.Path, e.Bytes, e.Size = e.start(), "", "", "", 0, 0
+	if e.Status == Matching {
+		e.Candidates = nil
+	}
 	q.cond.Broadcast()
 }
 
-// ClearFinished drops everything that is neither queued nor downloading.
+// ClearFinished drops everything that is not matching, in review, queued or downloading.
 func (q *Queue) ClearFinished() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	kept := q.order[:0]
 	for _, e := range q.order {
-		if e.Status == Queued || e.Status == Downloading {
+		switch e.Status {
+		case Matching, Review, Queued, Downloading:
 			kept = append(kept, e)
-		} else {
+		default:
 			delete(q.byID, e.ID)
 		}
 	}
@@ -172,7 +261,7 @@ func (q *Queue) ClearFinished() {
 	q.order = kept
 }
 
-// Hold stops workers from starting queued items; in-flight ones finish. A zero until holds until Resume.
+// Hold stops workers and the matcher from starting anything; in-flight ones finish. A zero until holds until Resume.
 func (q *Queue) Hold(until time.Time) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -214,15 +303,81 @@ func (q *Queue) releaseLocked() {
 	q.held, q.heldUntil = false, time.Time{}
 }
 
-// Close cancels everything and waits for the workers.
+// Close cancels everything and waits for the workers and the matcher.
 func (q *Queue) Close() {
 	q.mu.Lock()
 	q.closed = true
 	q.releaseLocked() // stops a pending auto-resume timer
 	q.cancelAllLocked()
+	q.cancelBase()
 	q.cond.Broadcast()
 	q.mu.Unlock()
 	q.wg.Wait()
+}
+
+// waitLocked blocks until take succeeds while the queue is open and not held; false once closed.
+func (q *Queue) waitLocked(take func() bool) bool {
+	for !q.closed {
+		if !q.held && take() {
+			return true
+		}
+		q.cond.Wait()
+	}
+	return false
+}
+
+// matcher resolves one job at a time: the oldest matching entry with the rest of its album group.
+func (q *Queue) matcher() {
+	defer q.wg.Done()
+	for {
+		q.mu.Lock()
+		var job []*entry
+		if !q.waitLocked(func() bool { job = q.matchJobLocked(); return job != nil }) {
+			q.mu.Unlock()
+			return
+		}
+		tracks := make([]Track, len(job))
+		for i, e := range job {
+			tracks[i] = e.Track
+		}
+		q.mu.Unlock()
+
+		ctx, cancel := context.WithTimeout(q.base, matchTimeout)
+		res := q.resolve(ctx, tracks)
+		cancel()
+
+		q.mu.Lock()
+		for i, e := range job {
+			if e.Status != Matching { // cancelled or re-enqueued meanwhile
+				continue
+			}
+			r := Resolution{Err: errors.New("no match result")}
+			if i < len(res) {
+				r = res[i]
+			}
+			e.Candidates = r.Candidates
+			switch {
+			case r.Err != nil:
+				e.Status, e.Error = Failed, r.Err.Error()
+			case r.AmazonID != "":
+				e.Status, e.AmazonID, e.Via = Queued, r.AmazonID, r.Via
+			default:
+				e.Status = Review
+			}
+		}
+		q.cond.Broadcast()
+		q.mu.Unlock()
+	}
+}
+
+func (q *Queue) matchJobLocked() []*entry {
+	var job []*entry
+	for _, e := range q.order {
+		if e.Status == Matching && (job == nil || job[0].Track.Group != "" && e.Track.Group == job[0].Track.Group) {
+			job = append(job, e)
+		}
+	}
+	return job
 }
 
 func (q *Queue) worker() {
@@ -230,23 +385,13 @@ func (q *Queue) worker() {
 	for {
 		q.mu.Lock()
 		var e *entry
-		for {
-			if q.closed {
-				break
-			}
-			if !q.held {
-				if e = q.takeLocked(); e != nil {
-					break
-				}
-			}
-			q.cond.Wait()
-		}
-		if e == nil {
+		if !q.waitLocked(func() bool { e = q.takeLocked(); return e != nil }) {
 			q.mu.Unlock()
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), trackTimeout)
 		e.Status, e.cancel = Downloading, cancel
+		id := e.AmazonID
 		q.mu.Unlock()
 		ctx = WithProgress(ctx, func(done, total int64) {
 			q.mu.Lock()
@@ -256,7 +401,7 @@ func (q *Queue) worker() {
 			}
 		})
 
-		path, err := q.fetch(ctx, e.ID, e.o, e.pathNoExt, func(msg string) {
+		path, err := q.fetch(ctx, id, e.o, e.pathNoExt, func(msg string) {
 			q.mu.Lock()
 			defer q.mu.Unlock()
 			if e.Status == Downloading {

@@ -77,7 +77,7 @@ func (a *App) init() {
 	a.sources = source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
 	a.findFFmpeg = convert.FindFFmpeg
 	a.sources.OnLimit = a.onLimit
-	a.dl = download.NewQueue(a.fetch, downloadWorkers)
+	a.dl = download.NewQueue(a.fetch, unwiredResolve, downloadWorkers)
 	if a.dd.Token() == "" { // first run: say so before any track fails
 		a.sources.NeedCheck("doubledouble")
 	}

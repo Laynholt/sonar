@@ -42,6 +42,15 @@ type DownloadRequest struct {
 	Tracks     []download.Track    `json:"tracks"`
 }
 
+// unwiredResolve fails every Spotify track until the matcher is wired in.
+func unwiredResolve(_ context.Context, tracks []download.Track) []download.Resolution {
+	out := make([]download.Resolution, len(tracks))
+	for i := range out {
+		out[i].Err = errors.New("matching is not wired yet")
+	}
+	return out
+}
+
 // fetch is the queue's worker: the site delivers FLAC, FFmpeg converts it when asked.
 func (a *App) fetch(ctx context.Context, id string, o download.Options, pathNoExt string, onStatus func(string)) (string, error) {
 	url, err := amazon.TrackURL(id)

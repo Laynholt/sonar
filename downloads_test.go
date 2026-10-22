@@ -44,7 +44,7 @@ func newTestApp(t *testing.T, ffmpeg string) (*App, func() []fetched) {
 		defer mu.Unlock()
 		got = append(got, fetched{o, p})
 		return p + ".flac", nil
-	}, 1)
+	}, nil, 1)
 	t.Cleanup(a.dl.Close)
 	return a, func() []fetched {
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
@@ -158,7 +158,7 @@ func TestFetch(t *testing.T) {
 			src := &recSource{path: filepath.Join(t.TempDir(), "x.flac")}
 			a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return tc.ffmpeg }}
 			a.sources = source.NewBalancer(time.Minute, src)
-			a.dl = download.NewQueue(a.fetch, 1)
+			a.dl = download.NewQueue(a.fetch, nil, 1)
 			t.Cleanup(a.dl.Close)
 			r := req(tc.format, "auto", "B00A3SGXAA")
 			r.Options.Dir = t.TempDir()
@@ -186,7 +186,7 @@ func newGuardApp(t *testing.T) *App {
 	a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return "" }}
 	a.sources = source.NewBalancer(time.Minute, fakeSource("lucida"))
 	a.sources.OnLimit = a.onLimit
-	a.dl = download.NewQueue(a.fetch, 1)
+	a.dl = download.NewQueue(a.fetch, nil, 1)
 	t.Cleanup(a.dl.Close)
 	return a
 }

@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ func testOpts(t *testing.T) Options {
 var album = Collection{Kind: "album", ID: "al1", Name: "Album"}
 
 func newQ(t *testing.T, f *fakeFetch, workers int) *Queue {
-	q := NewQueue(f.fetch, workers)
+	q := NewQueue(f.fetch, nil, workers)
 	t.Cleanup(q.Close)
 	return q
 }
@@ -324,7 +325,7 @@ func TestQueueCloseCancelsAndWaits(t *testing.T) {
 		close(returned)
 		return "", ctx.Err()
 	}}
-	q := NewQueue(f.fetch, 1)
+	q := NewQueue(f.fetch, nil, 1)
 	q.Enqueue(album, testOpts(t), tracks("A", "B"))
 	waitFor(t, q, allIn(Downloading, "A"))
 	q.Close()
@@ -350,31 +351,43 @@ func TestQueueSnapshotEmptyIsNotNil(t *testing.T) {
 	}
 }
 
+// Enqueue releases a hold, so each hold here is set while a blocked download keeps the rest queued.
 func TestQueueHoldAndResume(t *testing.T) {
-	f := &fakeFetch{}
+	gates := map[string]chan struct{}{"A": make(chan struct{}), "E": make(chan struct{})}
+	f := &fakeFetch{fn: func(_ context.Context, id, p string) (string, error) {
+		if g := gates[id]; g != nil {
+			<-g
+		}
+		return p + ".flac", nil
+	}}
 	q := newQ(t, f, 1)
+	q.Enqueue(album, testOpts(t), tracks("A", "B", "C"))
+	waitFor(t, q, allIn(Downloading, "A"))
 	q.Hold(time.Time{})
 	if held, until := q.HeldUntil(); !held || !until.IsZero() {
 		t.Fatalf("HeldUntil = %v, %v", held, until)
 	}
-	q.Enqueue(album, testOpts(t), tracks("A", "B"))
+	close(gates["A"])
+	waitFor(t, q, allIn(Completed, "A"))
 	time.Sleep(100 * time.Millisecond)
-	if !allIn(Queued, "A", "B")(q.Snapshot()) || len(f.callLog()) != 0 {
+	if !allIn(Queued, "B", "C")(q.Snapshot()) || len(f.callLog()) != 1 {
 		t.Fatalf("held queue ran: %+v", q.Snapshot())
 	}
-	q.Cancel("A")
-	if find(q.Snapshot(), "A").Status != Cancelled {
-		t.Fatalf("A = %+v", find(q.Snapshot(), "A"))
+	q.Cancel("B")
+	if find(q.Snapshot(), "B").Status != Cancelled {
+		t.Fatalf("B = %+v", find(q.Snapshot(), "B"))
 	}
 	q.Resume()
-	waitFor(t, q, allIn(Completed, "B"))
+	waitFor(t, q, allIn(Completed, "C"))
 	if held, _ := q.HeldUntil(); held {
 		t.Fatal("still held after Resume")
 	}
 
+	q.Enqueue(album, testOpts(t), tracks("E", "F"))
+	waitFor(t, q, allIn(Downloading, "E"))
 	q.Hold(time.Now().Add(50 * time.Millisecond))
-	q.Enqueue(album, testOpts(t), tracks("C"))
-	waitFor(t, q, allIn(Completed, "C"))
+	close(gates["E"])
+	waitFor(t, q, allIn(Completed, "E", "F"))
 	if held, _ := q.HeldUntil(); held {
 		t.Fatal("still held after the deadline")
 	}
@@ -402,9 +415,9 @@ func TestQueueHoldLetsInFlightFinishAndReplacesTimer(t *testing.T) {
 }
 
 func TestQueueCloseWhileHeld(t *testing.T) {
-	q := NewQueue((&fakeFetch{}).fetch, 2)
-	q.Hold(time.Time{})
+	q := NewQueue((&fakeFetch{}).fetch, nil, 2)
 	q.Enqueue(album, testOpts(t), tracks("A"))
+	q.Hold(time.Time{}) // after Enqueue, which releases a hold
 	done := make(chan struct{})
 	go func() { q.Close(); close(done) }()
 	select {
@@ -449,10 +462,331 @@ func TestQueueReportsProgress(t *testing.T) {
 		case <-ctx.Done():
 		}
 		return pathNoExt + ".flac", nil
-	}, 1)
+	}, nil, 1)
 	t.Cleanup(q.Close)
 	q.Enqueue(album, testOpts(t), tracks("1"))
 	waitFor(t, q, func(s []Item) bool { it := find(s, "1"); return it.Bytes == 5 && it.Size == 10 })
 	close(release)
 	waitFor(t, q, allIn(Completed, "1"))
+}
+
+// fakeResolve records the track IDs of each call and the peak of overlapping calls.
+// fn decides the outcome (default: a confident match "B-"+ID via "title").
+type fakeResolve struct {
+	mu        sync.Mutex
+	calls     [][]string
+	cur, peak int
+	fn        func(ctx context.Context, ts []Track) []Resolution
+}
+
+func (r *fakeResolve) resolve(ctx context.Context, ts []Track) []Resolution {
+	ids := make([]string, len(ts))
+	for i, t := range ts {
+		ids[i] = t.ID
+	}
+	r.mu.Lock()
+	r.calls = append(r.calls, ids)
+	r.cur++
+	r.peak = max(r.peak, r.cur)
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.cur--
+		r.mu.Unlock()
+	}()
+	if r.fn != nil {
+		return r.fn(ctx, ts)
+	}
+	out := make([]Resolution, len(ts))
+	for i, t := range ts {
+		out[i] = Resolution{AmazonID: "B-" + t.ID, Via: "title"}
+	}
+	return out
+}
+
+func (r *fakeResolve) callLog() [][]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([][]string(nil), r.calls...)
+}
+
+func newMQ(t *testing.T, f *fakeFetch, r *fakeResolve) *Queue {
+	q := NewQueue(f.fetch, r.resolve, 2)
+	t.Cleanup(q.Close)
+	return q
+}
+
+func spotify(ids ...string) []Track {
+	ts := tracks(ids...)
+	for i := range ts {
+		ts[i].Service = "spotify"
+	}
+	return ts
+}
+
+func each(ts []Track, fn func(Track) Resolution) []Resolution {
+	out := make([]Resolution, len(ts))
+	for i, t := range ts {
+		out[i] = fn(t)
+	}
+	return out
+}
+
+// wait blocks until gate yields or the queue closes, so a stuck fake never outlives its test.
+func wait(ctx context.Context, gate chan struct{}) {
+	select {
+	case <-gate:
+	case <-ctx.Done():
+	}
+}
+
+var twoCandidates = []Candidate{{ID: "B000000002", Score: 0.7, Recommended: true}, {ID: "B000000003", Score: 0.6}}
+
+func reviewAll(ctx context.Context, ts []Track) []Resolution {
+	return each(ts, func(Track) Resolution { return Resolution{Candidates: twoCandidates} })
+}
+
+func TestSpotifyTrackMatchedThenDownloaded(t *testing.T) {
+	f := &fakeFetch{}
+	r := &fakeResolve{fn: func(_ context.Context, ts []Track) []Resolution {
+		return each(ts, func(Track) Resolution { return Resolution{AmazonID: "B000000001", Via: "isrc"} })
+	}}
+	q := newMQ(t, f, r)
+	q.Enqueue(album, testOpts(t), spotify("s1"))
+	it := find(waitFor(t, q, allIn(Completed, "s1")), "s1")
+	if it.AmazonID != "B000000001" || it.Via != "isrc" {
+		t.Errorf("item = %+v", it)
+	}
+	if c := f.callLog(); len(c) != 1 || c[0].id != "B000000001" {
+		t.Errorf("fetch calls = %+v", c)
+	}
+}
+
+func TestUncertainGoesToReview(t *testing.T) {
+	f := &fakeFetch{}
+	q := newMQ(t, f, &fakeResolve{fn: reviewAll})
+	q.Enqueue(album, testOpts(t), spotify("s1"))
+	it := find(waitFor(t, q, allIn(Review, "s1")), "s1")
+	if len(it.Candidates) != 2 || it.AmazonID != "" {
+		t.Errorf("item = %+v", it)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if n := len(f.callLog()); n != 0 {
+		t.Errorf("fetch called %d times for a track in review", n)
+	}
+}
+
+func TestChooseQueuesCandidate(t *testing.T) {
+	f := &fakeFetch{}
+	q := newMQ(t, f, &fakeResolve{fn: reviewAll})
+	q.Enqueue(album, testOpts(t), spotify("s1"))
+	waitFor(t, q, allIn(Review, "s1"))
+	if err := q.Choose("s1", "B000000002"); err != nil {
+		t.Fatal(err)
+	}
+	it := find(waitFor(t, q, allIn(Completed, "s1")), "s1")
+	if it.AmazonID != "B000000002" || it.Via != "manual" {
+		t.Errorf("item = %+v", it)
+	}
+	if c := f.callLog(); len(c) != 1 || c[0].id != "B000000002" {
+		t.Errorf("fetch calls = %+v", c)
+	}
+	if err := q.Choose("s1", "B000000003"); err == nil {
+		t.Error("Choose on a completed item succeeded")
+	}
+	if err := q.Choose("nope", "B000000003"); err == nil {
+		t.Error("Choose on an unknown item succeeded")
+	}
+}
+
+func TestSkipNotFoundAndIgnored(t *testing.T) {
+	q := newMQ(t, &fakeFetch{}, &fakeResolve{fn: func(_ context.Context, ts []Track) []Resolution {
+		return each(ts, func(t Track) Resolution {
+			if t.ID == "none" {
+				return Resolution{}
+			}
+			return Resolution{Candidates: twoCandidates}
+		})
+	}})
+	q.Enqueue(album, testOpts(t), spotify("none", "some"))
+	waitFor(t, q, allIn(Review, "none", "some"))
+	q.Skip("none")
+	q.Skip("some")
+	s := q.Snapshot()
+	if find(s, "none").Status != NotFound || find(s, "some").Status != Ignored {
+		t.Errorf("snapshot = %+v", s)
+	}
+}
+
+func TestGroupResolvedTogether(t *testing.T) {
+	r := &fakeResolve{}
+	r.fn = func(_ context.Context, ts []Track) []Resolution {
+		time.Sleep(10 * time.Millisecond) // long enough for an overlapping call to show in peak
+		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+	}
+	q := newMQ(t, &fakeFetch{}, r)
+	ts := spotify("g1", "s4", "g2", "g3")
+	for _, i := range []int{0, 2, 3} {
+		ts[i].Group = "album:X"
+	}
+	q.Enqueue(album, testOpts(t), ts)
+	waitFor(t, q, allIn(Completed, "g1", "s4", "g2", "g3"))
+	if c := fmt.Sprint(r.callLog()); c != "[[g1 g2 g3] [s4]]" {
+		t.Errorf("resolve calls = %s", c)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.peak != 1 {
+		t.Errorf("peak concurrent resolves = %d, want 1", r.peak)
+	}
+}
+
+func TestPlaylistMatchedOneByOne(t *testing.T) {
+	gate, release := make(chan struct{}), make(chan struct{})
+	r := &fakeResolve{}
+	r.fn = func(ctx context.Context, ts []Track) []Resolution {
+		wait(ctx, gate)
+		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+	}
+	f := &fakeFetch{fn: func(ctx context.Context, _, p string) (string, error) {
+		wait(ctx, release)
+		return p + ".flac", nil
+	}}
+	q := newMQ(t, f, r)
+	q.Enqueue(Collection{Kind: "playlist", ID: "p1", Name: "P"}, testOpts(t), spotify("1", "2", "3"))
+	gate <- struct{}{}
+	waitFor(t, q, func(s []Item) bool { return find(s, "1").Status == Downloading && find(s, "3").Status == Matching })
+	close(gate)
+	close(release)
+	waitFor(t, q, allIn(Completed, "1", "2", "3"))
+	if c := fmt.Sprint(r.callLog()); c != "[[1] [2] [3]]" {
+		t.Errorf("resolve calls = %s", c)
+	}
+}
+
+func TestMatchErrorRetryRematches(t *testing.T) {
+	gate := make(chan struct{})
+	r := &fakeResolve{}
+	r.fn = func(ctx context.Context, ts []Track) []Resolution {
+		if len(r.callLog()) == 1 {
+			return each(ts, func(Track) Resolution { return Resolution{Err: errors.New("no network")} })
+		}
+		wait(ctx, gate)
+		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+	}
+	q := newMQ(t, &fakeFetch{}, r)
+	q.Enqueue(album, testOpts(t), spotify("s1"))
+	if it := find(waitFor(t, q, allIn(Failed, "s1")), "s1"); it.Error != "no network" {
+		t.Errorf("item = %+v", it)
+	}
+	q.Retry("s1")
+	if it := find(q.Snapshot(), "s1"); it.Status != Matching || it.Error != "" {
+		t.Errorf("after Retry: %+v", it)
+	}
+	close(gate)
+	if it := find(waitFor(t, q, allIn(Completed, "s1")), "s1"); it.AmazonID != "B-s1" {
+		t.Errorf("item = %+v", it)
+	}
+}
+
+func TestEnqueueKeepsMatchingAndReview(t *testing.T) {
+	r := &fakeResolve{}
+	r.fn = func(ctx context.Context, ts []Track) []Resolution {
+		if ts[0].ID == "m" {
+			wait(ctx, make(chan struct{})) // stays matching until Close
+		}
+		return reviewAll(ctx, ts)
+	}
+	q := newMQ(t, &fakeFetch{}, r)
+	o := testOpts(t)
+	q.Enqueue(album, o, spotify("r"))
+	waitFor(t, q, allIn(Review, "r"))
+	q.Enqueue(album, o, spotify("m"))
+	waitFor(t, q, func([]Item) bool { return len(r.callLog()) == 2 })
+	q.Enqueue(Collection{Kind: "playlist", ID: "p1", Name: "P"}, o, spotify("r", "m"))
+	q.ClearFinished()
+	s := q.Snapshot()
+	if len(s) != 2 || find(s, "r").Status != Review || find(s, "m").Status != Matching ||
+		find(s, "r").QueueID != "album:al1" || len(find(s, "r").Candidates) != 2 {
+		t.Errorf("snapshot = %+v", s)
+	}
+}
+
+func TestAmazonTrackSkipsMatching(t *testing.T) {
+	f, r := &fakeFetch{}, &fakeResolve{}
+	q := newMQ(t, f, r)
+	ts := tracks("A", "B")
+	ts[1].Service = "amazon"
+	q.Enqueue(album, testOpts(t), ts)
+	s := waitFor(t, q, allIn(Completed, "A", "B"))
+	if find(s, "A").AmazonID != "A" || find(s, "B").AmazonID != "B" || len(r.callLog()) != 0 {
+		t.Errorf("snapshot = %+v, resolve calls = %v", s, r.callLog())
+	}
+	if f.called("A") != 1 || f.called("B") != 1 {
+		t.Errorf("fetch calls = %+v", f.callLog())
+	}
+}
+
+func TestEnqueueReleasesHold(t *testing.T) {
+	q := newMQ(t, &fakeFetch{}, &fakeResolve{})
+	q.Hold(time.Time{})
+	q.Enqueue(album, testOpts(t), tracks("A"))
+	waitFor(t, q, allIn(Completed, "A"))
+	if held, _ := q.HeldUntil(); held {
+		t.Error("still held after Enqueue")
+	}
+}
+
+func TestHoldStopsMatching(t *testing.T) {
+	gate := make(chan struct{})
+	f, r := &fakeFetch{}, &fakeResolve{}
+	r.fn = func(ctx context.Context, ts []Track) []Resolution {
+		if ts[0].ID == "A" {
+			wait(ctx, gate)
+		}
+		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+	}
+	q := newMQ(t, f, r)
+	q.Enqueue(album, testOpts(t), spotify("A", "B"))
+	waitFor(t, q, func([]Item) bool { return len(r.callLog()) == 1 })
+	q.Hold(time.Time{})
+	close(gate) // the running match finishes; nothing new starts
+	waitFor(t, q, allIn(Queued, "A"))
+	time.Sleep(100 * time.Millisecond)
+	if s := q.Snapshot(); find(s, "B").Status != Matching || len(r.callLog()) != 1 || len(f.callLog()) != 0 {
+		t.Fatalf("held queue ran: %+v, resolve calls = %v", s, r.callLog())
+	}
+	q.Resume()
+	waitFor(t, q, allIn(Completed, "A", "B"))
+}
+
+func TestCancelMatchingAndReview(t *testing.T) {
+	gate := make(chan struct{})
+	f, r := &fakeFetch{}, &fakeResolve{}
+	r.fn = func(ctx context.Context, ts []Track) []Resolution {
+		switch ts[0].ID {
+		case "r":
+			return reviewAll(ctx, ts)
+		case "m":
+			wait(ctx, gate)
+		}
+		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+	}
+	q := newMQ(t, f, r)
+	o := testOpts(t)
+	q.Enqueue(album, o, spotify("r"))
+	waitFor(t, q, allIn(Review, "r"))
+	q.Enqueue(album, o, spotify("m", "n"))
+	waitFor(t, q, func([]Item) bool { return len(r.callLog()) == 2 })
+	q.Cancel("r")
+	q.Cancel("m")
+	if !allIn(Cancelled, "r", "m")(q.Snapshot()) {
+		t.Fatalf("snapshot = %+v", q.Snapshot())
+	}
+	close(gate)
+	// Matching is serial, so once n is done the resolution for m has been applied or dropped.
+	s := waitFor(t, q, allIn(Completed, "n"))
+	if find(s, "m").Status != Cancelled || find(s, "m").AmazonID != "" || f.called("B-m") != 0 {
+		t.Errorf("snapshot = %+v", s)
+	}
 }
