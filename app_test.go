@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -23,8 +24,19 @@ func TestGetMetadataUnsupported(t *testing.T) {
 }
 
 func TestGetPreviewURLAmazonID(t *testing.T) {
-	if u, err := (&App{}).GetPreviewURL("B00A3SGXAA"); u != "" || err != nil {
-		t.Fatalf("got %q, %v; want empty, nil", u, err)
+	var asked []string
+	a := &App{amazonPreview: func(_ context.Context, id string) (string, error) {
+		asked = append(asked, id)
+		return "https://music.amazon.com/getSampleTrack/x", nil
+	}}
+	if u, err := a.GetPreviewURL("B00A3SGXAA"); u != "https://music.amazon.com/getSampleTrack/x" || err != nil {
+		t.Fatalf("got %q, %v", u, err)
+	}
+	if u, err := a.GetPreviewURL("nope"); u != "" || err != nil {
+		t.Fatalf("unknown ID: got %q, %v; want empty, nil", u, err)
+	}
+	if len(asked) != 1 || asked[0] != "B00A3SGXAA" {
+		t.Fatalf("previewer asked for %q", asked)
 	}
 }
 

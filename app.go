@@ -20,19 +20,27 @@ import (
 	"sonar/internal/httpx"
 	"sonar/internal/lucida"
 	"sonar/internal/model"
+	"sonar/internal/resolve"
 	"sonar/internal/source"
 	"sonar/internal/spotify"
 )
 
 type App struct {
 	ctx     context.Context
-	dataDir string // holds history.db and config.json
+	dataDir string // holds history.db, config.json, queue.json and matches.json
 	hist    *history.DB
 
-	dd         *doubledouble.Client
-	sources    *source.Balancer
-	dl         *download.Queue
-	findFFmpeg func(custom string) string // a field so tests can fake it
+	dd            *doubledouble.Client
+	sources       *source.Balancer
+	dl            *download.Queue
+	cache         *resolve.Cache                                       // matches.json, shared with the resolver
+	findFFmpeg    func(custom string) string                           // a field so tests can fake it
+	amazonPreview func(ctx context.Context, id string) (string, error) // a field so tests can fake it
+
+	saveCh    chan struct{} // cap 1: a pending request to save queue.json
+	saveStop  chan struct{} // closed to stop the saver
+	saverDone chan struct{} // closed when the saver has returned
+	shutOnce  sync.Once
 
 	checkMu     sync.Mutex // guards the two fields below
 	checkCancel context.CancelFunc
@@ -72,23 +80,29 @@ func (a *App) init() {
 		log.Printf("saved proxy: %v", err)
 	}
 	a.dd = doubledouble.New(filepath.Join(a.dataDir, "doubledouble-token"))
-	a.sources = source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
 	a.findFFmpeg = convert.FindFFmpeg
-	a.dl = download.NewQueue(a.fetch, unwiredResolve, a.sources)
-	a.sources.OnChange = a.dl.Wake
+	a.amazonPreview = amazon.PreviewURL
+	sources := source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
 	if a.dd.Token() == "" { // first run: say so before any track fails
-		a.sources.NeedCheck("doubledouble")
+		sources.NeedCheck("doubledouble")
 	}
+	a.startQueue(a.fetch, sources, resolve.Live())
 }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
+// shutdown saves the queue before Close: Close cancels the downloads, and a save after it would drop them.
 func (a *App) shutdown(context.Context) {
-	a.stopCheck(5 * time.Second)
-	a.dl.Close()
-	if a.hist != nil {
-		a.hist.Close()
-	}
+	a.shutOnce.Do(func() {
+		close(a.saveStop)
+		<-a.saverDone
+		a.saveQueue()
+		a.stopCheck(5 * time.Second)
+		a.dl.Close()
+		if a.hist != nil {
+			a.hist.Close()
+		}
+	})
 }
 
 // GetMetadata returns the JSON of a Spotify or Amazon track, album, playlist or artist.
@@ -166,14 +180,17 @@ func (a *App) SearchAmazon(req AmazonSearchRequest) (*model.SearchResponse, erro
 
 var spotifyID = regexp.MustCompile(`^[A-Za-z0-9]{22}$`)
 
-// GetPreviewURL returns "" for non-Spotify IDs: Amazon has no previews.
+// GetPreviewURL takes a Spotify or an Amazon track ID; anything else gets "".
 func (a *App) GetPreviewURL(trackID string) (string, error) {
-	if !spotifyID.MatchString(trackID) {
-		return "", nil
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return spotify.PreviewURL(ctx, trackID)
+	if spotifyID.MatchString(trackID) {
+		return spotify.PreviewURL(ctx, trackID)
+	}
+	if _, err := amazon.TrackURL(trackID); err == nil {
+		return a.amazonPreview(ctx, trackID)
+	}
+	return "", nil
 }
 
 func (a *App) configPath() string { return filepath.Join(a.dataDir, "config.json") }
