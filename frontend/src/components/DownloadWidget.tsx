@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { Download, X } from "lucide-react";
+import { DownloadBadge } from "@/components/DownloadBadge";
 import { SiteRows } from "@/components/SiteRows";
 import { Progress } from "@/components/ui/progress";
 import { useDownloadSpeed } from "@/hooks/useDownloadSpeed";
@@ -41,7 +42,8 @@ function settle(el: HTMLElement, from: DOMRect) {
 
 // A run starts when downloads appear from idle. It counts the items new since then and the old ones
 // that were queued again, so finished items left from earlier runs stay out of its numbers.
-interface Run { before: Set<string>; seen: Set<string>; closed: boolean }
+// X collapses a running run to a badge and closes a finished one.
+interface Run { before: Set<string>; seen: Set<string>; mode: "open" | "collapsed" | "closed" }
 
 /** Card with the current run's progress, speed and size; it can be dragged to any corner. */
 export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: () => void }) {
@@ -55,14 +57,17 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
         prevItems.current = items;
         setRun((r) => {
             if (!r && activeCount === 0) return r;
-            if (r?.closed && activeCount === 0) return null;
-            const next = r ?? { before: new Set(before.map((i) => i.id)), seen: new Set<string>(), closed: false };
+            if (r?.mode === "closed" && activeCount === 0) return null;
+            // Nothing of the run is left (the list was cleared): the next downloads start a new, expanded run.
+            if (r && activeCount === 0 && !items.some((i) => r.seen.has(i.id) || !r.before.has(i.id))) return null;
+            const next = r ?? { before: new Set(before.map((i) => i.id)), seen: new Set<string>(), mode: "open" as const };
             const active = items.filter(isActive).map((i) => i.id);
             return active.some((id) => !next.seen.has(id)) ? { ...next, seen: new Set([...next.seen, ...active]) } : next;
         });
-    }, [items, activeCount]);
+    }, [items, activeCount, run?.mode]);
 
-    const card = useRef<HTMLDivElement>(null);
+    const card = useRef<HTMLElement | null>(null);
+    const cardRef = useCallback((el: HTMLElement | null) => { card.current = el; }, []);
     const drag = useRef<{ x: number; y: number } | null>(null);
     const dropped = useRef<DOMRect | null>(null);
     const [corner, setCorner] = useState(loadCorner);
@@ -70,17 +75,19 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
         if (dropped.current && card.current) settle(card.current, dropped.current);
         dropped.current = null;
     }, [corner]);
-    const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-        if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+        // The badge is itself a button; the card's buttons stay clickable.
+        const inner = (e.target as HTMLElement).closest("button");
+        if (e.button !== 0 || (inner && inner !== e.currentTarget)) return;
         drag.current = { x: e.clientX, y: e.clientY };
         e.currentTarget.setPointerCapture?.(e.pointerId);
     };
-    const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    const onPointerMove = (e: PointerEvent<HTMLElement>) => {
         if (!drag.current) return;
         e.currentTarget.style.transition = "none";
         e.currentTarget.style.transform = `translate(${e.clientX - drag.current.x}px, ${e.clientY - drag.current.y}px)`;
     };
-    const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    const onPointerUp = (e: PointerEvent<HTMLElement>) => {
         if (!drag.current) return;
         drag.current = null;
         const r = e.currentTarget.getBoundingClientRect();
@@ -90,7 +97,7 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
         else { dropped.current = r; setCorner(next); }
     };
 
-    if (!run || run.closed || hidden) return null;
+    if (!run || run.mode === "closed" || hidden) return null;
     const own = items.filter((i) => run.seen.has(i.id) || !run.before.has(i.id));
     if (!own.length) return null;
     const count = (...statuses: string[]) => own.filter((i) => statuses.includes(i.status)).length;
@@ -101,12 +108,24 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
     const partial = current.reduce((sum, i) => sum + (i.size ? i.bytes / i.size : 0), 0);
     const total = own.reduce((sum, i) => sum + (i.bytes ?? 0), 0);
     const running = activeCount > 0;
-    return (<div ref={card} role="status" className={`fixed ${CORNERS[corner]} z-40 w-80 rounded-lg border bg-card shadow-lg p-3 space-y-3 text-sm cursor-grab active:cursor-grabbing select-none touch-none`}
+    if (run.mode === "collapsed") {
+        const expand = () => setRun({ ...run, mode: "open" });
+        // A press that barely moved is a click; a longer one was a drag to another corner.
+        const onBadgeUp = (e: PointerEvent<HTMLElement>) => {
+            const moved = drag.current ? Math.hypot(e.clientX - drag.current.x, e.clientY - drag.current.y) : Infinity;
+            onPointerUp(e);
+            if (e.type === "pointerup" && moved < 4) expand();
+        };
+        return (<DownloadBadge ref={cardRef} className={`fixed ${CORNERS[corner]} z-40`} progress={(done + failed + partial) / own.length} speed={mb(speed.total, language)}
+            done={!running} attention={review > 0 || sites.some((s) => s.asking)} onExpand={expand}
+            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onBadgeUp} onPointerCancel={onPointerUp}/>);
+    }
+    return (<div ref={cardRef} role="status" className={`fixed ${CORNERS[corner]} z-40 w-80 rounded-lg border bg-card shadow-lg p-3 space-y-3 text-sm cursor-grab active:cursor-grabbing select-none touch-none`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
       <div className="flex items-center gap-2">
         <Download className="h-4 w-4 shrink-0 text-primary"/>
         <span className="font-medium flex-1 truncate">{t(running ? "widget.progress" : "widget.finished", { done, total: own.length })}</span>
-        <button type="button" aria-label={t("widget.hide")} className="h-6 w-6 rounded hover:bg-accent flex items-center justify-center cursor-pointer" onClick={() => setRun({ ...run, closed: true })}>
+        <button type="button" aria-label={t("widget.hide")} className="h-6 w-6 rounded hover:bg-accent flex items-center justify-center cursor-pointer" onClick={() => setRun({ ...run, mode: running ? "collapsed" : "closed" })}>
           <X className="h-4 w-4"/>
         </button>
       </div>

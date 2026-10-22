@@ -80,11 +80,82 @@ describe("DownloadWidget", () => {
         localStorage.clear();
     });
 
+    describe("badge", () => {
+        const hide = () => act(async () => view.container.querySelector<HTMLElement>('[aria-label="Hide"]')!.click());
+        const badge = () => view.container.querySelector<HTMLElement>("button[aria-label^='Downloading']");
+        const running = () => [item("a", "downloading", { bytes: 62, size: 100 })];
+        const fire = (type: string, x: number) => act(async () => badge()!.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: 0 })));
+
+        it("collapses on X while running and expands on click", async () => {
+            await show(running());
+            await hide();
+            expect(view.container.querySelector("[role=status]")).toBeNull();
+            expect(badge()!.getAttribute("aria-label")).toMatch(/62%.*MB\/s/);
+            await act(async () => badge()!.click());
+            expect(view.container.querySelector("[role=status]")).not.toBeNull();
+            expect(badge()).toBeNull();
+        });
+
+        it("shows a check when finished", async () => {
+            await show(running());
+            await hide();
+            await show([item("a", "completed")]);
+            expect(view.container.querySelector("[data-testid=badge-done]")).not.toBeNull();
+            expect(text()).not.toContain("MB/s");
+        });
+
+        it("does not expand after a drag", async () => {
+            await show(running());
+            await hide();
+            await fire("pointerdown", 100);
+            await fire("pointermove", 130);
+            await fire("pointerup", 130);
+            expect(badge()).not.toBeNull();
+            expect(view.container.querySelector("[role=status]")).toBeNull();
+        });
+
+        it("expands on a press without movement", async () => {
+            await show(running());
+            await hide();
+            await fire("pointerdown", 100);
+            await fire("pointerup", 101);
+            expect(view.container.querySelector("[role=status]")).not.toBeNull();
+        });
+
+        it("closing a finished run hides everything", async () => {
+            await show([item("a", "completed")]);
+            await show([item("a", "downloading")]);
+            await show([item("a", "completed")]);
+            await hide();
+            expect(view.container.querySelector("[role=status]")).toBeNull();
+            expect(view.container.querySelector("button[aria-label]")).toBeNull();
+        });
+
+        it("has an amber dot for a review item or a site that asks", async () => {
+            await show([...running(), item("r", "review")]);
+            await hide();
+            expect(view.container.querySelector("[data-testid=badge-attention]")).not.toBeNull();
+            await show(running(), false, [site("lucida", { asking: true })]);
+            expect(view.container.querySelector("[data-testid=badge-attention]")).not.toBeNull();
+            await show(running());
+            expect(view.container.querySelector("[data-testid=badge-attention]")).toBeNull();
+        });
+
+        it("starts the next run expanded", async () => {
+            await show(running());
+            await hide();
+            await show([item("a", "completed")]);
+            await show([]);
+            await show([item("b", "downloading")]);
+            expect(view.container.querySelector("[role=status]")).not.toBeNull();
+        });
+    });
+
     it("stays closed until the next run", async () => {
-        await show([item("a", "downloading")]);
+        await show([item("a", "queued")]);
+        await show([item("a", "completed")]);
         await act(async () => view.container.querySelector<HTMLElement>('[aria-label="Hide"]')!.click());
         expect(view.container.querySelector("[role=status]")).toBeNull();
-        await show([item("a", "completed")]);
         await show([item("a", "completed"), item("b", "queued")]);
         expect(text()).toContain("0 of 1");
     });
