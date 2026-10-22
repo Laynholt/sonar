@@ -254,3 +254,11 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   filter: brightness(1.2);
 }
+/* Outside the Tailwind layers, so it beats the global scrollbar-width above. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

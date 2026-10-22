@@ -5,12 +5,12 @@ import { useDownloads } from "@/hooks/useDownloads";
 import { cancelAllDownloads, cancelDownload, clearFinishedDownloads, guardContinue, refreshDownloads, retryDownload, retryFailedDownloads, type DownloadItem } from "@/lib/downloads";
 import { getSettings } from "@/lib/settings";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
-import { GetSourceStatus, OpenFolder } from "../../wailsjs/go/main/App";
+import { GetDownloadTags, GetSourceStatus, OpenFolder } from "../../wailsjs/go/main/App";
 import { DownloadsPage } from "./DownloadsPage";
 import { TooltipProvider } from "./ui/tooltip";
 import { button, mount } from "../test/render";
 
-vi.mock("../../wailsjs/go/main/App", () => ({ OpenFolder: vi.fn(), GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn() }));
+vi.mock("../../wailsjs/go/main/App", () => ({ OpenFolder: vi.fn(), GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn(), GetDownloadTags: vi.fn() }));
 vi.mock("@/hooks/useDownloads", () => ({ useDownloads: vi.fn() }));
 vi.mock("@/lib/downloads", () => ({
     cancelDownload: vi.fn(), cancelAllDownloads: vi.fn(), retryDownload: vi.fn(), retryFailedDownloads: vi.fn(),
@@ -150,5 +150,25 @@ describe("DownloadsPage", () => {
     it("shows no banner when not paused", async () => {
         await show(all);
         expect(view.container.textContent).not.toContain("paused until");
+    });
+
+    it("sums up the queue and shows each download's size", async () => {
+        const MB = 1024 * 1024;
+        await show([...all.slice(0, 1), item("d", "downloading", { bytes: 2 * MB, size: 4 * MB }), item("c", "completed", { path: "C:\Music\c.flac", bytes: 30 * MB, size: 30 * MB })]);
+        expect(view.container.textContent).toContain("Downloading: 1 of 3");
+        expect(view.container.textContent).toContain("50%");
+        expect(row("d").textContent).toContain("2.0 of 4.0 MB");
+        expect(row("d").querySelector("[role=progressbar]")).not.toBeNull();
+        expect(row("c").textContent).toContain("30.0 of 30.0 MB");
+    });
+
+    it("shows the tags a finished file carries", async () => {
+        vi.mocked(GetDownloadTags).mockResolvedValue({ path: "C:\Music\c.flac", format: "FLAC", size: 1024 * 1024, fields: [{ key: "title", value: "Song c" }, { key: "track", value: "3/12" }], extra: [{ key: "ISRC", value: "USUG1" }], cover: "" } as never);
+        await show(all);
+        expect(row("f").querySelector('[aria-label="Tags in the file"]')).toBeNull();
+        await press(row("c"), "Tags in the file");
+        expect(GetDownloadTags).toHaveBeenCalledWith("c");
+        const dialog = document.querySelector("[role=dialog]")!;
+        for (const text of ["Title", "Song c", "Track", "3/12", "ISRC", "USUG1", "FLAC", "No cover in the file"]) expect(dialog.textContent).toContain(text);
     });
 });

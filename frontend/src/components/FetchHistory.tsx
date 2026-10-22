@@ -11,12 +11,20 @@ interface FetchHistoryProps {
 export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistoryProps) {
     const { t } = useI18n();
     const scroller = useRef<HTMLDivElement>(null);
-    const [overflow, setOverflow] = useState(false);
+    // The row in screens: how many there are and which one is in view, for the segments below it.
+    const [pages, setPages] = useState({ count: 1, current: 0 });
+    const overflow = pages.count > 1;
     useEffect(() => {
         const el = scroller.current;
         if (!el) return;
-        const measure = () => setOverflow(el.scrollWidth > el.clientWidth + 1);
+        const measure = () => {
+            const max = el.scrollWidth - el.clientWidth;
+            const count = max > 1 ? Math.ceil(el.scrollWidth / el.clientWidth) : 1;
+            const current = count > 1 ? Math.round((el.scrollLeft / max) * (count - 1)) : 0;
+            setPages((p) => (p.count === count && p.current === current ? p : { count, current }));
+        };
         measure();
+        el.addEventListener("scroll", measure, { passive: true });
         const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
         observer?.observe(el);
         // A plain mouse wheel scrolls the row sideways while it does not fit.
@@ -26,7 +34,7 @@ export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistor
             el.scrollLeft += e.deltaY;
         };
         el.addEventListener("wheel", onWheel, { passive: false });
-        return () => { observer?.disconnect(); el.removeEventListener("wheel", onWheel); };
+        return () => { observer?.disconnect(); el.removeEventListener("wheel", onWheel); el.removeEventListener("scroll", measure); };
     }, [items.length]);
     if (items.length === 0)
         return null;
@@ -36,6 +44,10 @@ export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistor
         const max = el.scrollWidth - el.clientWidth;
         const atEnd = dir > 0 ? el.scrollLeft >= max - 1 : el.scrollLeft <= 1;
         el.scrollTo({ left: atEnd ? (dir > 0 ? 0 : max) : el.scrollLeft + dir * el.clientWidth * 0.8, behavior: "smooth" });
+    };
+    const goTo = (page: number) => {
+        const el = scroller.current!;
+        el.scrollTo({ left: (page / (pages.count - 1)) * (el.scrollWidth - el.clientWidth), behavior: "smooth" });
     };
     const arrow = (dir: 1 | -1) => (<button type="button" aria-label={t(dir > 0 ? "recent.next" : "recent.prev")} className="shrink-0 h-8 w-8 rounded-full border bg-card hover:bg-accent flex items-center justify-center cursor-pointer" onClick={() => step(dir)}>
         {dir > 0 ? <ChevronRight className="h-4 w-4"/> : <ChevronLeft className="h-4 w-4"/>}
@@ -86,7 +98,7 @@ export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistor
       <p className="text-sm text-muted-foreground text-center">{t("recent.title", { count: items.length })}</p>
       <div className="flex items-center gap-2">
       {overflow && arrow(-1)}
-      <div ref={scroller} className="flex-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div ref={scroller} className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
       <div className="flex gap-2 w-max mx-auto px-2 pb-2 pt-2">
         {items.map((item) => (<div key={item.id} className="relative shrink-0 w-[130px] group cursor-pointer rounded-lg border bg-card hover:bg-accent transition-colors overflow-visible" onClick={() => onSelect(item)}>
             <button type="button" aria-label={t("recent.remove", { name: item.name })} className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-sm" onClick={(e) => {
@@ -122,5 +134,10 @@ export function FetchHistory({ history: items, onSelect, onRemove }: FetchHistor
       </div>
       {overflow && arrow(1)}
       </div>
+      {overflow && (<div className="flex justify-center gap-1.5">
+          {Array.from({ length: pages.count }, (_, page) => (<button key={page} type="button" aria-label={t("recent.page", { page: page + 1 })} aria-current={page === pages.current} className="h-4 flex items-center cursor-pointer group/seg" onClick={() => goTo(page)}>
+              <span className={`block h-1 rounded-full transition-all duration-300 ${page === pages.current ? "w-8 bg-primary" : "w-4 bg-muted-foreground/30 group-hover/seg:bg-muted-foreground/60"}`}/>
+            </button>))}
+        </div>)}
     </div>);
 }

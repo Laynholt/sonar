@@ -3,6 +3,7 @@ module sonar
 go 1.27.0
 
 require (
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/pquerna/otp v1.5.0
 	github.com/syndtr/goleveldb v1.0.0
 	github.com/wailsapp/wails/v2 v2.11.0

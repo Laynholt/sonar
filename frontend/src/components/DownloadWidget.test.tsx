@@ -53,6 +53,29 @@ describe("DownloadWidget", () => {
         expect(onOpen).toHaveBeenCalled();
     });
 
+    it("shows the speed from the bytes between polls", async () => {
+        const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+        await show([item("a", "downloading", { bytes: 0, size: 4 * MB })]);
+        now.mockReturnValue(11_000);
+        await show([item("a", "downloading", { bytes: 2 * MB, size: 4 * MB })]);
+        expect(text()).toContain("1.0 MB/s");
+        now.mockRestore();
+    });
+
+    it("snaps to the corner it is dropped nearest and remembers it", async () => {
+        await show([item("a", "downloading")]);
+        const card = view.container.querySelector<HTMLElement>("[role=status]")!;
+        card.getBoundingClientRect = () => ({ left: 900, top: 40, width: 320, height: 120 }) as DOMRect;
+        const fire = (type: string, x: number, y: number) => act(async () => card.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y })));
+        await fire("pointerdown", 500, 600);
+        await fire("pointermove", 800, 100);
+        expect(card.style.transform).toBe("translate(300px, -500px)");
+        await fire("pointerup", 800, 100);
+        expect(card.className).toContain("top-14 right-4");
+        expect(localStorage.getItem("sonar.downloadWidgetCorner")).toBe("top-right");
+        localStorage.clear();
+    });
+
     it("stays closed until the next run", async () => {
         await show([item("a", "downloading")]);
         await act(async () => view.container.querySelector<HTMLElement>('[aria-label="Hide"]')!.click());

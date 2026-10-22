@@ -1,46 +1,92 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { Download, X } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { useDownloadSpeed } from "@/hooks/useDownloadSpeed";
 import { useDownloads } from "@/hooks/useDownloads";
+import { mb } from "@/lib/download-format";
 import { useI18n } from "@/lib/i18n";
 import type { DownloadItem } from "@/lib/downloads";
 
 const isActive = (i: DownloadItem) => i.status === "queued" || i.status === "downloading";
-const MB = 1024 * 1024;
+
+// Top corners sit below the title bar, left ones right of the sidebar.
+const CORNERS = {
+    "top-left": "top-14 left-[4.5rem]",
+    "top-right": "top-14 right-4",
+    "bottom-left": "bottom-4 left-[4.5rem]",
+    "bottom-right": "bottom-4 right-4",
+};
+type Corner = keyof typeof CORNERS;
+const CORNER_KEY = "sonar.downloadWidgetCorner";
+function loadCorner(): Corner {
+    try {
+        const saved = localStorage.getItem(CORNER_KEY);
+        if (saved && saved in CORNERS) return saved as Corner;
+    } catch { /* storage blocked: use the default */ }
+    return "bottom-right";
+}
+
+// Slides the card from where it was dropped to where its corner puts it.
+function settle(el: HTMLElement, from: DOMRect) {
+    el.style.transition = "none";
+    el.style.transform = "";
+    const to = el.getBoundingClientRect();
+    el.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+    void el.offsetWidth;
+    el.style.transition = "transform 200ms ease-out";
+    el.style.transform = "";
+}
 
 // A run starts when downloads appear from idle. It counts the items new since then and the old ones
 // that were queued again, so finished items left from earlier runs stay out of its numbers.
 interface Run { before: Set<string>; seen: Set<string>; closed: boolean }
 
-function Bar({ value }: { value: number }) {
-    return (<div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-      <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }}/>
-    </div>);
-}
-
-/** Bottom-right card with the current run's progress, speed and size. */
+/** Card with the current run's progress, speed and size; it can be dragged to any corner. */
 export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: () => void }) {
     const { t, language } = useI18n();
     const { items, activeCount } = useDownloads();
+    const speed = useDownloadSpeed(items);
     const [run, setRun] = useState<Run | null>(null);
-    const [speed, setSpeed] = useState(0);
-    const prev = useRef<{ items: DownloadItem[]; bytes: number; at: number }>({ items, bytes: 0, at: Date.now() });
+    const prevItems = useRef(items);
     useEffect(() => {
-        const last = prev.current;
+        const before = prevItems.current;
+        prevItems.current = items;
         setRun((r) => {
             if (!r && activeCount === 0) return r;
             if (r?.closed && activeCount === 0) return null;
-            const next = r ?? { before: new Set(last.items.map((i) => i.id)), seen: new Set<string>(), closed: false };
+            const next = r ?? { before: new Set(before.map((i) => i.id)), seen: new Set<string>(), closed: false };
             const active = items.filter(isActive).map((i) => i.id);
             return active.some((id) => !next.seen.has(id)) ? { ...next, seen: new Set([...next.seen, ...active]) } : next;
         });
-        // Bytes come in with each poll; the speed is smoothed over the last few.
-        const bytes = items.reduce((sum, i) => sum + (i.bytes ?? 0), 0);
-        const now = Date.now();
-        const seconds = (now - last.at) / 1000;
-        const downloading = items.some((i) => i.status === "downloading");
-        if (seconds > 0) setSpeed((s) => (downloading ? 0.5 * s + 0.5 * Math.max(0, bytes - last.bytes) / seconds : 0));
-        prev.current = { items, bytes, at: now };
     }, [items, activeCount]);
+
+    const card = useRef<HTMLDivElement>(null);
+    const drag = useRef<{ x: number; y: number } | null>(null);
+    const dropped = useRef<DOMRect | null>(null);
+    const [corner, setCorner] = useState(loadCorner);
+    useLayoutEffect(() => {
+        if (dropped.current && card.current) settle(card.current, dropped.current);
+        dropped.current = null;
+    }, [corner]);
+    const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+        if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+        drag.current = { x: e.clientX, y: e.clientY };
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+    };
+    const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+        if (!drag.current) return;
+        e.currentTarget.style.transition = "none";
+        e.currentTarget.style.transform = `translate(${e.clientX - drag.current.x}px, ${e.clientY - drag.current.y}px)`;
+    };
+    const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+        if (!drag.current) return;
+        drag.current = null;
+        const r = e.currentTarget.getBoundingClientRect();
+        const next = `${r.top + r.height / 2 < window.innerHeight / 2 ? "top" : "bottom"}-${r.left + r.width / 2 < window.innerWidth / 2 ? "left" : "right"}` as Corner;
+        try { localStorage.setItem(CORNER_KEY, next); } catch { /* the corner just isn't remembered */ }
+        if (next === corner) settle(e.currentTarget, r);
+        else { dropped.current = r; setCorner(next); }
+    };
 
     if (!run || run.closed || hidden) return null;
     const own = items.filter((i) => run.seen.has(i.id) || !run.before.has(i.id));
@@ -49,10 +95,10 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
     const done = count("completed", "skipped"), failed = count("failed", "cancelled"), queued = count("queued");
     const current = own.filter((i) => i.status === "downloading");
     const partial = current.reduce((sum, i) => sum + (i.size ? i.bytes / i.size : 0), 0);
-    const mb = (bytes: number) => (bytes / MB).toLocaleString(language, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
     const total = own.reduce((sum, i) => sum + (i.bytes ?? 0), 0);
     const running = activeCount > 0;
-    return (<div role="status" className="fixed bottom-4 right-4 z-40 w-80 rounded-lg border bg-card shadow-lg p-3 space-y-3 text-sm">
+    return (<div ref={card} role="status" className={`fixed ${CORNERS[corner]} z-40 w-80 rounded-lg border bg-card shadow-lg p-3 space-y-3 text-sm cursor-grab active:cursor-grabbing select-none touch-none`}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
       <div className="flex items-center gap-2">
         <Download className="h-4 w-4 shrink-0 text-primary"/>
         <span className="font-medium flex-1 truncate">{t(running ? "widget.progress" : "widget.finished", { done, total: own.length })}</span>
@@ -60,18 +106,18 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
           <X className="h-4 w-4"/>
         </button>
       </div>
-      <Bar value={(done + failed + partial) / own.length}/>
+      <Progress value={(done + failed + partial) / own.length}/>
       {current.slice(0, 3).map((item) => (<div key={item.id} className="space-y-1">
         <div className="flex items-baseline gap-2">
           <span className="flex-1 truncate" title={`${item.track.title} — ${item.track.artist}`}>{item.track.title} <span className="text-muted-foreground">— {item.track.artist}</span></span>
-          {item.bytes > 0 && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.size ? t("widget.sizeOf", { done: mb(item.bytes), size: mb(item.size) }) : t("widget.size", { size: mb(item.bytes) })}</span>}
+          {item.bytes > 0 && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.size ? t("widget.sizeOf", { done: mb(item.bytes, language), size: mb(item.size, language) }) : t("widget.size", { size: mb(item.bytes, language) })}</span>}
         </div>
         {item.message && <p className="text-xs text-muted-foreground truncate">{item.message}</p>}
-        {item.size > 0 && <Bar value={item.bytes / item.size}/>}
+        {item.size > 0 && <Progress value={item.bytes / item.size}/>}
       </div>))}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground tabular-nums">
-        {running && <span>{t("widget.speed", { speed: mb(speed) })}</span>}
-        <span>{t("widget.downloaded", { size: mb(total) })}</span>
+        {running && <span>{t("widget.speed", { speed: mb(speed.total, language) })}</span>}
+        <span>{t("widget.downloaded", { size: mb(total, language) })}</span>
         {queued > 0 && <span>{t("widget.waiting", { count: queued })}</span>}
         {failed > 0 && <span className="text-destructive">{t("widget.failed", { count: failed })}</span>}
         <button type="button" className="ml-auto underline cursor-pointer hover:text-foreground" onClick={onOpen}>{t("widget.open")}</button>

@@ -44,6 +44,11 @@ describe("FetchHistory", () => {
         await press("Scroll on");
         expect(scrollTo).toHaveBeenLastCalledWith({ left: 0, behavior: "smooth" });
 
+        // One segment per screen; a segment jumps to its screen.
+        expect(view.container.querySelectorAll("[aria-label^='Screen']").length).toBe(4);
+        await press("Screen 2");
+        expect(scrollTo).toHaveBeenLastCalledWith({ left: (1 / 3) * 700, behavior: "smooth" });
+
         // The wheel scrolls the row sideways.
         await act(async () => row.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, cancelable: true })));
         expect(left).toBe(800);
