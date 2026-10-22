@@ -170,11 +170,17 @@ describe("DownloadsPage", () => {
         expect(row("i").textContent).toContain("Skipped manually");
     });
 
-    it("opens the picker for a review row", async () => {
-        await show([item("a", "review"), item("r", "review")]);
+    it("opens the picker for a review row from its button, the row or its badge", async () => {
+        await show([item("a", "review"), item("r", "review"), item("f", "failed")]);
         await act(async () => button(row("r"), "Choose…").click());
         expect(openPicker).toHaveBeenCalledWith("r");
         expect(openPicker).toHaveBeenCalledTimes(1);
+        await act(async () => row("r").querySelector("td")!.click());
+        await act(async () => [...row("a").querySelectorAll("span")].find((x) => x.textContent === "Needs a decision")!.click());
+        expect(vi.mocked(openPicker).mock.calls).toEqual([["r"], ["r"], ["a"]]);
+        await act(async () => row("f").querySelector("td")!.click());
+        await act(async () => row("f").querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!.click());
+        expect(openPicker).toHaveBeenCalledTimes(3);
     });
 
     it("counts not found and ignored rows as finished", async () => {

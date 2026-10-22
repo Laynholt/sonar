@@ -133,7 +133,8 @@ export function DownloadsPage() {
                     </tr>
                 </thead>
                 <tbody>
-                    {shown.map((item, index) => (<tr key={item.id} className="border-b transition-colors hover:bg-muted/50">
+                    {/* A review row opens the picker wherever it is clicked; the actions cell keeps its own clicks. */}
+                    {shown.map((item, index) => (<tr key={item.id} className={`border-b transition-colors hover:bg-muted/50${item.status === "review" ? " cursor-pointer" : ""}`} onClick={item.status === "review" ? () => openPicker(item.id) : undefined}>
                         <td className="p-3 align-middle text-sm text-muted-foreground font-mono">{index + 1}</td>
                         <td className="p-3 align-middle min-w-0">
                             <div className="font-medium text-sm truncate">{item.track.title}</div>
@@ -148,7 +149,7 @@ export function DownloadsPage() {
                         <td className="p-3 align-middle text-sm text-muted-foreground hidden md:table-cell">
                             <div className="truncate" title={details(item)}>{details(item)}</div>
                         </td>
-                        <td className="p-3 align-middle text-center">
+                        <td className="p-3 align-middle text-center" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">{actions(item)}</div>
                         </td>
                     </tr>))}
