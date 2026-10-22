@@ -8,7 +8,8 @@ import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import type { ArtistRef } from "./ArtistLinks";
-interface AlbumInfoProps {
+import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
+interface AlbumInfoProps extends DownloadCardProps {
     service: Service;
     sourceUrl: string;
     albumInfo: {
@@ -32,7 +33,7 @@ interface AlbumInfoProps {
     onTrackClick?: (track: TrackMetadata) => void;
     onBack?: () => void;
 }
-export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onArtistClick, onTrackClick, onBack, }: AlbumInfoProps) {
+export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onArtistClick, onTrackClick, onBack, canDownload, downloadItems, onDownloadAll, downloadProgress, onDownloadTrack, onRetryDownload, onStopDownload, }: AlbumInfoProps) {
     const { t } = useI18n();
     const resolvedAlbumArtist = (() => {
         if (albumInfo.artist_id && albumInfo.artist_url) {
@@ -99,7 +100,8 @@ export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuer
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload}/>
                 <Button onClick={() => openExternal(sourceUrl)} variant="outline">
                   <ExternalLink className="h-4 w-4"/>
                   {t("service.open", { service: serviceLabels[service] })}
@@ -111,7 +113,7 @@ export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuer
       </Card>
       <div className="space-y-4">
         <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} hasPlays={trackList.some((track) => track.plays)} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
-        <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} hideAlbumColumn={true} onPageChange={onPageChange} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
+        <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} hideAlbumColumn={true} onPageChange={onPageChange} onArtistClick={onArtistClick} onTrackClick={onTrackClick} canDownload={canDownload} downloadItems={downloadItems} onDownloadTrack={onDownloadTrack} onRetryDownload={onRetryDownload}/>
       </div>
     </div>);
 }

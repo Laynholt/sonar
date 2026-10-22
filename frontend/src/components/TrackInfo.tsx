@@ -6,8 +6,9 @@ import { openExternal } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { AlbumLink, ArtistLinks, type AlbumRef, type ArtistRef } from "./ArtistLinks";
 import { CoverPreview } from "./CoverPreview";
+import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
-interface TrackInfoProps {
+interface TrackInfoProps extends DownloadCardProps {
     track: TrackMetadata & {
         album_name: string;
         release_date: string;
@@ -16,7 +17,7 @@ interface TrackInfoProps {
     onArtistClick?: (artist: ArtistRef) => void;
     onAlbumClick?: (album: AlbumRef) => void;
 }
-export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: TrackInfoProps) {
+export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, canDownload, onDownloadAll, downloadProgress, onStopDownload, }: TrackInfoProps) {
     const { t, language } = useI18n();
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
@@ -56,7 +57,8 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, }: Track
                 <ArtistLinks track={track} onArtistClick={onArtistClick}/> · <AlbumLink track={track} onAlbumClick={onAlbumClick}/>
               </p>
             </div>
-            <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <DownloadAll label="download.track" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload}/>
               <Button onClick={() => openExternal(track.external_urls)} variant="outline">
                 <ExternalLink className="h-4 w-4"/>
                 {t("service.open", { service: serviceLabels[track.service] })}

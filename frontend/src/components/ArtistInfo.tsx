@@ -3,12 +3,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { BadgeCheck, ExternalLink, XCircle } from "lucide-react";
 import { SearchAndSort } from "./SearchAndSort";
 import { TrackList } from "./TrackList";
+import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
 import { ServiceBadge, serviceLabels } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import type { AlbumRef, ArtistRef } from "./ArtistLinks";
-interface ArtistInfoProps {
+interface ArtistInfoProps extends DownloadCardProps {
     service: Service;
     artistInfo: {
         name: string;
@@ -46,7 +47,7 @@ interface ArtistInfoProps {
     activeTab: string;
     onTabChange: (tab: string) => void;
 }
-export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, activeTab, onTabChange, }: ArtistInfoProps) {
+export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, activeTab, onTabChange, canDownload, downloadItems, onDownloadAll, downloadProgress, onDownloadTrack, onRetryDownload, onStopDownload, }: ArtistInfoProps) {
     const { t } = useI18n();
     const hasGallery = artistInfo.gallery && artistInfo.gallery.length > 0;
     return (<div className="space-y-6">
@@ -91,10 +92,13 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                       <span>•</span>
                       <span>{t("count.tracks", { count: trackList.length })}</span>
                     </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                    <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload} size="sm"/>
                     <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline" className="bg-white/10 hover:bg-white/20 text-white border-white/20">
                       <ExternalLink className="h-4 w-4"/>
                       {t("service.open", { service: serviceLabels[service] })}
                     </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -135,10 +139,13 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                 <span>•</span>
                 <span>{t("count.tracks", { count: trackList.length })}</span>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+              <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload} size="sm"/>
               <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline">
                       <ExternalLink className="h-4 w-4"/>
                       {t("service.open", { service: serviceLabels[service] })}
                     </Button>
+              </div>
             </div>
           </div>
         </CardContent>)}
@@ -198,7 +205,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
       {activeTab === "tracks" && trackList.length > 0 && (<div className="space-y-4">
           <h3 className="text-2xl font-bold">{t("artist.allTracks")}</h3>
           <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} hasPlays={trackList.some((track) => track.plays)} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
-          <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
+          <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick} canDownload={canDownload} downloadItems={downloadItems} onDownloadTrack={onDownloadTrack} onRetryDownload={onRetryDownload}/>
         </div>)}
     </div>);
 }

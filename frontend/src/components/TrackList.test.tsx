@@ -143,6 +143,60 @@ describe("TrackList", () => {
     });
 });
 
+describe("TrackList downloads", () => {
+    const base = { searchQuery: "", sortBy: "default", currentPage: 1, itemsPerPage: 50, onPageChange: vi.fn() };
+    const item = (status: string, over: Record<string, string> = {}) => ({ id: "track-1", queue_id: "album:A", track: {}, status, message: "", path: "", error: "", ...over }) as never;
+    const rowButtons = (container: HTMLElement) => [...container.querySelectorAll("tbody td:last-child button")] as HTMLButtonElement[];
+    const downloadButton = (container: HTMLElement) => container.querySelector('tbody button[aria-label="Download"]') as HTMLButtonElement;
+
+    it("calls onDownloadTrack with the index in the full list, also on page 2", async () => {
+        const onDownloadTrack = vi.fn();
+        const tracks = [1, 2, 3].map((n) => makeTrack(n, { service: "amazon" }));
+        const view = await mount(<TrackList {...base} tracks={tracks} currentPage={2} itemsPerPage={2} canDownload onDownloadTrack={onDownloadTrack}/>);
+
+        expect(downloadButton(view.container).disabled).toBe(false);
+        downloadButton(view.container).click();
+
+        expect(onDownloadTrack).toHaveBeenCalledWith(tracks[2], 2);
+        await view.unmount();
+    });
+
+    it("disables the button for Spotify and explains why", async () => {
+        const view = await mount(<TrackList {...base} tracks={[makeTrack(1)]} canDownload={false} onDownloadTrack={vi.fn()}/>);
+
+        expect(downloadButton(view.container).disabled).toBe(true);
+        expect(downloadButton(view.container).closest("span")!.getAttribute("aria-description")).toContain("Spotify downloads need matching to Amazon");
+        await view.unmount();
+    });
+
+    it("retries a failed item", async () => {
+        const onRetryDownload = vi.fn();
+        const view = await mount(<TrackList {...base} tracks={[makeTrack(1, { service: "amazon" })]} canDownload onDownloadTrack={vi.fn()} onRetryDownload={onRetryDownload} downloadItems={new Map([["track-1", item("failed", { error: "boom" })]])}/>);
+        const retry = rowButtons(view.container).find((b) => !b.getAttribute("aria-label")?.startsWith("Open"))!;
+
+        retry.click();
+
+        expect(onRetryDownload).toHaveBeenCalledWith("track-1");
+        expect(retry.closest("span")!.getAttribute("aria-description")).toBe("boom");
+        await view.unmount();
+    });
+
+    it("shows a disabled spinner while downloading and a check once completed", async () => {
+        const onDownloadTrack = vi.fn();
+        const props = { ...base, tracks: [makeTrack(1, { service: "amazon" })], canDownload: true, onDownloadTrack };
+        const view = await mount(<TrackList {...props} downloadItems={new Map([["track-1", item("downloading", { message: "Converting" })]])}/>);
+        const own = () => rowButtons(view.container).filter((b) => !b.getAttribute("aria-label")?.startsWith("Open"));
+
+        expect(own()[0].disabled).toBe(true);
+        expect(own()[0].closest("span")!.getAttribute("aria-description")).toBe("Converting");
+        await view.render(<TrackList {...props} downloadItems={new Map([["track-1", item("completed", { path: "C:/music/a.flac" })]])}/>);
+        expect(own()).toEqual([]);
+        expect(view.container.querySelector('tbody span[aria-description="C:/music/a.flac"]')).not.toBeNull();
+        expect(onDownloadTrack).not.toHaveBeenCalled();
+        await view.unmount();
+    });
+});
+
 describe("TrackList preview", () => {
     const pause = vi.fn();
     const listeners: Record<string, () => void> = {};

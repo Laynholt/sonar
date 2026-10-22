@@ -8,7 +8,8 @@ import { CoverPreview } from "./CoverPreview";
 import { openExternal } from "@/lib/utils";
 import { serviceLabels } from "./ServiceBadge";
 import { useI18n } from "@/lib/i18n";
-interface TrackListProps {
+import { DownloadButton, type DownloadRowProps } from "./DownloadButton";
+interface TrackListProps extends DownloadRowProps {
     tracks: TrackMetadata[];
     searchQuery: string;
     sortBy: string;
@@ -20,7 +21,7 @@ interface TrackListProps {
     onArtistClick?: (artist: ArtistRef) => void;
     onTrackClick?: (track: TrackMetadata) => void;
 }
-export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPage, hideAlbumColumn = false, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
+export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPage, hideAlbumColumn = false, onPageChange, onAlbumClick, onArtistClick, onTrackClick, canDownload = false, downloadItems, onDownloadTrack, onRetryDownload, }: TrackListProps) {
     const { t, language } = useI18n();
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
@@ -187,6 +188,7 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               </td>)}
               <td className="p-4 align-middle text-center">
                 <div className="flex items-center justify-center gap-1">
+                  {onDownloadTrack && (<DownloadButton item={downloadItems?.get(track.id ?? "")} disabled={!canDownload} disabledReason={t("download.spotifyLater")} onDownload={() => onDownloadTrack(track, tracks.indexOf(track))} onRetry={() => track.id && onRetryDownload?.(track.id)}/>)}
                   {track.external_urls && (<Tooltip>
                     <TooltipTrigger asChild>
                       <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label={t("service.open", { service: serviceLabels[track.service] })}>

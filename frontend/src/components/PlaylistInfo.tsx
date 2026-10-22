@@ -8,7 +8,8 @@ import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import type { AlbumRef, ArtistRef } from "./ArtistLinks";
-interface PlaylistInfoProps {
+import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
+interface PlaylistInfoProps extends DownloadCardProps {
     service: Service;
     sourceUrl: string;
     playlistInfo: {
@@ -58,7 +59,7 @@ function decodeHtmlEntities(value?: string): string {
     textarea.innerHTML = value;
     return textarea.value;
 }
-export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onAlbumClick, onArtistClick, onTrackClick, onBack, }: PlaylistInfoProps) {
+export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onAlbumClick, onArtistClick, onTrackClick, onBack, canDownload, downloadItems, onDownloadAll, downloadProgress, onDownloadTrack, onRetryDownload, onStopDownload, }: PlaylistInfoProps) {
     const { t } = useI18n();
     const decodedDescription = decodeHtmlEntities(playlistInfo.description);
     return (<div className="space-y-6">
@@ -94,7 +95,8 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
                     </>)}
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload}/>
                 <Button onClick={() => openExternal(sourceUrl)} variant="outline">
                   <ExternalLink className="h-4 w-4"/>
                   {t("service.open", { service: serviceLabels[service] })}
@@ -106,7 +108,7 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
       </Card>
       <div className="space-y-4">
         <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} hasPlays={trackList.some((track) => track.plays)} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
-        <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
+        <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} currentPage={currentPage} itemsPerPage={itemsPerPage} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick} canDownload={canDownload} downloadItems={downloadItems} onDownloadTrack={onDownloadTrack} onRetryDownload={onRetryDownload}/>
       </div>
     </div>);
 }

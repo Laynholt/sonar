@@ -21,6 +21,8 @@ import { ArtistInfo } from "@/components/ArtistInfo";
 import { useMetadata } from "@/hooks/useMetadata";
 import type { View } from "@/hooks/navigation";
 import { stopPreview } from "@/hooks/usePreview";
+import { useDownloads } from "@/hooks/useDownloads";
+import { batchProgress, retryDownload, startDownload, stopQueue, toSource, toSources, type CollectionKind } from "@/lib/downloads";
 import type { AlbumRef } from "@/components/ArtistLinks";
 import { extractArtistID } from "@/lib/spotify-url";
 import { errorMessage } from "@/lib/utils";
@@ -53,6 +55,7 @@ function App() {
     const [trackPage, setTrackPage] = useState(1);
     const [artistTab, setArtistTab] = useState("albums");
     const metadata = useMetadata();
+    const downloads = useDownloads();
     const resetSettingsFn = useRef<(() => void) | null>(null);
     const rememberSettingsReset = useCallback((reset: () => void) => { resetSettingsFn.current = reset; }, []);
     useLayoutEffect(applySavedAppearance, []);
@@ -188,10 +191,25 @@ function App() {
             onSearchChange: (value: string) => { setSearchQuery(value); setTrackPage(1); }, onSortChange: setSortBy, onPageChange: setTrackPage,
             onTrackClick: openTrack, onArtistClick: openArtist, onBack: metadata.resetMetadata,
         };
-        if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata} onArtistClick={openArtist} onAlbumClick={openAlbum}/>;
-        if ("album_info" in data) return <AlbumInfo service={data.service} sourceUrl={data.album_info.external_urls || sourceUrl} albumInfo={data.album_info} trackList={data.track_list} {...list}/>;
-        if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={data.playlist_info.external_urls || sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={openAlbum} {...list}/>;
-        return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={openAlbum} activeTab={artistTab} onTabChange={setArtistTab} {...list}/>;
+        // Only Amazon can be downloaded for now; Spotify gets the same controls, disabled.
+        const download = (kind: CollectionKind, id: string, name: string, tracks: TrackMetadata[]) => {
+            const collection = { kind, id, name };
+            const queueId = `${kind}:${id}`;
+            const report = (err: unknown) => toast.error(errorMessage(err, t("recent.unknownError")));
+            return {
+                canDownload: data.service === "amazon",
+                downloadItems: downloads.byTrackId,
+                downloadProgress: batchProgress(downloads.items, queueId),
+                onDownloadAll: () => void startDownload(collection, toSources(kind, tracks)),
+                onDownloadTrack: (track: TrackMetadata, index: number) => void startDownload(collection, [toSource(kind, track, index)]),
+                onRetryDownload: (trackId: string) => void retryDownload(trackId).catch(report),
+                onStopDownload: () => void stopQueue(queueId).catch(report),
+            };
+        };
+        if ("track" in data) return <TrackInfo track={data.track} onBack={metadata.resetMetadata} onArtistClick={openArtist} onAlbumClick={openAlbum} {...download("track", data.track.id ?? "", data.track.name, [data.track])}/>;
+        if ("album_info" in data) return <AlbumInfo service={data.service} sourceUrl={data.album_info.external_urls || sourceUrl} albumInfo={data.album_info} trackList={data.track_list} {...list} {...download("album", data.album_info.external_urls || sourceUrl, data.album_info.name, data.track_list)}/>;
+        if ("playlist_info" in data) return <PlaylistInfo service={data.service} sourceUrl={data.playlist_info.external_urls || sourceUrl} playlistInfo={data.playlist_info} trackList={data.track_list} onAlbumClick={openAlbum} {...list} {...download("playlist", data.playlist_info.external_urls || sourceUrl, data.playlist_info.owner.name, data.track_list)}/>;
+        return <ArtistInfo service={data.service} artistInfo={data.artist_info} albumList={data.album_list} trackList={data.track_list} onAlbumClick={openAlbum} activeTab={artistTab} onTabChange={setArtistTab} {...list} {...download("artist", data.artist_info.external_urls || sourceUrl, data.artist_info.name, data.track_list)}/>;
     };
     const renderPage = () => {
         switch (currentPage) {
