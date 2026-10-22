@@ -116,7 +116,7 @@ describe("ResumeDialog", () => {
         vi.mocked(resumeQueue).mockReturnValue(call.promise);
         await show();
         await act(async () => button(document.body, "Continue").click());
-        expect(button(document.body, "Later").disabled).toBe(true);
+        for (const label of ["Continue", "Later", "Clear queue"]) expect(button(document.body, label).disabled).toBe(true);
         await act(async () => call.resolve());
     });
 

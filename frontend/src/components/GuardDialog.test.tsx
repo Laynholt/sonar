@@ -45,7 +45,7 @@ describe("GuardDialog", () => {
             ...Array(3).fill({ status: "completed" }), { status: "skipped" }, { status: "ignored" }, { status: "not_found" },
             { status: "matching" }, { status: "queued" }, { status: "downloading" }, { status: "review" }, { status: "failed" },
         ]);
-        expect(text()).toContain("Lucida will rest for 30 min, then carry on by itself");
+        expect(text()).toContain("Lucida will rest for 30 min, then downloading resumes");
         expect(text()).toContain("DoubleDouble keeps downloading (12 of 50)");
         expect(text()).toContain("Queue saved: 6 done, 4 left");
     });
@@ -77,7 +77,7 @@ describe("GuardDialog", () => {
         setLanguage("ru");
         await show([lucida, double], [{ status: "completed" }, { status: "queued" }]);
         expect(text()).toContain("Lucida: 50 треков за сессию");
-        expect(text()).toContain("Lucida отдохнёт 30 мин, потом продолжит сама");
+        expect(text()).toContain("Lucida отдохнёт 30 мин, потом загрузка продолжится");
         expect(text()).toContain("DoubleDouble продолжает качать (12 из 50)");
         expect(text()).toContain("Очередь сохранена: 1 готово, 1 осталось");
         expect(button(document.body, "Подождать 30 мин")).toBeTruthy();
@@ -125,12 +125,45 @@ describe("GuardDialog", () => {
     });
 
     it("keeps its text while it closes", async () => {
+        // jsdom runs no animations; reporting a closed-state animation makes Radix keep the node mounted, as in the app.
+        const real = window.getComputedStyle.bind(window);
+        vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => new Proxy(real(el, pseudo), {
+            get: (target, key) => {
+                if (key === "animationName") return el.getAttribute("data-state") === "closed" ? "leave" : "none";
+                const value = Reflect.get(target, key);
+                return typeof value === "function" ? value.bind(target) : value;
+            },
+        }));
         await show([lucida, double]);
         vi.mocked(useDownloads).mockReturnValue(state([{ ...lucida, asking: false }, double]));
         await view.render(<GuardDialog/>);
-        // The exit animation may still be running: the last question stays, not an empty box.
-        const dialog = document.querySelector('[role="dialog"]');
-        if (dialog) expect(dialog.textContent).toContain("Lucida: 50 tracks this session");
+        const dialog = document.querySelector('[role="dialog"]')!;
+        expect(dialog.getAttribute("data-state")).toBe("closed");
+        expect(dialog.textContent).toContain("Lucida: 50 tracks this session");
+        expect(dialog.textContent).toContain("Lucida will rest for 30 min");
+    });
+
+    it("says the other site is also waiting when both are at their limit", async () => {
+        await show([lucida, { ...double, asking: true, count: 50 }]);
+        expect(text()).toContain("DoubleDouble is also waiting for an answer");
+        expect(text()).not.toContain("keeps downloading");
+    });
+
+    it("counts the other site's pause down each second and stops the timer when done", async () => {
+        vi.useFakeTimers({ now: 1_000_000 });
+        try {
+            await show([lucida, { ...double, paused_until: 1_000_000 + 90_000 }]);
+            expect(text()).toContain("DoubleDouble is paused for 1:30 more");
+            await act(async () => { vi.advanceTimersByTime(1000); });
+            expect(text()).toContain("DoubleDouble is paused for 1:29 more");
+            await view.unmount();
+            // Radix leaves a zero-delay focus-restore timer; once it has run, a surviving interval would still be counted.
+            await act(async () => { vi.advanceTimersByTime(5000); });
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+            view = await mount(<div/>);
+        }
     });
 
     it("renders nothing when no site is asking", async () => {

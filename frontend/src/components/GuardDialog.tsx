@@ -50,6 +50,7 @@ export function GuardDialog() {
     const otherLine = (site: source.Status) => {
         const now = Date.now();
         const params = { site: siteName(site.name), count: site.count, limit: site.limit, time: clock(site.paused_until - now) };
+        if (site.asking) return t("download.guardOtherAsking", params);
         if (site.paused_until > now) return t("download.guardOtherPaused", params);
         return t(site.available ? "download.guardOtherBusy" : "download.guardOtherDown", params);
     };
