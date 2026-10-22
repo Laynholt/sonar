@@ -15,15 +15,20 @@ import (
 const UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 
 // Client returns the shared client; all outbound HTTP should go through it.
-var Client = sync.OnceValue(func() *http.Client {
+var Client = sync.OnceValue(func() *http.Client { return newClient(60 * time.Second) })
+
+// StreamClient is Client's transport with no total timeout, for large downloads.
+var StreamClient = sync.OnceValue(func() *http.Client { return newClient(0) })
+
+func newClient(timeout time.Duration) *http.Client {
 	return &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout: timeout,
 		Transport: userAgentTransport{directFallbackTransport{
 			primary: newProxiedHTTPTransport(),
 			direct:  newDirectHTTPTransport(),
 		}},
 	}
-})
+}
 
 type userAgentTransport struct{ next http.RoundTripper }
 
