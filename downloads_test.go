@@ -180,13 +180,13 @@ func TestFetch(t *testing.T) {
 	}
 }
 
-// newGuardApp runs the real fetch, balancer and queue (one worker) so the OnLimit wiring is exercised.
+// newGuardApp runs the real fetch, balancer and queue (one worker) so the OnChange wiring is exercised.
 func newGuardApp(t *testing.T) *App {
 	t.Helper()
 	a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return "" }}
 	a.sources = source.NewBalancer(time.Minute, fakeSource("lucida"))
-	a.sources.OnLimit = a.onLimit
 	a.dl = download.NewQueue(a.fetch, nil, 1)
+	a.sources.OnChange = a.syncGuard
 	t.Cleanup(a.dl.Close)
 	return a
 }
@@ -241,20 +241,17 @@ func TestDownloadGuardFlow(t *testing.T) {
 	if g.Asking || g.Site != "lucida" || g.Count != 2 {
 		t.Fatalf("guard after wait = %+v", g)
 	}
-	if d := time.UnixMilli(g.PausedUntil).Sub(time.Now().Add(guardRest)); d < -time.Minute || d > time.Minute {
+	if d := time.UnixMilli(g.PausedUntil).Sub(time.Now().Add(guardWait)); d < -time.Minute || d > time.Minute {
 		t.Fatalf("PausedUntil off by %v", d)
 	}
 	if held, _ := a.dl.HeldUntil(); !held {
 		t.Fatal("queue not held after GuardWait")
 	}
 	waitStatus(t, a, done, done, queued)
-
-	// An expired pause clears itself.
-	a.guardMu.Lock()
-	a.guard.PausedUntil = time.Now().Add(-time.Second).UnixMilli()
-	a.guardMu.Unlock()
+	a.GuardContinue() // "Resume now"
+	waitStatus(t, a, done, done, done)
 	if got := a.GetDownloadGuard(); got != (DownloadGuard{}) {
-		t.Fatalf("expired guard = %+v", got)
+		t.Fatalf("guard after resume = %+v", got)
 	}
 }
 

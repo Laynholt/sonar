@@ -26,10 +26,14 @@ type Source interface {
 }
 
 type Status struct {
-	Name       string `json:"name"`
-	Available  bool   `json:"available"`
-	NeedsCheck bool   `json:"needs_check"`
-	Reason     string `json:"reason"`
+	Name        string `json:"name"`
+	Available   bool   `json:"available"`
+	NeedsCheck  bool   `json:"needs_check"`
+	Reason      string `json:"reason"`
+	Count       int    `json:"count"`
+	Limit       int    `json:"limit"`
+	Asking      bool   `json:"asking"`
+	PausedUntil int64  `json:"paused_until"` // unix ms of a guard pause, 0 for none
 }
 
 // CheckStatus returns nil for 2xx, an ErrUnavailable error for 403, 429 and 5xx, and a plain error otherwise.

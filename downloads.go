@@ -25,7 +25,7 @@ const (
 	downloadWorkers = 2 // both sites rip one track per request; don't hammer them
 	checkTimeout    = 10 * time.Minute
 	checkTrackURL   = "https://music.amazon.com/tracks/B00A3SGXAA"
-	guardRest       = source.GuardRest // how long the user is asked to wait
+	guardWait       = 30 * time.Minute // how long "Wait" pauses a site
 )
 
 // DownloadGuard is what the rate-guard dialog shows. PausedUntil is unix ms, 0 for none.
@@ -64,7 +64,11 @@ func (a *App) fetch(ctx context.Context, id string, o download.Options, pathNoEx
 			return "", errNoFFmpeg
 		}
 	}
-	f, err := a.sources.Download(ctx, o.Source, url, pathNoExt, onStatus)
+	site := o.Source
+	if site == source.Auto { // shortcut: always the first site until Task 6 gives each site its own worker
+		site = a.sources.Names()[0]
+	}
+	f, err := a.sources.Fetch(ctx, site, url, pathNoExt, onStatus)
 	if err != nil || o.Format == "original" {
 		return f, err
 	}
@@ -104,46 +108,42 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 			return fmt.Errorf("only Amazon Music tracks can be downloaded for now: %s", t.ID)
 		}
 	}
-	a.sources.SetGuard(o.GuardLimit)
+	a.sources.SetGuard(o.GuardLimit, guardWait)
 	a.dl.Enqueue(req.Collection, o, req.Tracks)
 	return nil
 }
 
-// onLimit holds the queue until the user answers the dialog.
-func (a *App) onLimit(site string, count int) {
-	a.guardMu.Lock()
+// syncGuard is the balancer's OnChange: it holds the whole queue while any site's guard asks or pauses.
+// shortcut: one site's guard stops both sites; Task 6/8 gate each site on its own.
+func (a *App) syncGuard() {
+	a.guardMu.Lock() // so concurrent calls apply the latest state last
 	defer a.guardMu.Unlock()
-	a.guard = DownloadGuard{Site: site, Count: count, Asking: true}
-	a.dl.Hold(time.Time{}) // under guardMu so guard and hold change together
-}
-
-func (a *App) GetDownloadGuard() DownloadGuard {
-	a.guardMu.Lock()
-	defer a.guardMu.Unlock()
-	if a.guard.PausedUntil != 0 && time.Now().UnixMilli() >= a.guard.PausedUntil {
-		a.guard = DownloadGuard{}
+	if a.GetDownloadGuard() != (DownloadGuard{}) {
+		a.dl.Hold(time.Time{})
+	} else {
+		a.dl.Resume()
 	}
-	return a.guard
 }
 
-// GuardWait is "OK, I'll wait": pause for guardRest, then the queue resumes by itself.
-func (a *App) GuardWait() {
-	a.sources.ResetCounts()
-	until := time.Now().Add(guardRest)
-	a.guardMu.Lock()
-	defer a.guardMu.Unlock()
-	a.guard = DownloadGuard{Site: a.guard.Site, Count: a.guard.Count, PausedUntil: until.UnixMilli()}
-	a.dl.Hold(until)
+// GetDownloadGuard is the first asking site, else the first guard-paused one, or zero for none.
+func (a *App) GetDownloadGuard() DownloadGuard {
+	st := a.sources.Status()
+	i := slices.IndexFunc(st, func(s source.Status) bool { return s.Asking })
+	if i < 0 {
+		i = slices.IndexFunc(st, func(s source.Status) bool { return s.PausedUntil != 0 })
+	}
+	if i < 0 {
+		return DownloadGuard{}
+	}
+	s := st[i]
+	return DownloadGuard{Site: s.Name, Count: s.Count, Asking: s.Asking, PausedUntil: s.PausedUntil}
 }
+
+// GuardWait is "OK, I'll wait": that site pauses for guardWait, then resumes by itself.
+func (a *App) GuardWait() { a.sources.GuardWait(a.GetDownloadGuard().Site) }
 
 // GuardContinue is "Continue anyway", and also "Resume now" during a pause.
-func (a *App) GuardContinue() {
-	a.sources.ResetCounts()
-	a.guardMu.Lock()
-	defer a.guardMu.Unlock()
-	a.guard = DownloadGuard{}
-	a.dl.Resume()
-}
+func (a *App) GuardContinue() { a.sources.GuardContinue(a.GetDownloadGuard().Site) }
 
 func (a *App) GetDownloadQueue() []download.Item { return a.dl.Snapshot() }
 func (a *App) CancelDownload(id string)          { a.dl.Cancel(id) }
