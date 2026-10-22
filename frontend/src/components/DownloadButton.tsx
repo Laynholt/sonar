@@ -56,8 +56,9 @@ export function DownloadButton({ item, disabled, disabledReason, onDownload, onR
         </WithTip>);
     }
     if (status === "failed") {
-        return (<WithTip tip={item!.error}>
-          <Button size="icon" variant="ghost" aria-label={item!.error} onClick={onRetry}><RotateCcw className="h-4 w-4 text-red-500"/></Button>
+        const tip = item!.error || t("download.track");
+        return (<WithTip tip={tip}>
+          <Button size="icon" variant="ghost" aria-label={tip} onClick={onRetry}><RotateCcw className="h-4 w-4 text-red-500"/></Button>
         </WithTip>);
     }
     return (<WithTip tip={t("download.track")}>

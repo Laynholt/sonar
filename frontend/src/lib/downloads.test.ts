@@ -117,11 +117,11 @@ describe("downloads store", () => {
     it("warns on partial failure and errors when nothing downloaded", async () => {
         const { api, toast, store } = await load();
         vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "completed"), item("B02", "failed"), item("B03", "cancelled")]);
-        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, []);
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1), track(2), track(3)]));
         expect(toast.warning).toHaveBeenCalledWith("Downloaded 1 · skipped 0 · failed 2");
 
         vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B04", "failed", "playlist:P1")]);
-        await store.startDownload({ kind: "playlist", id: "P1", name: "P" }, []);
+        await store.startDownload({ kind: "playlist", id: "P1", name: "P" }, store.toSources("playlist", [track(4)]));
         expect(toast.error).toHaveBeenCalledWith("Downloaded 0 · skipped 0 · failed 1");
     });
 
@@ -129,10 +129,56 @@ describe("downloads store", () => {
         const { api, toast, store } = await load();
         vi.mocked(api.DownloadTracks).mockRejectedValue("FFmpeg is required");
 
-        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, []);
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
 
         expect(toast.error).toHaveBeenCalledWith("FFmpeg is required");
         expect(toast.success).not.toHaveBeenCalled();
+        expect(vi.mocked(api.GetDownloadQueue)).not.toHaveBeenCalled();
+    });
+
+    it("does not start a collection without an id", async () => {
+        const { api, store } = await load();
+
+        await store.startDownload({ kind: "track", id: "", name: "x" }, store.toSources("track", [track(1)]));
+
+        expect(api.DownloadTracks).not.toHaveBeenCalled();
+    });
+
+    it("keeps polling after a failed refresh and still reports the summary", async () => {
+        const { api, toast, store } = await load();
+        vi.mocked(api.GetDownloadQueue).mockRejectedValueOnce("offline").mockResolvedValue([item("B01", "completed")]);
+
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
+        expect(toast.success).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(600);
+
+        expect(toast.success).toHaveBeenCalledWith("Downloaded 1 · skipped 0 · failed 0");
+    });
+
+    it("reports a re-run whose items are all skipped even though the data did not change", async () => {
+        const { api, toast, store } = await load();
+        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "skipped")]);
+        await store.refreshDownloads();
+
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
+
+        expect(toast.success).toHaveBeenCalledWith("Downloaded 0 · skipped 1 · failed 0");
+    });
+
+    it("counts only the tracks of the current batch, not older runs in the queue", async () => {
+        const { api, toast, store } = await load();
+        const old = Array.from({ length: 10 }, (_, n) => item(`B0${n + 1}`, "completed"));
+        vi.mocked(api.GetDownloadQueue).mockResolvedValue(old);
+        await store.refreshDownloads();
+
+        vi.mocked(api.GetDownloadQueue).mockResolvedValue([item("B01", "queued"), ...old.slice(1)]);
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
+        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toEqual({ done: 0, total: 1, failed: 0, active: true });
+        vi.mocked(api.GetDownloadQueue).mockResolvedValue(old);
+        await vi.advanceTimersByTimeAsync(600);
+
+        expect(toast.success).toHaveBeenCalledTimes(1);
+        expect(toast.success).toHaveBeenCalledWith("Downloaded 1 · skipped 0 · failed 0");
     });
 
     it("computes batch progress and stops only that queue's active items", async () => {

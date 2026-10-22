@@ -23,8 +23,11 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let started = 0;
 let applied = 0;
 const listeners = new Set<() => void>();
-// Queue ids of batches whose summary toast is still owed; the id is what Go builds: kind:id.
-const batches = new Set<string>();
+// Batches whose summary toast is still owed, keyed by the queue id Go builds (kind:id). A batch is the
+// track ids one start asked for, so older runs in the same queue are not counted; only refreshes
+// numbered above `after` (started once the enqueue finished) may close it.
+// A retry after the summary is silent by design: the batch is gone by then.
+const batches = new Map<string, { ids: Set<string>; after: number }>();
 
 export function subscribe(listener: () => void) {
     listeners.add(listener);
@@ -36,7 +39,8 @@ export const getGuard = () => guard;
 const isActive = (i: DownloadItem) => i.status === "queued" || i.status === "downloading";
 
 export function batchProgress(all: DownloadItem[], queueId: string): BatchProgress {
-    const own = all.filter((i) => i.queue_id === queueId);
+    const ids = batches.get(queueId)?.ids;
+    const own = all.filter((i) => i.queue_id === queueId && (!ids || ids.has(i.id)));
     return {
         done: own.filter((i) => i.status === "completed" || i.status === "skipped").length,
         total: own.length,
@@ -45,9 +49,11 @@ export function batchProgress(all: DownloadItem[], queueId: string): BatchProgre
     };
 }
 
-function summarize() {
-    for (const queueId of [...batches]) {
-        const own = items.filter((i) => i.queue_id === queueId);
+function summarize(refreshId: number) {
+    for (const [queueId, batch] of [...batches]) {
+        // A response from before the enqueue shows the previous run's statuses.
+        if (refreshId <= batch.after) continue;
+        const own = items.filter((i) => i.queue_id === queueId && batch.ids.has(i.id));
         if (own.some(isActive)) continue;
         batches.delete(queueId);
         if (!own.length) continue;
@@ -63,7 +69,7 @@ function summarize() {
 // One timer at most: every refresh replaces it, so quick actions never stack loops.
 function schedule() {
     clearTimeout(timer);
-    timer = items.some(isActive) || guard.paused_until > 0 ? setTimeout(() => void refreshDownloads(), POLL_MS) : undefined;
+    timer = items.some(isActive) || batches.size > 0 || guard.paused_until > 0 ? setTimeout(() => void refreshDownloads(), POLL_MS) : undefined;
 }
 
 export async function refreshDownloads(): Promise<void> {
@@ -77,9 +83,9 @@ export async function refreshDownloads(): Promise<void> {
                 key = nextKey;
                 items = nextItems ?? [];
                 guard = nextGuard;
-                summarize();
                 listeners.forEach((listener) => listener());
             }
+            summarize(id);
         }
     }
     catch (err) {
@@ -94,6 +100,7 @@ export function toSource(kind: CollectionKind, track: TrackMetadata, index: numb
 export const toSources = (kind: CollectionKind, tracks: TrackMetadata[]) => tracks.map((track, index) => toSource(kind, track, index));
 
 export async function startDownload(collection: { kind: CollectionKind; id: string; name: string }, tracks: DownloadSource[]): Promise<void> {
+    if (!collection.id) return;
     const request = {
         collection,
         options: downloadOptions(getSettings()),
@@ -102,14 +109,20 @@ export async function startDownload(collection: { kind: CollectionKind; id: stri
             release_date: s.release_date, track_number: s.track_number, disc_number: s.disc_number ?? 0, position: s.position,
         })),
     } as main.DownloadRequest;
+    // Registered before the call: the first poll may already see the items and must not miss the batch.
+    const queueId = `${collection.kind}:${collection.id}`;
+    const previous = batches.get(queueId);
+    batches.set(queueId, { ids: new Set([...(previous?.ids ?? []), ...request.tracks.map((x) => x.id)]), after: Infinity });
     try {
         await DownloadTracks(request);
     }
     catch (err) {
+        if (previous) batches.set(queueId, previous);
+        else batches.delete(queueId);
         toastWithSound.error(errorMessage(err, t("recent.unknownError")));
         return;
     }
-    batches.add(`${collection.kind}:${collection.id}`);
+    batches.get(queueId)!.after = started;
     await refreshDownloads();
 }
 

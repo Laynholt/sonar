@@ -197,7 +197,7 @@ function App() {
             const queueId = `${kind}:${id}`;
             const report = (err: unknown) => toast.error(errorMessage(err, t("recent.unknownError")));
             return {
-                canDownload: data.service === "amazon",
+                canDownload: data.service === "amazon" && !!id,
                 downloadItems: downloads.byTrackId,
                 downloadProgress: batchProgress(downloads.items, queueId),
                 onDownloadAll: () => void startDownload(collection, toSources(kind, tracks)),
