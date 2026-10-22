@@ -258,7 +258,8 @@ func unpack(ctx context.Context, zipPath, dst string, report func(Progress)) ([]
 		if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `\/`) {
 			return nil, fmt.Errorf("unsafe file name in archive: %q", f.Name)
 		}
-		if slices.Contains(names, name) {
+		// Windows names are case-insensitive, so "A.dll" and "a.dll" are the same file.
+		if slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) }) {
 			return nil, fmt.Errorf("duplicate file name in archive: %q", name)
 		}
 		names = append(names, name)

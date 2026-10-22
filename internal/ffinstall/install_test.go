@@ -385,6 +385,11 @@ func TestInstallRejectsDuplicateNames(t *testing.T) {
 		"a/bin/x.dll":      "1",
 		"b/bin/x.dll":      "2",
 	}, "duplicate")
+	installBad(t, map[string]string{
+		"x/bin/ffmpeg.exe": "f",
+		"a/bin/X.dll":      "1",
+		"b/bin/x.dll":      "2",
+	}, "duplicate")
 }
 
 func TestInstallCapsUnpackedSize(t *testing.T) {
