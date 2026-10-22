@@ -174,7 +174,10 @@ describe("SettingsPage", () => {
             vi.mocked(FindFFmpeg).mockResolvedValue("C:\\bin\\ffmpeg.exe");
             await open();
             await pick(selectWith("mp3-320"), "mp3-320");
-            expect(view.container.textContent).toContain("Found: C:\\bin\\ffmpeg.exe");
+            // An earlier test may have saved a custom path; the found one shows in an empty field.
+            const input = view.container.querySelector<HTMLInputElement>("#ffmpeg-path")!;
+            await act(async () => change(input, ""));
+            expect(input.placeholder).toBe("C:\\bin\\ffmpeg.exe");
             expect(view.container.textContent).not.toContain("FFmpeg not found");
         });
 

@@ -36,7 +36,7 @@ export function TagsDialog({ item, onClose }: { item: DownloadItem | null; onClo
               {tags.cover ? (<img src={tags.cover} alt={t("tags.cover")} className="w-40 h-40 rounded-md object-cover border"/>) : (<div className="w-40 h-40 rounded-md border bg-muted flex items-center justify-center text-xs text-muted-foreground text-center p-2">{t("tags.noCover")}</div>)}
               <p className="text-xs text-muted-foreground tabular-nums">{tags.format} · {t("widget.size", { size: mb(tags.size, language) })}</p>
             </div>
-            <div className="flex-1 min-w-0 max-h-[60vh] overflow-y-auto text-sm">
+            <div className="flex-1 min-w-0 max-h-[60vh] overflow-y-auto pr-3 text-sm">
               <table className="w-full">
                 <tbody>
                   {tags.fields?.map((f) => row(t(`tags.${f.key}` as MessageKey), f.value))}

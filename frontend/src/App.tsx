@@ -61,6 +61,8 @@ function App() {
     const downloads = useDownloads();
     const resetSettingsFn = useRef<(() => void) | null>(null);
     const rememberSettingsReset = useCallback((reset: () => void) => { resetSettingsFn.current = reset; }, []);
+    const saveSettingsFn = useRef<(() => Promise<boolean>) | null>(null);
+    const rememberSettingsSave = useCallback((save: () => Promise<boolean>) => { saveSettingsFn.current = save; }, []);
     useLayoutEffect(applySavedAppearance, []);
     // A queue left from before a reload (and a pending guard question) must show without opening the page.
     useEffect(() => { void refreshDownloads(); }, []);
@@ -95,6 +97,13 @@ function App() {
             setCurrentPage(pendingPageChange);
             setPendingPageChange(null);
         }
+    };
+    // A failed save keeps the user on Settings; its toast says why.
+    const handleSaveChanges = async () => {
+        setShowUnsavedChangesDialog(false);
+        const saved = (await saveSettingsFn.current?.()) ?? false;
+        if (saved && pendingPageChange) setCurrentPage(pendingPageChange);
+        setPendingPageChange(null);
     };
     const handleCancelNavigation = () => {
         setShowUnsavedChangesDialog(false);
@@ -219,7 +228,7 @@ function App() {
     const renderPage = () => {
         switch (currentPage) {
             case "settings":
-                return <SettingsPage onUnsavedChangesChange={setHasUnsavedSettings} onResetRequest={rememberSettingsReset}/>;
+                return <SettingsPage onUnsavedChangesChange={setHasUnsavedSettings} onResetRequest={rememberSettingsReset} onSaveRequest={rememberSettingsSave}/>;
             case "debug":
                 return <DebugLoggerPage />;
             case "about":
@@ -250,8 +259,8 @@ function App() {
             <GuardDialog />
             <DownloadWidget hidden={currentPage === "downloads"} onOpen={() => handlePageChange("downloads")}/>
 
-            <Dialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
-                <DialogContent className="sm:max-w-[425px] [&>button]:hidden">
+            <Dialog open={showUnsavedChangesDialog} onOpenChange={(open) => !open && handleCancelNavigation()}>
+                <DialogContent showCloseButton={false} className="sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle>{t("unsaved.title")}</DialogTitle>
                         <DialogDescription>
@@ -259,11 +268,11 @@ function App() {
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={handleCancelNavigation}>
-                            {t("common.cancel")}
-                        </Button>
-                        <Button variant="destructive" onClick={handleDiscardChanges}>
+                        <Button variant="outline" onClick={handleDiscardChanges}>
                             {t("unsaved.discard")}
+                        </Button>
+                        <Button autoFocus onClick={() => void handleSaveChanges()}>
+                            {t("unsaved.save")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

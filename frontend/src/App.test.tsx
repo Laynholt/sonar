@@ -7,7 +7,8 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { stopPreview } from "@/hooks/usePreview";
 import { fetchMetadata } from "@/lib/api";
 import { getLanguage, setLanguage } from "@/lib/i18n";
-import { AddFetchHistory, GetFetchHistory, GetFetchHistoryData } from "../wailsjs/go/main/App";
+import { getSettings, saveSettings } from "@/lib/settings";
+import { AddFetchHistory, GetFetchHistory, GetFetchHistoryData, SaveSettings } from "../wailsjs/go/main/App";
 
 const albumUrl = "https://open.spotify.com/album/al";
 const playlistUrl = "https://open.spotify.com/playlist/x";
@@ -250,9 +251,29 @@ describe("unsaved language", () => {
 
         // The previewed language is already Russian, so the labels are too.
         await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="История"]')!.click(); });
-        await act(async () => { [...document.querySelectorAll("button")].find((b) => b.textContent === "Отбросить изменения")!.click(); });
+        await act(async () => { [...document.querySelectorAll("button")].find((b) => b.textContent === "Отбросить")!.click(); });
 
         expect(getLanguage()).toBe("en");
+    });
+
+    it("saves the changes and leaves on Save", async () => {
+        localStorage.setItem("sonar-settings", JSON.stringify({ language: "en" }));
+        await mountApp();
+        await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="Settings"]')!.click(); });
+        const select = container!.querySelector("select")!;
+        await act(async () => {
+            select.value = "ru";
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        await act(async () => { container!.querySelector<HTMLElement>('button[aria-label="История"]')!.click(); });
+        const buttons = [...document.querySelectorAll("[role=dialog] button")].map((b) => b.textContent);
+        expect(buttons).toEqual(["Отбросить", "Сохранить"]);
+        await act(async () => { [...document.querySelectorAll("button")].find((b) => b.textContent === "Сохранить")!.click(); });
+
+        expect(vi.mocked(SaveSettings).mock.lastCall![0]).toMatchObject({ language: "ru" });
+        expect(getLanguage()).toBe("ru");
+        expect(container!.querySelector("select")).toBeNull();
+        await saveSettings({ ...getSettings(), language: "en" }); // later tests start in English
     });
 });
 

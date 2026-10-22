@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Save, Settings2, Palette, Globe, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getSettings, saveSettings, applyThemeMode, applyFont, FONT_OPTIONS, type Settings as SettingsType, type FontFamily } from "@/lib/settings";
 import { themes, applyTheme } from "@/lib/themes";
 import { LOCALES, availableLanguages, setLanguage, t as translate, useI18n, type MessageKey } from "@/lib/i18n";
@@ -80,6 +81,16 @@ function LimitInput({ id, value, max, label, onChange }: { id?: string; value: n
     }} onBlur={() => setText(String(value))}/>);
 }
 
+// Long paths do not fit the field, so the whole one shows on hover.
+function PathInput({ id, value, placeholder, hint, onChange }: { id: string; value: string; placeholder: string; hint: string; onChange: (value: string) => void }) {
+    return (<Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}/>
+      </TooltipTrigger>
+      {hint && <TooltipContent side="bottom" className="max-w-md break-all">{hint}</TooltipContent>}
+    </Tooltip>);
+}
+
 function TemplateSelect({ id, value, presets, onChange }: { id: string; value: string; presets: readonly string[]; onChange: (value: string) => void }) {
     const { t } = useI18n();
     const [custom, setCustom] = useState(!presets.includes(value));
@@ -129,7 +140,7 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
     <Block title={t("settings.blockSaving")}>
       <Row id="download-path" label={t("settings.downloadFolder")} description={t("settings.downloadFolderDesc")}>
         <div className="w-full flex gap-2">
-          <Input id="download-path" value={settings.downloadPath} onChange={(e) => set({ downloadPath: e.target.value })} placeholder={defaultDir}/>
+          <PathInput id="download-path" value={settings.downloadPath} onChange={(downloadPath) => set({ downloadPath })} placeholder={defaultDir} hint={settings.downloadPath || defaultDir}/>
           <Button type="button" variant="outline" onClick={() => browse(() => SelectDownloadFolder(settings.downloadPath || defaultDir), (path) => set({ downloadPath: path }))}>{t("settings.browse")}</Button>
         </div>
       </Row>
@@ -148,15 +159,15 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
       {needsFFmpeg && (<Row id="ffmpeg-path" label={t("settings.ffmpeg")} description={t("settings.ffmpegDesc")}>
         <div className="w-full space-y-2">
           <div className="flex gap-2">
-            <Input id="ffmpeg-path" value={settings.ffmpegPath} onChange={(e) => set({ ffmpegPath: e.target.value })} placeholder={t("download.ffmpegAuto")}/>
+            <PathInput id="ffmpeg-path" value={settings.ffmpegPath} onChange={(ffmpegPath) => set({ ffmpegPath })}
+                placeholder={!settings.ffmpegPath && ffmpegFound ? ffmpegFound : t("download.ffmpegAuto")}
+                hint={settings.ffmpegPath || (ffmpegFound ? t("download.ffmpegFound", { path: ffmpegFound }) : "")}/>
             <Button type="button" variant="outline" onClick={() => browse(SelectFFmpeg, (path) => set({ ffmpegPath: path }))}>{t("settings.browse")}</Button>
           </div>
-          {ffmpegFound === null ? null : ffmpegFound
-              ? <p className="text-xs text-muted-foreground break-all">{t("download.ffmpegFound", { path: ffmpegFound })}</p>
-              : <p className="text-xs text-destructive">
+          {ffmpegFound === "" && (<p className="text-xs text-destructive">
                   {t("download.ffmpegMissing")}{" "}
                   <button type="button" className="underline" onClick={() => BrowserOpenURL("https://ffmpeg.org/download.html")}>{t("download.ffmpegGet")}</button>
-                </p>}
+                </p>)}
         </div>
       </Row>)}
     </Block>
@@ -200,9 +211,11 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
 interface SettingsPageProps {
     onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void;
     onResetRequest?: (resetFn: () => void) => void;
+    /** Hands over a save the unsaved-changes dialog can run; it resolves to whether the save worked. */
+    onSaveRequest?: (saveFn: () => Promise<boolean>) => void;
 }
 
-export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: SettingsPageProps) {
+export function SettingsPage({ onUnsavedChangesChange, onResetRequest, onSaveRequest }: SettingsPageProps) {
     const { t } = useI18n();
     const [savedSettings, setSavedSettings] = useState<SettingsType>(getSettings());
     const [tempSettings, setTempSettings] = useState<SettingsType>(savedSettings);
@@ -257,13 +270,18 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
             await saveSettings(tempSettings);
             setSavedSettings(getSettings());
             toast.success(translate("settings.saved"));
+            return true;
         }
         catch (error) {
             // tempSettings stays as typed, so a bad proxy can be corrected in place.
             toast.error(translate("settings.saveFailed", { error: String(error) }));
+            return false;
         }
         finally { setIsSaving(false); }
     };
+    const saveRef = useRef(handleSave);
+    saveRef.current = handleSave;
+    useEffect(() => { onSaveRequest?.(() => saveRef.current()); }, [onSaveRequest]);
     return (<div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("nav.settings")}</h1>
