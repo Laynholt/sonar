@@ -23,7 +23,7 @@ export function TagsDialog({ item, onClose }: { item: DownloadItem | null; onClo
     }, [item, t]);
     const row = (label: string, value: string) => (<tr key={label} className="border-b last:border-0 align-top">
         <td className="py-1.5 pr-4 text-muted-foreground whitespace-nowrap">{label}</td>
-        <td className="py-1.5 whitespace-pre-wrap break-words select-text">{value}</td>
+        <td className="py-1.5 whitespace-pre-wrap [overflow-wrap:anywhere] select-text">{value}</td>
       </tr>);
     return (<Dialog open={item !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-2xl">
@@ -31,7 +31,7 @@ export function TagsDialog({ item, onClose }: { item: DownloadItem | null; onClo
           <DialogTitle>{t("tags.heading")}</DialogTitle>
           <DialogDescription className="truncate">{item && `${item.track.title} — ${item.track.artist}`}</DialogDescription>
         </DialogHeader>
-        {error ? (<p className="text-sm text-destructive">{error}</p>) : !tags ? (<div className="flex justify-center py-8"><Spinner/></div>) : (<div className="flex gap-4 min-h-0">
+        {error ? (<p className="text-sm text-destructive">{error}</p>) : !tags ? (<div className="flex justify-center py-8"><Spinner/></div>) : (<div className="flex gap-4 min-h-0 min-w-0">
             <div className="w-40 shrink-0 space-y-2">
               {tags.cover ? (<img src={tags.cover} alt={t("tags.cover")} className="w-40 h-40 rounded-md object-cover border"/>) : (<div className="w-40 h-40 rounded-md border bg-muted flex items-center justify-center text-xs text-muted-foreground text-center p-2">{t("tags.noCover")}</div>)}
               <p className="text-xs text-muted-foreground tabular-nums">{tags.format} · {t("widget.size", { size: mb(tags.size, language) })}</p>
