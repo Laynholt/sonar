@@ -65,6 +65,7 @@ type Resolution struct {
 }
 
 // Resolve returns one Resolution per track, same order. AmazonID != "" means confident.
+// It must return promptly once ctx is done: Close waits for it.
 type Resolve func(ctx context.Context, tracks []Track) []Resolution
 
 // Fetch downloads one track to pathNoExt+extension and returns the file path.
@@ -76,6 +77,7 @@ type entry struct {
 	o         Options
 	pathNoExt string
 	cancel    context.CancelFunc // set while Downloading
+	attempt   int                // bumped on each entry into Matching; a result for an older attempt is dropped
 }
 
 // Queue matches tracks one job at a time and downloads them on a fixed set of workers;
@@ -97,6 +99,7 @@ type Queue struct {
 	holdTimer *time.Timer // auto-resume for a timed hold
 }
 
+// NewQueue starts the workers and the matcher. A nil resolve fails every Spotify track with "no match result".
 func NewQueue(fetch Fetch, resolve Resolve, workers int) *Queue {
 	q := &Queue{fetch: fetch, resolve: resolve, byID: map[string]*entry{}}
 	q.base, q.cancelBase = context.WithCancel(context.Background())
@@ -126,22 +129,23 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 			q.byID[t.ID] = e
 			q.order = append(q.order, e)
 		}
-		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t}, o: o, pathNoExt: PathNoExt(t, c, o)}
+		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t}, o: o, pathNoExt: PathNoExt(t, c, o), attempt: e.attempt}
 		if t.Service == "" || t.Service == "amazon" {
 			e.AmazonID = t.ID
 		}
-		e.Status = e.start()
+		e.begin()
 	}
 	q.releaseLocked()
 	q.cond.Broadcast()
 }
 
-// start is where a fresh or retried entry begins: matching until it has an Amazon ID.
-func (e *entry) start() Status {
+// begin starts a fresh or retried entry: matching until it has an Amazon ID, then queued.
+func (e *entry) begin() {
+	e.Status = Queued
 	if e.AmazonID == "" {
-		return Matching
+		e.Status = Matching
+		e.attempt++
 	}
-	return Queued
 }
 
 func (q *Queue) Snapshot() []Item {
@@ -237,8 +241,8 @@ func (q *Queue) requeue(e *entry) {
 	if q.closed || (e.Status != Failed && e.Status != Cancelled) {
 		return
 	}
-	e.Status, e.Error, e.Message, e.Path, e.Bytes, e.Size = e.start(), "", "", "", 0, 0
-	if e.Status == Matching {
+	e.Error, e.Message, e.Path, e.Bytes, e.Size = "", "", "", 0, 0
+	if e.begin(); e.Status == Matching {
 		e.Candidates = nil
 	}
 	q.cond.Broadcast()
@@ -336,19 +340,22 @@ func (q *Queue) matcher() {
 			q.mu.Unlock()
 			return
 		}
-		tracks := make([]Track, len(job))
+		tracks, attempts := make([]Track, len(job)), make([]int, len(job))
 		for i, e := range job {
-			tracks[i] = e.Track
+			tracks[i], attempts[i] = e.Track, e.attempt
 		}
 		q.mu.Unlock()
 
-		ctx, cancel := context.WithTimeout(q.base, matchTimeout)
-		res := q.resolve(ctx, tracks)
-		cancel()
+		var res []Resolution
+		if q.resolve != nil {
+			ctx, cancel := context.WithTimeout(q.base, matchTimeout)
+			res = q.resolve(ctx, tracks)
+			cancel()
+		}
 
 		q.mu.Lock()
 		for i, e := range job {
-			if e.Status != Matching { // cancelled or re-enqueued meanwhile
+			if e.Status != Matching || e.attempt != attempts[i] { // cancelled, or retried or re-enqueued meanwhile
 				continue
 			}
 			r := Resolution{Err: errors.New("no match result")}

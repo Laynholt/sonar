@@ -730,10 +730,20 @@ func TestAmazonTrackSkipsMatching(t *testing.T) {
 func TestEnqueueReleasesHold(t *testing.T) {
 	q := newMQ(t, &fakeFetch{}, &fakeResolve{})
 	q.Hold(time.Time{})
-	q.Enqueue(album, testOpts(t), tracks("A"))
-	waitFor(t, q, allIn(Completed, "A"))
+	q.Enqueue(album, testOpts(t), append(tracks("A"), spotify("S")...))
+	if it := find(waitFor(t, q, allIn(Completed, "A", "S")), "S"); it.AmazonID != "B-S" {
+		t.Errorf("S = %+v", it)
+	}
 	if held, _ := q.HeldUntil(); held {
 		t.Error("still held after Enqueue")
+	}
+}
+
+func TestNilResolveFailsSpotifyTracks(t *testing.T) {
+	q := newQ(t, &fakeFetch{}, 1)
+	q.Enqueue(album, testOpts(t), spotify("S"))
+	if it := find(waitFor(t, q, allIn(Failed, "S")), "S"); it.Error != "no match result" {
+		t.Errorf("S = %+v", it)
 	}
 }
 
@@ -788,5 +798,28 @@ func TestCancelMatchingAndReview(t *testing.T) {
 	s := waitFor(t, q, allIn(Completed, "n"))
 	if find(s, "m").Status != Cancelled || find(s, "m").AmazonID != "" || f.called("B-m") != 0 {
 		t.Errorf("snapshot = %+v", s)
+	}
+}
+
+func TestStaleResolutionDropped(t *testing.T) {
+	gate := make(chan struct{})
+	f, r := &fakeFetch{}, &fakeResolve{}
+	r.fn = func(ctx context.Context, ts []Track) []Resolution {
+		id := "B-new"
+		if len(r.callLog()) == 1 {
+			wait(ctx, gate)
+			id = "B-old"
+		}
+		return each(ts, func(Track) Resolution { return Resolution{AmazonID: id} })
+	}
+	q := newMQ(t, f, r)
+	q.Enqueue(album, testOpts(t), spotify("s1"))
+	waitFor(t, q, func([]Item) bool { return len(r.callLog()) == 1 })
+	q.Cancel("s1")
+	q.Retry("s1")
+	close(gate) // the first attempt's result arrives while the entry is matching again
+	it := find(waitFor(t, q, allIn(Completed, "s1")), "s1")
+	if it.AmazonID != "B-new" || len(r.callLog()) != 2 || f.called("B-old") != 0 {
+		t.Errorf("item = %+v, resolve calls = %v, fetch calls = %+v", it, r.callLog(), f.callLog())
 	}
 }
