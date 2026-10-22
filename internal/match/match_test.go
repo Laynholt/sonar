@@ -51,3 +51,24 @@ func TestRemasterBeatsOtherVersions(t *testing.T) {
 		t.Errorf("want remaster first and strictly higher: %+v", got)
 	}
 }
+
+func TestDurationClose(t *testing.T) {
+	cases := []struct {
+		a, b int
+		want bool
+	}{{180000, 184000, true}, {180000, 195000, false}, {0, 1, true}}
+	for _, c := range cases {
+		if got := DurationClose(c.a, c.b); got != c.want {
+			t.Errorf("DurationClose(%d, %d) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestSameAlbum(t *testing.T) {
+	if !SameAlbum("Lover", "Lover (Deluxe)") {
+		t.Error("Lover vs Lover (Deluxe): want same")
+	}
+	if SameAlbum("Lover", "Folklore") {
+		t.Error("Lover vs Folklore: want different")
+	}
+}

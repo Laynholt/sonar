@@ -113,3 +113,13 @@ type Item struct {
 	Explicit bool    `json:"explicit"`
 	Score    float64 `json:"score"`
 }
+
+// DurationClose: within 5 s, or either length unknown (0).
+func DurationClose(aMS, bMS int) bool {
+	return aMS == 0 || bMS == 0 || max(aMS-bMS, bMS-aMS) <= 5000
+}
+
+// SameAlbum compares album titles without their "(Deluxe)"-style suffixes.
+func SameAlbum(a, b string) bool {
+	return dice(tokens(BaseTitle(a)), tokens(BaseTitle(b))) >= ConfidentScore
+}
