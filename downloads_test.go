@@ -39,12 +39,12 @@ func newTestApp(t *testing.T, ffmpeg string) (*App, func() []fetched) {
 	a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return ffmpeg }}
 	a.dd = doubledouble.New(filepath.Join(a.dataDir, "doubledouble-token"))
 	a.sources = source.NewBalancer(time.Minute, fakeSource("lucida"), fakeSource("doubledouble"))
-	a.dl = download.NewQueue(func(_ context.Context, _ string, o download.Options, p string, _ func(string)) (string, error) {
+	a.dl = download.NewQueue(func(_ context.Context, _, _ string, o download.Options, p string, _ func(string)) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, fetched{o, p})
 		return p + ".flac", nil
-	}, nil, 1)
+	}, nil, a.sources)
 	t.Cleanup(a.dl.Close)
 	return a, func() []fetched {
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
@@ -158,7 +158,7 @@ func TestFetch(t *testing.T) {
 			src := &recSource{path: filepath.Join(t.TempDir(), "x.flac")}
 			a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return tc.ffmpeg }}
 			a.sources = source.NewBalancer(time.Minute, src)
-			a.dl = download.NewQueue(a.fetch, nil, 1)
+			a.dl = download.NewQueue(a.fetch, nil, a.sources)
 			t.Cleanup(a.dl.Close)
 			r := req(tc.format, "auto", "B00A3SGXAA")
 			r.Options.Dir = t.TempDir()
@@ -180,13 +180,34 @@ func TestFetch(t *testing.T) {
 	}
 }
 
+type downSource struct{ err error }
+
+func (downSource) Name() string { return "lucida" }
+func (d downSource) Download(context.Context, string, string, func(string)) (string, error) {
+	return "", d.err
+}
+
+func TestFetchMarksSiteDown(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		down bool
+	}{{source.ErrUnavailable, true}, {source.ErrNeedsCheck, true}, {errors.New("no stream"), false}} {
+		a := &App{findFFmpeg: func(string) string { return "" }}
+		a.sources = source.NewBalancer(time.Minute, downSource{fmt.Errorf("x: %w", tc.err)})
+		_, err := a.fetch(context.Background(), "lucida", "B00A3SGXAA", download.Options{Format: "original"}, t.TempDir()+"/x", nil)
+		if errors.Is(err, download.ErrSiteDown) != tc.down || !errors.Is(err, tc.err) {
+			t.Errorf("%v: err = %v", tc.err, err)
+		}
+	}
+}
+
 // newGuardApp runs the real fetch, balancer and queue (one worker) so the OnChange wiring is exercised.
 func newGuardApp(t *testing.T) *App {
 	t.Helper()
 	a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return "" }}
 	a.sources = source.NewBalancer(time.Minute, fakeSource("lucida"))
-	a.dl = download.NewQueue(a.fetch, nil, 1)
-	a.sources.OnChange = a.syncGuard
+	a.dl = download.NewQueue(a.fetch, nil, a.sources)
+	a.sources.OnChange = a.dl.Wake
 	t.Cleanup(a.dl.Close)
 	return a
 }
@@ -243,9 +264,6 @@ func TestDownloadGuardFlow(t *testing.T) {
 	}
 	if d := time.UnixMilli(g.PausedUntil).Sub(time.Now().Add(guardWait)); d < -time.Minute || d > time.Minute {
 		t.Fatalf("PausedUntil off by %v", d)
-	}
-	if held, _ := a.dl.HeldUntil(); !held {
-		t.Fatal("queue not held after GuardWait")
 	}
 	waitStatus(t, a, done, done, queued)
 	a.GuardContinue() // "Resume now"

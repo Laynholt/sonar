@@ -32,7 +32,6 @@ type App struct {
 	dd         *doubledouble.Client
 	sources    *source.Balancer
 	dl         *download.Queue
-	guardMu    sync.Mutex                 // serializes syncGuard
 	findFFmpeg func(custom string) string // a field so tests can fake it
 
 	checkMu     sync.Mutex // guards the two fields below
@@ -75,8 +74,8 @@ func (a *App) init() {
 	a.dd = doubledouble.New(filepath.Join(a.dataDir, "doubledouble-token"))
 	a.sources = source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
 	a.findFFmpeg = convert.FindFFmpeg
-	a.dl = download.NewQueue(a.fetch, unwiredResolve, downloadWorkers)
-	a.sources.OnChange = a.syncGuard
+	a.dl = download.NewQueue(a.fetch, unwiredResolve, a.sources)
+	a.sources.OnChange = a.dl.Wake
 	if a.dd.Token() == "" { // first run: say so before any track fails
 		a.sources.NeedCheck("doubledouble")
 	}

@@ -3,6 +3,8 @@ package download
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -68,9 +70,19 @@ type Resolution struct {
 // It must return promptly once ctx is done: Close waits for it.
 type Resolve func(ctx context.Context, tracks []Track) []Resolution
 
-// Fetch downloads one track to pathNoExt+extension and returns the file path.
-// trackID is the entry's AmazonID. onStatus must not be called after Fetch returns.
-type Fetch func(ctx context.Context, trackID string, o Options, pathNoExt string, onStatus func(string)) (string, error)
+// Sites are the download sites, one worker each. Ready is called under the queue lock,
+// so it must not call back into the Queue.
+type Sites interface {
+	Names() []string
+	Ready(name string) bool
+}
+
+// ErrSiteDown marks a Fetch error that is the site's fault, not the track's: in auto mode the track waits for another site.
+var ErrSiteDown = errors.New("download site unavailable")
+
+// Fetch downloads one track through site to pathNoExt+extension and returns the file path.
+// amazonID is the entry's AmazonID. onStatus must not be called after Fetch returns.
+type Fetch func(ctx context.Context, site, amazonID string, o Options, pathNoExt string, onStatus func(string)) (string, error)
 
 type entry struct {
 	Item
@@ -78,13 +90,17 @@ type entry struct {
 	pathNoExt string
 	cancel    context.CancelFunc // set while Downloading
 	attempt   int                // bumped on each entry into Matching; a result for an older attempt is dropped
+	tried     []string           // auto mode: sites that failed the track, in order; cleared by Retry and Enqueue
+	errs      []string           // "site: err" for each of tried
 }
 
-// Queue matches tracks one job at a time and downloads them on a fixed set of workers;
+// Queue matches tracks one job at a time and downloads them one track per site;
 // one entry per track ID, in first-enqueue order.
 type Queue struct {
 	fetch      Fetch
 	resolve    Resolve
+	sites      Sites
+	nSites     int
 	base       context.Context // parent of every Resolve call; cancelled by Close
 	cancelBase context.CancelFunc
 	mu         sync.Mutex
@@ -99,17 +115,25 @@ type Queue struct {
 	holdTimer *time.Timer // auto-resume for a timed hold
 }
 
-// NewQueue starts the workers and the matcher. A nil resolve fails every Spotify track with "no match result".
-func NewQueue(fetch Fetch, resolve Resolve, workers int) *Queue {
-	q := &Queue{fetch: fetch, resolve: resolve, byID: map[string]*entry{}}
+// NewQueue starts one worker per site and the matcher. A nil resolve fails every Spotify track with "no match result".
+func NewQueue(fetch Fetch, resolve Resolve, sites Sites) *Queue {
+	names := sites.Names()
+	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, nSites: len(names), byID: map[string]*entry{}}
 	q.base, q.cancelBase = context.WithCancel(context.Background())
 	q.cond = sync.NewCond(&q.mu)
-	q.wg.Add(workers + 1)
-	for i := 0; i < workers; i++ {
-		go q.worker()
+	q.wg.Add(len(names) + 1)
+	for _, name := range names {
+		go q.worker(name)
 	}
 	go q.matcher()
 	return q
+}
+
+// Wake makes idle workers look again, e.g. after a site became ready.
+func (q *Queue) Wake() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.cond.Broadcast()
 }
 
 // Enqueue adds tracks and releases a hold. A track already matching, in review, queued or downloading is left as it is.
@@ -242,6 +266,7 @@ func (q *Queue) requeue(e *entry) {
 		return
 	}
 	e.Error, e.Message, e.Path, e.Bytes, e.Size = "", "", "", 0, 0
+	e.tried, e.errs = nil, nil
 	if e.begin(); e.Status == Matching {
 		e.Candidates = nil
 	}
@@ -387,17 +412,18 @@ func (q *Queue) matchJobLocked() []*entry {
 	return job
 }
 
-func (q *Queue) worker() {
+// worker downloads through one site, one track at a time.
+func (q *Queue) worker(site string) {
 	defer q.wg.Done()
 	for {
 		q.mu.Lock()
 		var e *entry
-		if !q.waitLocked(func() bool { e = q.takeLocked(); return e != nil }) {
+		if !q.waitLocked(func() bool { e = q.takeLocked(site); return e != nil }) {
 			q.mu.Unlock()
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), trackTimeout)
-		e.Status, e.cancel = Downloading, cancel
+		e.Status, e.cancel, e.Site = Downloading, cancel, site
 		id := e.AmazonID
 		q.mu.Unlock()
 		ctx = WithProgress(ctx, func(done, total int64) {
@@ -408,7 +434,7 @@ func (q *Queue) worker() {
 			}
 		})
 
-		path, err := q.fetch(ctx, id, e.o, e.pathNoExt, func(msg string) {
+		path, err := q.fetch(ctx, site, id, e.o, e.pathNoExt, func(msg string) {
 			q.mu.Lock()
 			defer q.mu.Unlock()
 			if e.Status == Downloading {
@@ -425,21 +451,43 @@ func (q *Queue) worker() {
 			e.Status, e.Path = Completed, path
 		case canceled:
 			e.Status = Cancelled
-		default:
+		case !e.auto():
 			e.Status, e.Error = Failed, err.Error()
+		case errors.Is(err, ErrSiteDown): // the site's gate keeps it off this track until it is back
+			e.Status, e.Message, e.Bytes, e.Size = Queued, "", 0, 0
+		default:
+			msg := err.Error()
+			if !strings.HasPrefix(msg, site+": ") { // the balancer usually prefixes it already
+				msg = site + ": " + msg
+			}
+			e.tried, e.errs = append(e.tried, site), append(e.errs, msg)
+			e.Status, e.Message, e.Bytes, e.Size = Queued, "", 0, 0
+			if len(e.tried) >= q.nSites {
+				e.Status, e.Error = Failed, strings.Join(e.errs, "; ")
+			}
 		}
+		q.cond.Broadcast() // the track may be back in the queue, and its path is free
 		q.mu.Unlock()
 	}
 }
 
-// takeLocked returns the oldest queued item that still needs a download; items already on disk become Skipped on the way.
-func (q *Queue) takeLocked() *entry {
+// auto reports whether any site may take the track; otherwise only o.Source may.
+func (e *entry) auto() bool { return e.o.Source == "" || e.o.Source == "auto" }
+
+// takeLocked returns the oldest queued item site may take now; items already on disk become Skipped on the way.
+func (q *Queue) takeLocked(site string) *entry {
+	if !q.sites.Ready(site) {
+		return nil
+	}
 	for _, e := range q.order {
 		if e.Status != Queued {
 			continue
 		}
 		if p := Existing(e.pathNoExt, e.o.Format); p != "" {
 			e.Status, e.Path = Skipped, p
+			continue
+		}
+		if e.auto() && slices.Contains(e.tried, site) || !e.auto() && e.o.Source != site {
 			continue
 		}
 		if q.busyPathLocked(e) {

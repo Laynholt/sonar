@@ -8,13 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type call struct {
-	id, pathNoExt string
-	o             Options
+	site, id, pathNoExt string
+	o                   Options
 }
 
 // fakeFetch records calls; fn decides the outcome (default: success at pathNoExt+".flac").
@@ -24,9 +25,9 @@ type fakeFetch struct {
 	fn    func(ctx context.Context, id, pathNoExt string) (string, error)
 }
 
-func (f *fakeFetch) fetch(ctx context.Context, id string, o Options, pathNoExt string, onStatus func(string)) (string, error) {
+func (f *fakeFetch) fetch(ctx context.Context, site, id string, o Options, pathNoExt string, onStatus func(string)) (string, error) {
 	f.mu.Lock()
-	f.calls = append(f.calls, call{id, pathNoExt, o})
+	f.calls = append(f.calls, call{site, id, pathNoExt, o})
 	f.mu.Unlock()
 	onStatus("working")
 	if f.fn != nil {
@@ -97,13 +98,13 @@ func tracks(ids ...string) []Track {
 }
 
 func testOpts(t *testing.T) Options {
-	return Options{Dir: t.TempDir(), Format: "original", Source: "lucida", FilenameTemplate: "{title}"}
+	return Options{Dir: t.TempDir(), Format: "original", Source: "auto", FilenameTemplate: "{title}"}
 }
 
 var album = Collection{Kind: "album", ID: "al1", Name: "Album"}
 
-func newQ(t *testing.T, f *fakeFetch, workers int) *Queue {
-	q := NewQueue(f.fetch, nil, workers)
+func newQ(t *testing.T, f *fakeFetch, sites int) *Queue {
+	q := NewQueue(f.fetch, nil, readySites(sites))
 	t.Cleanup(q.Close)
 	return q
 }
@@ -130,7 +131,7 @@ func TestQueueDownloadsAll(t *testing.T) {
 				tr = x
 			}
 		}
-		if c.pathNoExt != PathNoExt(tr, album, o) || c.o != o || c.o.Source != "lucida" {
+		if c.pathNoExt != PathNoExt(tr, album, o) || c.o != o {
 			t.Errorf("call = %+v", c)
 		}
 	}
@@ -169,7 +170,7 @@ func TestQueueOneFailureDoesNotStopOthers(t *testing.T) {
 	s := waitFor(t, q, func(s []Item) bool {
 		return find(s, "1").Status == Completed && find(s, "2").Status == Failed && find(s, "3").Status == Completed
 	})
-	if find(s, "2").Error != "boom" {
+	if find(s, "2").Error != "a: boom" {
 		t.Errorf("error = %q", find(s, "2").Error)
 	}
 }
@@ -325,7 +326,7 @@ func TestQueueCloseCancelsAndWaits(t *testing.T) {
 		close(returned)
 		return "", ctx.Err()
 	}}
-	q := NewQueue(f.fetch, nil, 1)
+	q := NewQueue(f.fetch, nil, readySites(1))
 	q.Enqueue(album, testOpts(t), tracks("A", "B"))
 	waitFor(t, q, allIn(Downloading, "A"))
 	q.Close()
@@ -415,7 +416,7 @@ func TestQueueHoldLetsInFlightFinishAndReplacesTimer(t *testing.T) {
 }
 
 func TestQueueCloseWhileHeld(t *testing.T) {
-	q := NewQueue((&fakeFetch{}).fetch, nil, 2)
+	q := NewQueue((&fakeFetch{}).fetch, nil, readySites(2))
 	q.Enqueue(album, testOpts(t), tracks("A"))
 	q.Hold(time.Time{}) // after Enqueue, which releases a hold
 	done := make(chan struct{})
@@ -455,14 +456,14 @@ func TestQueueSameTargetWaitsForRunningDownload(t *testing.T) {
 
 func TestQueueReportsProgress(t *testing.T) {
 	release := make(chan struct{})
-	q := NewQueue(func(ctx context.Context, _ string, _ Options, pathNoExt string, _ func(string)) (string, error) {
+	q := NewQueue(func(ctx context.Context, _, _ string, _ Options, pathNoExt string, _ func(string)) (string, error) {
 		Report(ctx, 5, 10)
 		select {
 		case <-release:
 		case <-ctx.Done():
 		}
 		return pathNoExt + ".flac", nil
-	}, nil, 1)
+	}, nil, readySites(1))
 	t.Cleanup(q.Close)
 	q.Enqueue(album, testOpts(t), tracks("1"))
 	waitFor(t, q, func(s []Item) bool { it := find(s, "1"); return it.Bytes == 5 && it.Size == 10 })
@@ -511,7 +512,7 @@ func (r *fakeResolve) callLog() [][]string {
 }
 
 func newMQ(t *testing.T, f *fakeFetch, r *fakeResolve) *Queue {
-	q := NewQueue(f.fetch, r.resolve, 2)
+	q := NewQueue(f.fetch, r.resolve, readySites(2))
 	t.Cleanup(q.Close)
 	return q
 }
@@ -821,5 +822,256 @@ func TestStaleResolutionDropped(t *testing.T) {
 	it := find(waitFor(t, q, allIn(Completed, "s1")), "s1")
 	if it.AmazonID != "B-new" || len(r.callLog()) != 2 || f.called("B-old") != 0 {
 		t.Errorf("item = %+v, resolve calls = %v, fetch calls = %+v", it, r.callLog(), f.callLog())
+	}
+}
+
+// fakeSites has fixed names and settable readiness.
+type fakeSites struct {
+	names []string
+	mu    sync.Mutex
+	ready map[string]bool
+	asked int // Ready calls
+}
+
+func newSites(names ...string) *fakeSites {
+	s := &fakeSites{names: names, ready: map[string]bool{}}
+	for _, n := range names {
+		s.ready[n] = true
+	}
+	return s
+}
+
+// readySites returns n ready sites named "a", "b", ….
+func readySites(n int) *fakeSites {
+	var names []string
+	for i := range n {
+		names = append(names, string(rune('a'+i)))
+	}
+	return newSites(names...)
+}
+
+func (s *fakeSites) Names() []string { return s.names }
+
+func (s *fakeSites) Ready(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asked++
+	return s.ready[name]
+}
+
+func (s *fakeSites) set(name string, ready bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ready[name] = ready
+}
+
+// siteLog records which site each fetch ran on.
+type siteLog struct {
+	mu    sync.Mutex
+	sites []string
+}
+
+func (l *siteLog) add(site string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sites = append(l.sites, site)
+}
+
+func (l *siteLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.sites, " ")
+}
+
+// siteQ runs fn as the fetch: nil saves pathNoExt+".flac", an error fails the attempt.
+func siteQ(t *testing.T, s Sites, log *siteLog, fn func(ctx context.Context, site, id string) error) *Queue {
+	q := NewQueue(func(ctx context.Context, site, id string, _ Options, p string, _ func(string)) (string, error) {
+		log.add(site)
+		if err := fn(ctx, site, id); err != nil {
+			return "", err
+		}
+		return p + ".flac", nil
+	}, nil, s)
+	t.Cleanup(q.Close)
+	return q
+}
+
+func siteDown(site string) error { return fmt.Errorf("%w: %s: HTTP 503", ErrSiteDown, site) }
+
+func TestOneTrackPerSite(t *testing.T) {
+	q := siteQ(t, newSites("a", "b"), &siteLog{}, func(ctx context.Context, _, _ string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	q.Enqueue(album, testOpts(t), tracks("1", "2", "3", "4"))
+	downloading := func(s []Item) (sites []string) {
+		for _, it := range s {
+			if it.Status == Downloading {
+				sites = append(sites, it.Site)
+			}
+		}
+		return sites
+	}
+	waitFor(t, q, func(s []Item) bool { return len(downloading(s)) == 2 })
+	time.Sleep(30 * time.Millisecond) // a third would start in this window if a site took two
+	got := downloading(q.Snapshot())
+	if len(got) != 2 || got[0] == got[1] {
+		t.Fatalf("downloading on %v, want one each on a and b", got)
+	}
+}
+
+func TestOneSiteReadySequential(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("b", false)
+	var cur, peak atomic.Int32
+	q := siteQ(t, s, &siteLog{}, func(context.Context, string, string) error {
+		n := cur.Add(1)
+		defer cur.Add(-1)
+		if n > peak.Load() {
+			peak.Store(n)
+		}
+		time.Sleep(5 * time.Millisecond)
+		return nil
+	})
+	q.Enqueue(album, testOpts(t), tracks("1", "2", "3"))
+	for _, it := range waitFor(t, q, allIn(Completed, "1", "2", "3")) {
+		if it.Site != "a" {
+			t.Errorf("%s ran on %q", it.ID, it.Site)
+		}
+	}
+	if peak.Load() != 1 {
+		t.Errorf("peak in flight = %d, want 1", peak.Load())
+	}
+}
+
+func TestNotReadySiteWaitsThenWake(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("a", false)
+	s.set("b", false)
+	log := &siteLog{}
+	q := siteQ(t, s, log, func(context.Context, string, string) error { return nil })
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	time.Sleep(30 * time.Millisecond)
+	if it := find(q.Snapshot(), "1"); it.Status != Queued || log.String() != "" {
+		t.Fatalf("item = %+v, fetches on %q; want queued, none", it, log)
+	}
+	s.mu.Lock()
+	asked := s.asked
+	s.mu.Unlock()
+	if asked > 10 { // a few per broadcast; a spinning worker asks thousands of times
+		t.Fatalf("Ready called %d times while idle", asked)
+	}
+	s.set("a", true)
+	q.Wake()
+	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Site != "a" {
+		t.Errorf("item = %+v", it)
+	}
+}
+
+func TestFixedSourceWaitsForItsSite(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("b", false)
+	log := &siteLog{}
+	q := siteQ(t, s, log, func(context.Context, string, string) error { return nil })
+	o := testOpts(t)
+	o.Source = "b"
+	q.Enqueue(album, o, tracks("1"))
+	time.Sleep(30 * time.Millisecond)
+	if it := find(q.Snapshot(), "1"); it.Status != Queued || log.String() != "" {
+		t.Fatalf("item = %+v, fetches on %q; want queued, none", it, log)
+	}
+	s.set("b", true)
+	q.Wake()
+	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Site != "b" || log.String() != "b" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+}
+
+// a goes down, b fails the track, a is back: a site-down never counts as tried, so a takes it again.
+func TestSiteDownRequeuesInAuto(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("b", false) // so a takes it first
+	log := &siteLog{}
+	aCalls := 0
+	q := siteQ(t, s, log, func(_ context.Context, site, _ string) error {
+		switch {
+		case site == "a" && aCalls == 0:
+			aCalls++
+			s.set("a", false)
+			s.set("b", true)
+			return siteDown("a")
+		case site == "b":
+			s.set("a", true)
+			return errors.New("boom")
+		}
+		return nil
+	})
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	it := find(waitFor(t, q, allIn(Completed, "1")), "1")
+	if it.Site != "a" || it.Error != "" || log.String() != "a b a" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+}
+
+func TestSiteDownFailsInFixed(t *testing.T) {
+	log := &siteLog{}
+	q := siteQ(t, newSites("a", "b"), log, func(_ context.Context, site, _ string) error { return siteDown(site) })
+	o := testOpts(t)
+	o.Source = "a"
+	q.Enqueue(album, o, tracks("1"))
+	it := find(waitFor(t, q, allIn(Failed, "1")), "1")
+	if !strings.Contains(it.Error, ErrSiteDown.Error()) || it.Site != "a" || log.String() != "a" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+}
+
+func TestTrackErrorTriesOtherSiteThenFails(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("b", false) // so a goes first
+	log := &siteLog{}
+	var ok atomic.Bool
+	q := siteQ(t, s, log, func(_ context.Context, site, _ string) error {
+		s.set("b", true)
+		if ok.Load() {
+			return nil
+		}
+		return errors.New("no stream on " + site)
+	})
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	it := find(waitFor(t, q, allIn(Failed, "1")), "1")
+	if it.Error != "a: no stream on a; b: no stream on b" || log.String() != "a b" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+
+	// Without clearing "tried" both sites would pass it over and it would stay queued.
+	ok.Store(true)
+	q.Retry("1")
+	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Error != "" {
+		t.Errorf("after Retry: %+v", it)
+	}
+}
+
+func TestRetryClearsTried(t *testing.T) {
+	var ok atomic.Bool
+	q := siteQ(t, newSites("a"), &siteLog{}, func(context.Context, string, string) error {
+		if ok.Load() {
+			return nil
+		}
+		return errors.New("boom")
+	})
+	q.Enqueue(album, testOpts(t), tracks("1", "2"))
+	waitFor(t, q, allIn(Failed, "1", "2"))
+	ok.Store(true)
+	q.Retry("1")
+	waitFor(t, q, allIn(Completed, "1"))
+	q.Enqueue(album, testOpts(t), tracks("2")) // a re-Enqueue clears them too
+	waitFor(t, q, allIn(Completed, "2"))
+}
+
+func TestErrorKeepsSitePrefixOnce(t *testing.T) {
+	q := siteQ(t, newSites("a"), &siteLog{}, func(context.Context, string, string) error { return errors.New("a: HTTP 404") })
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	if it := find(waitFor(t, q, allIn(Failed, "1")), "1"); it.Error != "a: HTTP 404" {
+		t.Errorf("error = %q", it.Error)
 	}
 }

@@ -21,11 +21,10 @@ import (
 var errNoFFmpeg = errors.New("FFmpeg is needed to convert to MP3 or M4A; set its path in Settings → Downloads")
 
 const (
-	sourceCooldown  = 10 * time.Minute
-	downloadWorkers = 2 // both sites rip one track per request; don't hammer them
-	checkTimeout    = 10 * time.Minute
-	checkTrackURL   = "https://music.amazon.com/tracks/B00A3SGXAA"
-	guardWait       = 30 * time.Minute // how long "Wait" pauses a site
+	sourceCooldown = 10 * time.Minute
+	checkTimeout   = 10 * time.Minute
+	checkTrackURL  = "https://music.amazon.com/tracks/B00A3SGXAA"
+	guardWait      = 30 * time.Minute // how long "Wait" pauses a site
 )
 
 // DownloadGuard is what the rate-guard dialog shows. PausedUntil is unix ms, 0 for none.
@@ -51,8 +50,8 @@ func unwiredResolve(_ context.Context, tracks []download.Track) []download.Resol
 	return out
 }
 
-// fetch is the queue's worker: the site delivers FLAC, FFmpeg converts it when asked.
-func (a *App) fetch(ctx context.Context, id string, o download.Options, pathNoExt string, onStatus func(string)) (string, error) {
+// fetch is the queue's worker for one site: the site delivers FLAC, FFmpeg converts it when asked.
+func (a *App) fetch(ctx context.Context, site, id string, o download.Options, pathNoExt string, onStatus func(string)) (string, error) {
 	url, err := amazon.TrackURL(id)
 	if err != nil {
 		return "", err
@@ -64,11 +63,10 @@ func (a *App) fetch(ctx context.Context, id string, o download.Options, pathNoEx
 			return "", errNoFFmpeg
 		}
 	}
-	site := o.Source
-	if site == source.Auto { // shortcut: always the first site until Task 6 gives each site its own worker
-		site = a.sources.Names()[0]
-	}
 	f, err := a.sources.Fetch(ctx, site, url, pathNoExt, onStatus)
+	if errors.Is(err, source.ErrUnavailable) || errors.Is(err, source.ErrNeedsCheck) {
+		return "", fmt.Errorf("%w: %w", download.ErrSiteDown, err)
+	}
 	if err != nil || o.Format == "original" {
 		return f, err
 	}
@@ -111,18 +109,6 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 	a.sources.SetGuard(o.GuardLimit, guardWait)
 	a.dl.Enqueue(req.Collection, o, req.Tracks)
 	return nil
-}
-
-// syncGuard is the balancer's OnChange: it holds the whole queue while any site's guard asks or pauses.
-// shortcut: one site's guard stops both sites; Task 6/8 gate each site on its own.
-func (a *App) syncGuard() {
-	a.guardMu.Lock() // so concurrent calls apply the latest state last
-	defer a.guardMu.Unlock()
-	if a.GetDownloadGuard() != (DownloadGuard{}) {
-		a.dl.Hold(time.Time{})
-	} else {
-		a.dl.Resume()
-	}
 }
 
 // GetDownloadGuard is the first asking site, else the first guard-paused one, or zero for none.
