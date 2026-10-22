@@ -3,86 +3,153 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDownloads } from "@/hooks/useDownloads";
 import { guardContinue, guardWait } from "@/lib/downloads";
+import { setLanguage } from "@/lib/i18n";
+import { getSettings } from "@/lib/settings";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { GuardDialog } from "./GuardDialog";
 import { button, deferred, mount } from "../test/render";
 
 vi.mock("@/hooks/useDownloads", () => ({ useDownloads: vi.fn() }));
 vi.mock("@/lib/downloads", () => ({ guardWait: vi.fn(), guardContinue: vi.fn() }));
+vi.mock("@/lib/settings", () => ({ getSettings: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
 
+type Site = { name: string; available: boolean; count: number; limit: number; asking: boolean; paused_until: number };
+type Item = { status: string };
 let view: Awaited<ReturnType<typeof mount>>;
-const sites = (...list: Site[]) => ({ items: [], byTrackId: new Map(), activeCount: 0, sites: list, held: false }) as unknown as ReturnType<typeof useDownloads>;
-const show = async (...list: Site[]) => {
-    vi.mocked(useDownloads).mockReturnValue(sites(...list));
+const state = (list: Site[], items: Item[] = []) => ({ items, byTrackId: new Map(), activeCount: 0, sites: list, held: false }) as unknown as ReturnType<typeof useDownloads>;
+const show = async (list: Site[], items: Item[] = []) => {
+    vi.mocked(useDownloads).mockReturnValue(state(list, items));
     view = await mount(<GuardDialog/>);
 };
-type Site = { name: string; count: number; limit: number; asking: boolean; paused_until: number };
-const asking: Site = { name: "lucida", count: 50, limit: 50, asking: true, paused_until: 0 };
+const text = () => document.body.textContent;
+const lucida: Site = { name: "lucida", available: true, count: 50, limit: 50, asking: true, paused_until: 0 };
+const double: Site = { name: "doubledouble", available: true, count: 12, limit: 50, asking: false, paused_until: 0 };
 
 beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(getSettings).mockReturnValue({ rateGuardWait: 30 } as ReturnType<typeof getSettings>);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 });
-afterEach(async () => { await view.unmount(); vi.unstubAllGlobals(); });
+afterEach(async () => { await view.unmount(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setLanguage("en"); });
 
 describe("GuardDialog", () => {
-    it("names the site and the count", async () => {
-        await show(asking);
-        expect(document.body.textContent).toContain("50 tracks in a row came from lucida");
+    it("titles the dialog with the site and its count", async () => {
+        await show([lucida, double]);
+        expect(text()).toContain("Lucida: 50 tracks this session");
+        expect(text()).toContain("This is the limit from settings.");
     });
 
-    it("waits or continues", async () => {
+    it("says what waiting does: the rest, the other site, the saved queue", async () => {
+        await show([lucida, double], [
+            ...Array(3).fill({ status: "completed" }), { status: "skipped" }, { status: "ignored" }, { status: "not_found" },
+            { status: "matching" }, { status: "queued" }, { status: "downloading" }, { status: "review" }, { status: "failed" },
+        ]);
+        expect(text()).toContain("Lucida will rest for 30 min, then carry on by itself");
+        expect(text()).toContain("DoubleDouble keeps downloading (12 of 50)");
+        expect(text()).toContain("Queue saved: 6 done, 4 left");
+    });
+
+    it("shows the remaining pause of the other site", async () => {
+        vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+        await show([lucida, { ...double, paused_until: 1_000_000 + 90_000 }]);
+        expect(text()).toContain("DoubleDouble is paused for 1:30 more");
+    });
+
+    it("says when the other site is unavailable", async () => {
+        await show([lucida, { ...double, available: false }]);
+        expect(text()).toContain("DoubleDouble is unavailable");
+    });
+
+    it("leaves out the other site's line when there is none", async () => {
+        await show([lucida]);
+        expect(text()).not.toContain("keeps downloading");
+    });
+
+    it("uses the wait from the settings on the button", async () => {
+        vi.mocked(getSettings).mockReturnValue({ rateGuardWait: 60 } as ReturnType<typeof getSettings>);
+        await show([lucida, double]);
+        expect(button(document.body, "Wait 60 min")).toBeTruthy();
+        expect(text()).toContain("Lucida will rest for 60 min");
+    });
+
+    it("reads in Russian as the mockup does", async () => {
+        setLanguage("ru");
+        await show([lucida, double], [{ status: "completed" }, { status: "queued" }]);
+        expect(text()).toContain("Lucida: 50 треков за сессию");
+        expect(text()).toContain("Lucida отдохнёт 30 мин, потом продолжит сама");
+        expect(text()).toContain("DoubleDouble продолжает качать (12 из 50)");
+        expect(text()).toContain("Очередь сохранена: 1 готово, 1 осталось");
+        expect(button(document.body, "Подождать 30 мин")).toBeTruthy();
+        expect(button(document.body, "Продолжить всё равно")).toBeTruthy();
+    });
+
+    it("waits or continues for the asking site", async () => {
         vi.mocked(guardWait).mockResolvedValue(undefined);
         vi.mocked(guardContinue).mockResolvedValue(undefined);
-        await show(asking);
-        await act(async () => button(document.body, "OK, I'll wait").click());
+        await show([lucida, double]);
+        await act(async () => button(document.body, "Wait 30 min").click());
         expect(guardWait).toHaveBeenCalledWith("lucida");
-        await act(async () => button(document.body, "I don't care, continue").click());
+        await act(async () => button(document.body, "Continue anyway").click());
         expect(guardContinue).toHaveBeenCalledWith("lucida");
     });
 
     it("disables both buttons while a call is in flight", async () => {
         const pending = deferred<void>();
         vi.mocked(guardWait).mockReturnValue(pending.promise);
-        await show(asking);
-        await act(async () => button(document.body, "OK, I'll wait").click());
-        expect(button(document.body, "OK, I'll wait").disabled).toBe(true);
-        expect(button(document.body, "I don't care, continue").disabled).toBe(true);
+        await show([lucida, double]);
+        await act(async () => button(document.body, "Wait 30 min").click());
+        expect(button(document.body, "Wait 30 min").disabled).toBe(true);
+        expect(button(document.body, "Continue anyway").disabled).toBe(true);
         await act(async () => pending.resolve());
-        expect(button(document.body, "OK, I'll wait").disabled).toBe(false);
+        expect(button(document.body, "Wait 30 min").disabled).toBe(false);
     });
 
     it("toasts a failed call", async () => {
         vi.mocked(guardWait).mockRejectedValue("nope");
-        await show(asking);
-        await act(async () => button(document.body, "OK, I'll wait").click());
+        await show([lucida, double]);
+        await act(async () => button(document.body, "Wait 30 min").click());
         expect(toast.error).toHaveBeenCalledWith("nope");
     });
 
-    it("focuses Wait, not Continue, when it opens", async () => {
-        await show(asking);
-        expect(document.activeElement).toBe(button(document.body, "OK, I'll wait"));
-    });
-
-    it("has no close button and goes away once the guard stops asking", async () => {
-        await show(asking);
+    it("focuses Wait, not Continue, when it opens, and has no close button", async () => {
+        await show([lucida, double]);
+        expect(document.activeElement).toBe(button(document.body, "Wait 30 min"));
         expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull();
-        vi.mocked(useDownloads).mockReturnValue(sites({ ...asking, asking: false }));
+    });
+
+    it("does not close on Escape", async () => {
+        await show([lucida, double]);
+        await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+        expect(text()).toContain("Lucida: 50 tracks this session");
+    });
+
+    it("keeps its text while it closes", async () => {
+        await show([lucida, double]);
+        vi.mocked(useDownloads).mockReturnValue(state([{ ...lucida, asking: false }, double]));
         await view.render(<GuardDialog/>);
-        expect(document.body.textContent).not.toContain("Slow down a little");
+        // The exit animation may still be running: the last question stays, not an empty box.
+        const dialog = document.querySelector('[role="dialog"]');
+        if (dialog) expect(dialog.textContent).toContain("Lucida: 50 tracks this session");
     });
 
-    it("asks for the first site that is asking and answers for that site", async () => {
+    it("renders nothing when no site is asking", async () => {
+        await show([{ ...lucida, asking: false }, double]);
+        expect(text()).not.toContain("this session");
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("answers the first asking site first, then the next", async () => {
         vi.mocked(guardWait).mockResolvedValue(undefined);
-        await show({ ...asking, name: "doubledouble", asking: false }, { ...asking, name: "amazon", count: 7 }, { ...asking, name: "other" });
-        expect(document.body.textContent).toContain("7 tracks in a row came from amazon");
-        await act(async () => button(document.body, "OK, I'll wait").click());
-        expect(guardWait).toHaveBeenCalledWith("amazon");
-    });
-
-    it("renders nothing when not asking", async () => {
-        await show({ ...asking, asking: false });
-        expect(document.body.textContent).not.toContain("Slow down a little");
+        const both = [{ ...lucida, count: 7 }, { ...double, asking: true, count: 9 }];
+        await show(both);
+        expect(text()).toContain("Lucida: 7 tracks this session");
+        await act(async () => button(document.body, "Wait 30 min").click());
+        expect(guardWait).toHaveBeenCalledWith("lucida");
+        vi.mocked(useDownloads).mockReturnValue(state([{ ...both[0], asking: false }, both[1]]));
+        await view.render(<GuardDialog/>);
+        expect(text()).toContain("DoubleDouble: 9 tracks this session");
+        await act(async () => button(document.body, "Wait 30 min").click());
+        expect(guardWait).toHaveBeenLastCalledWith("doubledouble");
     });
 });

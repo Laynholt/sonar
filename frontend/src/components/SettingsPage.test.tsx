@@ -201,6 +201,25 @@ describe("SettingsPage", () => {
             expect(onUnsavedChangesChange).not.toHaveBeenCalledWith(true);
         });
 
+        it("the guard wait offers 15, 30, 60 and 120 minutes, defaults to 30 and is saved", async () => {
+            await open();
+            const wait = selectWith("120");
+            expect([...wait.options].map((option) => option.value)).toEqual(["15", "30", "60", "120"]);
+            expect([...wait.options].map((option) => option.textContent)).toEqual(["15 min", "30 min", "60 min", "120 min"]);
+            expect(wait.value).toBe("30");
+            expect(await lastOptions()).toMatchObject({ guard_wait: 30 });
+            await pick(selectWith("120"), "120");
+            expect(await lastOptions()).toMatchObject({ guard_wait: 120 });
+        });
+
+        it("the guard wait shows only while the rate guard is on", async () => {
+            await open();
+            await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
+            expect(view.container.querySelector('option[value="120"]')).toBeNull();
+            await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
+            expect(view.container.querySelector('option[value="120"]')).not.toBeNull();
+        });
+
         it("the rate guard limit goes into the options", async () => {
             await open();
             const limit = view.container.querySelector('input[type="number"]') as HTMLInputElement;

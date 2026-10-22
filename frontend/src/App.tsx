@@ -15,6 +15,7 @@ import { AboutPage } from "@/components/AboutPage";
 import { HistoryPage } from "@/components/HistoryPage";
 import { DownloadsPage } from "@/components/DownloadsPage";
 import { GuardDialog } from "@/components/GuardDialog";
+import { ResumeDialog } from "@/components/ResumeDialog";
 import { CandidatePicker } from "@/components/CandidatePicker";
 import { DownloadWidget } from "@/components/DownloadWidget";
 import { SearchBar } from "@/components/SearchBar";
@@ -259,6 +260,7 @@ function App() {
             </div>
 
             <GuardDialog />
+            <ResumeDialog />
             {pickerId && <CandidatePicker key={pickerId} itemId={pickerId} onClose={closePicker}/>}
             <DownloadWidget hidden={currentPage === "downloads"} onOpen={() => handlePageChange("downloads")}/>
 

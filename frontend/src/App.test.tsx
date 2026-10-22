@@ -30,7 +30,7 @@ const album: MetadataResponse = {
 vi.mock("@/components/ui/select", () => import("./test/nativeSelect"));
 vi.mock("@/lib/api", () => ({ fetchMetadata: vi.fn() }));
 vi.mock("@/hooks/usePreview", async (original) => ({ ...await original<typeof import("@/hooks/usePreview")>(), stopPreview: vi.fn() }));
-vi.mock("../wailsjs/go/main/App", () => ({ DownloadTracks: vi.fn().mockResolvedValue(undefined), GetDownloadState: vi.fn().mockResolvedValue({ items: [], sites: [], held: false }), AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), GetFetchHistoryData: vi.fn(), DeleteFetchHistoryItem: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
+vi.mock("../wailsjs/go/main/App", () => ({ DownloadTracks: vi.fn().mockResolvedValue(undefined), GetDownloadState: vi.fn().mockResolvedValue({ items: [], sites: [], held: false }), GetPendingQueue: vi.fn().mockResolvedValue({ tracks: 0, review: 0, collections: [] }), AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), GetFetchHistoryData: vi.fn(), DeleteFetchHistoryItem: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
 vi.mock("../wailsjs/runtime/runtime", () => ({ Environment: vi.fn().mockResolvedValue({ platform: "windows" }), WindowMinimise: vi.fn(), WindowToggleMaximise: vi.fn(), Quit: vi.fn(), BrowserOpenURL: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 

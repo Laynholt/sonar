@@ -68,6 +68,7 @@ const NONE = "none";
 const CUSTOM = "custom";
 // Keeps a pasted huge number out of the Go int.
 const MAX_GUARD_LIMIT = 100000;
+const GUARD_WAITS = [15, 30, 60, 120] as const;
 // The history keeps 200 items.
 const MAX_RECENT = 200;
 
@@ -201,6 +202,16 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
       <Row id="rate-guard" label={t("settings.rateGuard")} description={t("settings.rateGuardDesc")}>
         <div className="flex items-center gap-3">
           {settings.rateGuard && <LimitInput value={settings.rateGuardLimit} max={MAX_GUARD_LIMIT} label={t("settings.rateGuardLimit")} onChange={(limit) => set({ rateGuardLimit: limit })}/>}
+          {settings.rateGuard && <div className="w-28">
+            <Select value={String(settings.rateGuardWait)} onValueChange={(value) => set({ rateGuardWait: Number(value) as SettingsType["rateGuardWait"] })}>
+              <SelectTrigger aria-label={t("settings.rateGuardWait")}>
+                <SelectValue/>
+              </SelectTrigger>
+              <SelectContent>
+                {GUARD_WAITS.map((minutes) => <SelectItem key={minutes} value={String(minutes)}>{t("settings.rateGuardWaitOption", { minutes })}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>}
           <Switch id="rate-guard" checked={settings.rateGuard} onCheckedChange={(checked) => set({ rateGuard: checked })}/>
         </div>
       </Row>
