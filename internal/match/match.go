@@ -103,7 +103,9 @@ func Rank(src Item, candidates []Item, limit int) []Item {
 
 // Item is a track or album on either service.
 type Item struct {
-	Kind     string  `json:"kind"` // "track" or "album"
+	Kind     string  `json:"kind"`     // "track" or "album"
+	ID       string  `json:"id"`       // Amazon ASIN; for an album result, the album ASIN
+	AlbumID  string  `json:"album_id"` // equals ID for an album result
 	Title    string  `json:"title"`
 	Artist   string  `json:"artist"`
 	Image    string  `json:"image"`

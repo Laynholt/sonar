@@ -141,8 +141,11 @@ func parseAmazonSearch(raw []byte) ([]match.Item, error) {
 			if strings.Contains(link, "trackAsin=") {
 				kind = "track"
 			}
+			id, albumID := itemIDs(link)
 			out = append(out, match.Item{
 				Kind:     kind,
+				ID:       id,
+				AlbumID:  albumID,
 				Title:    textOf(x.PrimaryText),
 				Artist:   textOf(x.SecondaryText),
 				Image:    x.Image,
@@ -264,4 +267,15 @@ func parseSearchResponse(raw []byte) (*model.SearchResponse, error) {
 		}
 	}
 	return out, nil
+}
+
+// itemIDs reads the album ASIN from "/albums/<id>" and the track ASIN from ?trackAsin=; an album result's ID is its album ASIN.
+func itemIDs(link string) (id, albumID string) {
+	path, query, _ := strings.Cut(link, "?")
+	albumID, _, _ = strings.Cut(strings.TrimPrefix(path, "/albums/"), "/")
+	id = albumID
+	if v, err := url.ParseQuery(query); err == nil && v.Get("trackAsin") != "" {
+		id = v.Get("trackAsin")
+	}
+	return id, albumID
 }

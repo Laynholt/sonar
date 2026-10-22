@@ -1,6 +1,7 @@
 package amazon
 
 import (
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -54,5 +55,37 @@ func TestParseSearchResponseEdges(t *testing.T) {
 	}
 	if _, err := parseSearchResponse([]byte(`{"methods":[{"template":{"header":"Service error"}}]}`)); err == nil {
 		t.Error("service error should fail")
+	}
+}
+
+func TestParseAmazonSearchIDs(t *testing.T) {
+	raw, err := os.ReadFile("testdata/search.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := parseAmazonSearch(raw)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("items = %d, %v", len(items), err)
+	}
+	kinds := map[string]int{}
+	for _, it := range items {
+		kinds[it.Kind]++
+		u, err := url.Parse(it.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := strings.TrimPrefix(u.Path, "/albums/"); it.AlbumID != want || it.AlbumID == "" {
+			t.Errorf("%q AlbumID = %q, want %q", it.Title, it.AlbumID, want)
+		}
+		if it.Kind == "track" {
+			if want := u.Query().Get("trackAsin"); it.ID != want || it.ID == "" {
+				t.Errorf("%q ID = %q, want trackAsin %q", it.Title, it.ID, want)
+			}
+		} else if it.ID != it.AlbumID {
+			t.Errorf("album %q ID = %q, AlbumID = %q", it.Title, it.ID, it.AlbumID)
+		}
+	}
+	if kinds["track"] == 0 || kinds["album"] == 0 {
+		t.Errorf("fixture must hold both kinds, got %v", kinds)
 	}
 }

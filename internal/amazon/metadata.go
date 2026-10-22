@@ -15,11 +15,13 @@ const (
 	artQ = `contributingArtists { edges { node { id name } role } }`
 	expQ = `parentalSettings { hasExplicitLanguage }`
 
-	trackQuery    = `query ($id: String!) { track(id: $id) { id title duration isrc trackNumber ` + expQ + ` ` + artQ + ` album { id title releaseDate copyright trackCount ` + imgQ + ` ` + artQ + ` } } }`
-	albumQuery    = `query ($id: String!) { album(id: $id) { id title releaseDate trackCount ` + imgQ + ` ` + expQ + ` ` + artQ + ` tracks { id title duration trackNumber ` + expQ + ` ` + artQ + ` } } }`
-	playlistQuery = `query ($id: String!, $after: String) { playlist(id: $id) { id title description trackCount curator { name } followers { totalCount } ` + imgQ + ` tracks(first: 100, after: $after) { totalCount pageInfo { hasNextPage token } edges { node { id title duration ` + expQ + ` album { id title ` + imgQ + ` } ` + artQ + ` } } } } }`
-	artistQuery   = `query ($id: String!, $cursor: String) { artist(id: $id) { id name ` + imgQ + ` albums(limit: 100, cursor: $cursor) { pageInfo { hasNextPage token } edges { node { id title releaseDate trackCount format ` + imgQ + ` } } } } }`
-	albumsQuery   = `query ($ids: [String!]!) { albums(ids: $ids) { id title releaseDate trackCount ` + imgQ + ` ` + artQ + ` tracks { id title duration trackNumber ` + expQ + ` ` + artQ + ` } } }`
+	trackSel         = `id title duration isrc trackNumber ` + expQ + ` ` + artQ + ` album { id title releaseDate copyright trackCount ` + imgQ + ` ` + artQ + ` }`
+	trackQuery       = `query ($id: String!) { track(id: $id) { ` + trackSel + ` } }`
+	lookupTrackQuery = `query ($id: String!) { track(id: $id) { ` + trackSel + ` previewUrl } }`
+	albumQuery       = `query ($id: String!) { album(id: $id) { id title releaseDate trackCount ` + imgQ + ` ` + expQ + ` ` + artQ + ` tracks { id title duration isrc trackNumber ` + expQ + ` ` + artQ + ` } } }`
+	playlistQuery    = `query ($id: String!, $after: String) { playlist(id: $id) { id title description trackCount curator { name } followers { totalCount } ` + imgQ + ` tracks(first: 100, after: $after) { totalCount pageInfo { hasNextPage token } edges { node { id title duration ` + expQ + ` album { id title ` + imgQ + ` } ` + artQ + ` } } } } }`
+	artistQuery      = `query ($id: String!, $cursor: String) { artist(id: $id) { id name ` + imgQ + ` albums(limit: 100, cursor: $cursor) { pageInfo { hasNextPage token } edges { node { id title releaseDate trackCount format ` + imgQ + ` } } } } }`
+	albumsQuery      = `query ($ids: [String!]!) { albums(ids: $ids) { id title releaseDate trackCount ` + imgQ + ` ` + artQ + ` tracks { id title duration trackNumber ` + expQ + ` ` + artQ + ` } } }`
 
 	maxPages = 100
 	batchMax = 100
@@ -42,6 +44,8 @@ type gTrack struct {
 	ID               string `json:"id"`
 	Title            string `json:"title"`
 	Duration         int    `json:"duration"`
+	ISRC             string `json:"isrc"`
+	PreviewURL       string `json:"previewUrl"`
 	TrackNumber      int    `json:"trackNumber"`
 	ParentalSettings struct {
 		HasExplicitLanguage bool `json:"hasExplicitLanguage"`
@@ -52,15 +56,18 @@ type gTrack struct {
 
 // gAlbum serves every query that returns an album; unrequested fields stay zero.
 type gAlbum struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	ReleaseDate string   `json:"releaseDate"`
-	Copyright   string   `json:"copyright"`
-	TrackCount  int      `json:"trackCount"`
-	Format      string   `json:"format"`
-	Images      []gImage `json:"images"`
-	Artists     gArtists `json:"contributingArtists"`
-	Tracks      []gTrack `json:"tracks"`
+	ID               string   `json:"id"`
+	Title            string   `json:"title"`
+	ReleaseDate      string   `json:"releaseDate"`
+	Copyright        string   `json:"copyright"`
+	TrackCount       int      `json:"trackCount"`
+	Format           string   `json:"format"`
+	Images           []gImage `json:"images"`
+	ParentalSettings struct {
+		HasExplicitLanguage bool `json:"hasExplicitLanguage"`
+	} `json:"parentalSettings"`
+	Artists gArtists `json:"contributingArtists"`
+	Tracks  []gTrack `json:"tracks"`
 }
 
 type pageInfo struct {

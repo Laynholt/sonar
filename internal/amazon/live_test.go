@@ -3,6 +3,7 @@ package amazon
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,5 +65,21 @@ func TestLiveSearchCatalog(t *testing.T) {
 	if len(r.Tracks) == 0 || len(r.Albums) == 0 || len(r.Artists) == 0 || len(r.Playlists) == 0 {
 		t.Errorf("tracks=%d albums=%d artists=%d playlists=%d; want all > 0",
 			len(r.Tracks), len(r.Albums), len(r.Artists), len(r.Playlists))
+	}
+}
+
+func TestLiveLookup(t *testing.T) {
+	ctx := liveCtx(t)
+	got, err := LookupTracks(ctx, []string{"B00A3SGXAA"})
+	if err != nil || len(got) != 1 || got[0].ISRC != "USRC11201326" {
+		t.Errorf("LookupTracks = %+v, %v", got, err)
+	}
+	u, err := PreviewURL(ctx, "B00A3SGXAA")
+	if err != nil || !strings.HasPrefix(u, "https://music.amazon.com/getSampleTrack/") {
+		t.Errorf("PreviewURL = %q, %v", u, err)
+	}
+	al, err := LookupAlbum(ctx, "B00A3SGWYC")
+	if err != nil || len(al.Tracks) == 0 || al.Tracks[0].ISRC == "" {
+		t.Errorf("LookupAlbum = %+v, %v", al, err)
 	}
 }
