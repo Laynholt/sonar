@@ -119,8 +119,9 @@ func align(t download.Track, album []amazon.TrackInfo) string {
 
 type candidate struct {
 	download.Candidate
-	isrc string
-	rank float64
+	isrc  string
+	rank  float64
+	known bool // LookupTracks returned it, so its duration is real
 }
 
 func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolution {
@@ -157,7 +158,7 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 		if ti, ok := byID[it.ID]; ok {
 			c.Title, c.Artist = cmp.Or(ti.Title, it.Title), cmp.Or(ti.Artist, it.Artist)
 			c.Album, c.ReleaseDate, c.Image = ti.Album, ti.ReleaseDate, cmp.Or(ti.Image, it.Image)
-			c.DurationMS, c.Explicit, c.isrc = ti.DurationMS, ti.Explicit, ti.ISRC
+			c.DurationMS, c.Explicit, c.isrc, c.known = ti.DurationMS, ti.Explicit, ti.ISRC, true
 		}
 		c.rank = c.Score
 		if match.SameAlbum(t.Album, c.Album) {
@@ -167,7 +168,7 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 	}
 	slices.SortStableFunc(cands, func(a, b candidate) int { return cmp.Compare(b.rank, a.rank) })
 
-	if top := cands[0]; top.Score >= match.ConfidentScore && match.DurationClose(t.DurationMS, top.DurationMS) {
+	if top := cands[0]; top.known && top.Score >= match.ConfidentScore && match.DurationClose(t.DurationMS, top.DurationMS) {
 		return download.Resolution{AmazonID: top.ID, Via: "title"}
 	}
 	for _, c := range cands {

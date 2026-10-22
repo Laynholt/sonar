@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"sonar/internal/amazon"
@@ -16,6 +17,7 @@ type fakeFinder struct {
 	search    map[string][]match.Item
 	searchErr error
 	tracks    map[string]amazon.TrackInfo
+	tracksErr error
 	albums    map[string]*amazon.AlbumInfo
 	isrc      map[string][]string
 	isrcErr   error
@@ -29,6 +31,9 @@ func (f *fakeFinder) Search(_ context.Context, q string) ([]match.Item, error) {
 
 func (f *fakeFinder) LookupTracks(_ context.Context, ids []string) ([]amazon.TrackInfo, error) {
 	f.calls = append(f.calls, "LookupTracks")
+	if f.tracksErr != nil {
+		return nil, f.tracksErr
+	}
 	var out []amazon.TrackInfo
 	for _, id := range ids {
 		if t, ok := f.tracks[id]; ok {
@@ -54,7 +59,7 @@ func (f *fakeFinder) SpotifyIDsByISRC(_ context.Context, isrc string) ([]string,
 func (f *fakeFinder) count(prefix string) int {
 	n := 0
 	for _, c := range f.calls {
-		if len(c) >= len(prefix) && c[:len(prefix)] == prefix {
+		if strings.HasPrefix(c, prefix) {
 			n++
 		}
 	}
@@ -198,14 +203,16 @@ func TestResolveAlbumAligns(t *testing.T) {
 func TestResolveAlbumUnalignedFallsBack(t *testing.T) {
 	f := loverFinder()
 	al := f.albums["ALB"]
-	al.Tracks = al.Tracks[:2] // "Lover" is missing from the album
-	f.tracks = map[string]amazon.TrackInfo{"T3": {ID: "T3", Title: "Lover", Artist: "Taylor Swift", DurationMS: 221000}}
+	al.Tracks = []amazon.TrackInfo{al.Tracks[0], al.Tracks[2]} // "Cruel Summer" is missing from the album
+	f.search["Taylor Swift Cruel Summer"] = []match.Item{trackItem("T2", "Cruel Summer", "Taylor Swift")}
+	f.tracks = map[string]amazon.TrackInfo{"T2": {ID: "T2", Title: "Cruel Summer", Artist: "Taylor Swift", DurationMS: 178000}}
 	got := New(f, newCache(t)).Resolve(context.Background(), loverGroup())
-	if got[0].Via != "album" || got[1].Via != "album" || got[2].AmazonID != "T3" || got[2].Via != "title" {
+	if got[0].Via != "album" || got[2].Via != "album" || got[1].AmazonID != "T2" || got[1].Via != "title" {
 		t.Fatalf("got %+v", got)
 	}
-	if f.count("Search") != 2 || f.calls[2] != "Search Taylor Swift Lover" {
-		t.Errorf("calls = %v", f.calls)
+	want := []string{"Search Taylor Swift Lover", "LookupAlbum ALB", "Search Taylor Swift Cruel Summer", "LookupTracks"}
+	if strings.Join(f.calls, "|") != strings.Join(want, "|") {
+		t.Errorf("calls = %q, want %q", f.calls, want)
 	}
 }
 
@@ -256,5 +263,67 @@ func TestResolveAlbumPrefersTrackNumber(t *testing.T) {
 	got := New(f, newCache(t)).Resolve(context.Background(), loverGroup())
 	if got[1].AmazonID != "T2" {
 		t.Fatalf("got %+v, want the same track number T2", got[1])
+	}
+}
+
+func TestResolveUnlookedTopIsNotConfident(t *testing.T) {
+	// The lookup lost the live take, so its 193 s duration is unknown: that must not pass the guard.
+	f := &fakeFinder{search: map[string][]match.Item{"Taylor Swift Cruel Summer": {
+		trackItem("L1", "Cruel Summer (Live From TS The Eras Tour)", "Taylor Swift")}}}
+	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	if got.AmazonID != "" || got.Err != nil || len(got.Candidates) != 1 || got.Candidates[0].ID != "L1" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestResolveAlbumLookupErrorFallsBackToTrack(t *testing.T) {
+	tr := cruel
+	tr.Group = "album:spAlbum"
+	f := &fakeFinder{
+		search: map[string][]match.Item{
+			"Taylor Swift Lover":        {{Kind: "album", ID: "GONE", Title: "Lover", Artist: "Taylor Swift"}},
+			"Taylor Swift Cruel Summer": {trackItem("A1", "Cruel Summer", "Taylor Swift")},
+		},
+		tracks: map[string]amazon.TrackInfo{"A1": {ID: "A1", Title: "Cruel Summer", Artist: "Taylor Swift", DurationMS: 178000}},
+	}
+	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{tr})[0]
+	if got.AmazonID != "A1" || got.Via != "title" || got.Err != nil {
+		t.Fatalf("got %+v", got)
+	}
+	if f.count("LookupAlbum GONE") != 1 {
+		t.Errorf("calls = %v", f.calls)
+	}
+}
+
+func TestResolveLookupTracksErrorSetsErr(t *testing.T) {
+	boom := errors.New("boom")
+	f := &fakeFinder{
+		search:    map[string][]match.Item{"Taylor Swift Cruel Summer": {trackItem("A1", "Cruel Summer", "Taylor Swift")}},
+		tracksErr: boom,
+	}
+	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	if !errors.Is(got.Err, boom) || got.AmazonID != "" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestResolveISRCRankOrderStopsAtFirst(t *testing.T) {
+	// Equal low scores keep search order: J1 has no ISRC, J2 does not confirm, J3 and J4 both would.
+	f := &fakeFinder{
+		search: map[string][]match.Item{"Taylor Swift Cruel Summer": {
+			trackItem("J1", "Cruel Summer", "Various Artists"), trackItem("J2", "Cruel Summer", "Various Artists"),
+			trackItem("J3", "Cruel Summer", "Various Artists"), trackItem("J4", "Cruel Summer", "Various Artists"),
+		}},
+		tracks: map[string]amazon.TrackInfo{
+			"J1": {ID: "J1"}, "J2": {ID: "J2", ISRC: "Y"}, "J3": {ID: "J3", ISRC: "Z"}, "J4": {ID: "J4", ISRC: "W"},
+		},
+		isrc: map[string][]string{"Y": {"other"}, "Z": {"sp1"}, "W": {"sp1"}},
+	}
+	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	if got.AmazonID != "J3" || got.Via != "isrc" {
+		t.Fatalf("got %+v", got)
+	}
+	if want := "ISRC Y|ISRC Z"; strings.Join(f.calls[2:], "|") != want {
+		t.Errorf("calls = %q, want ISRC calls %s", f.calls, want)
 	}
 }
