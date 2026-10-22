@@ -85,6 +85,23 @@ describe("CandidatePicker", () => {
         await click(buttons("Choose")[0]);
         expect(toast.error).toHaveBeenCalledWith("nope");
         expect(text()).toContain("Song a");
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("keeps the dialog mounted when the refresh after a choice lands before the call returns", async () => {
+        const pending = deferred<void>();
+        vi.mocked(chooseCandidate).mockReturnValue(pending.promise);
+        await show([item("a"), item("b")]);
+        const dialog = document.querySelector('[role=dialog]');
+        await click(buttons("Choose")[0]);
+        set([item("a", "queued"), item("b")]);
+        await view.render(picker("a"));
+        expect(document.querySelector('[role=dialog]')).toBe(dialog);
+        expect(text()).toContain("Song b");
+        await act(async () => pending.resolve());
+        expect(document.querySelector('[role=dialog]')).toBe(dialog);
+        expect(text()).toContain("Song b");
+        expect(onClose).not.toHaveBeenCalled();
     });
 
     it("offers the link field when nothing was found and submits it", async () => {

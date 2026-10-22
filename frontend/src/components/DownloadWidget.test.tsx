@@ -103,6 +103,12 @@ describe("DownloadWidget", () => {
         expect(openPicker).toHaveBeenCalledWith();
     });
 
+    it("counts every review item, also those from before this run", async () => {
+        await show([item("rv", "review")]);
+        await show([item("rv", "review"), item("a", "downloading")]);
+        expect(text()).toContain("⚠ 1 track awaiting your decision");
+    });
+
     it("has no decision line without review items", async () => {
         await show([item("a", "downloading")]);
         expect(text()).not.toContain("awaiting your decision");
@@ -115,7 +121,7 @@ describe("DownloadWidget", () => {
 
         it("shows a downloading site with its count and limit", async () => {
             await show([item("a", "downloading", { site: "lucida" }), item("b", "queued")], false, [site("lucida", { count: 12, limit: 50 }), site("doubledouble")]);
-            expect(text()).toContain("lucida");
+            expect(text()).toContain("Lucida");
             expect(text()).toContain("downloading · 12/50");
         });
 
@@ -154,14 +160,23 @@ describe("DownloadWidget", () => {
             expect(text()).toContain("unavailable");
         });
 
-        it("shows nothing for sites that have nothing to report", async () => {
+        it("lists an idle site as ready, under its display name", async () => {
             await show([item("a", "downloading", { site: "doubledouble" })], false, [site("lucida"), site("doubledouble", { count: 1 })]);
+            expect(text()).toContain("Lucida");
+            expect(text()).toContain("ready");
+            expect(text()).toContain("DoubleDouble");
             expect(text()).not.toContain("lucida");
+        });
+
+        it("keeps an unknown site's own name", async () => {
+            await show([item("a", "queued")], false, [site("newsite")]);
+            expect(text()).toContain("newsite");
         });
 
         it("ignores a pause that already ended", async () => {
             await show([item("a", "queued")], false, [site("lucida", { paused_until: now - 1000 })]);
             expect(text()).not.toContain("paused");
+            expect(text()).toContain("ready");
         });
     });
 });

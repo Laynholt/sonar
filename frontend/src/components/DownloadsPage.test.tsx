@@ -203,7 +203,7 @@ describe("DownloadsPage", () => {
     it("shows a paused site's countdown here too, since the widget is hidden on this page", async () => {
         const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
         await show(all, [{ name: "lucida", available: true, count: 50, limit: 50, asking: false, paused_until: 1_000_000 + 24 * 60_000 + 13_000 }]);
-        expect(view.container.textContent).toContain("lucida");
+        expect(view.container.textContent).toContain("Lucida");
         expect(view.container.textContent).toContain("paused · 24:13");
         now.mockRestore();
     });

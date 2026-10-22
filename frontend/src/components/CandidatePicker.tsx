@@ -85,14 +85,18 @@ export function CandidatePicker({ itemId, onClose }: { itemId: string; onClose: 
     const [currentId, setCurrentId] = useState(itemId);
     const [busy, setBusy] = useState(false);
     const reviews = items.filter((i) => i.status === "review");
-    const item = reviews.find((i) => i.id === currentId);
+    // Once the shown item is decided (the refresh after a choice lands before the call returns) the next one
+    // is shown at once, so the dialog never unmounts in between; currentId catches up in the effect.
+    const item = reviews.find((i) => i.id === currentId) ?? nextReview(items, currentId);
     const goNext = (from: string) => {
         const next = nextReview(items, from);
         if (next) setCurrentId(next.id);
         else onClose();
     };
-    // Decided elsewhere (or cancelled) while open: move on as after a choice.
-    useEffect(() => { if (!item) goNext(currentId); });
+    useEffect(() => {
+        if (!item) onClose();
+        else if (item.id !== currentId) setCurrentId(item.id);
+    });
     if (!item) return null;
     const decide = async (action: () => Promise<void>) => {
         setBusy(true);

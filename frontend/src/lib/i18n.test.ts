@@ -88,4 +88,5 @@ it("keeps the Russian copy the mockups approved", () => {
     expect(ru("widget.siteBusy", { count: 12, limit: 50 })).toBe("качает · 12/50");
     expect(ru("widget.sitePaused", { time: "24:13" })).toBe("пауза · 24:13");
     expect(ru("download.resume")).toBe("Продолжить");
+    expect(ru("widget.siteReady")).toBe("готов");
 });

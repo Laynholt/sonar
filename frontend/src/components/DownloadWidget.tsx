@@ -94,7 +94,9 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
     const own = items.filter((i) => run.seen.has(i.id) || !run.before.has(i.id));
     if (!own.length) return null;
     const count = (...statuses: string[]) => own.filter((i) => statuses.includes(i.status)).length;
-    const done = count("completed", "skipped", "ignored", "not_found"), failed = count("failed", "cancelled"), queued = count("queued"), review = count("review");
+    const done = count("completed", "skipped", "ignored", "not_found"), failed = count("failed", "cancelled"), queued = count("queued");
+    // Every review item, not only this run's: it is the number the picker counts through.
+    const review = items.filter((i) => i.status === "review").length;
     const current = own.filter((i) => i.status === "downloading");
     const partial = current.reduce((sum, i) => sum + (i.size ? i.bytes / i.size : 0), 0);
     const total = own.reduce((sum, i) => sum + (i.bytes ?? 0), 0);

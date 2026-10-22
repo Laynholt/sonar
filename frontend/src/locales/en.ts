@@ -277,6 +277,7 @@ export const en = {
     "widget.sitePaused": "paused · {time}",
     "widget.siteAsking": "waiting for your answer",
     "widget.siteDown": "unavailable",
+    "widget.siteReady": "ready",
     "picker.title": "Uncertain match",
     "picker.fromSpotify": "From Spotify",
     "picker.found": "Found on Amazon",

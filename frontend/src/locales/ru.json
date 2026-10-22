@@ -276,6 +276,7 @@
     "widget.sitePaused": "пауза · {time}",
     "widget.siteAsking": "ждёт твоего ответа",
     "widget.siteDown": "недоступен",
+    "widget.siteReady": "готов",
     "picker.title": "Неуверенное совпадение",
     "picker.fromSpotify": "Из Spotify",
     "picker.found": "Нашлось на Amazon",
