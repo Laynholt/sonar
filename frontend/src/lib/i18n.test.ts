@@ -64,3 +64,28 @@ it("names a language by its code when the file has no $name", () => {
 it("does not mistake Object.prototype names for languages", () => {
     expect(resolveLanguage("constructor", ["toString"])).toBe("en");
 });
+
+it("keeps the Russian copy the mockups approved", () => {
+    const ru = (key: Parameters<typeof translate>[1], params?: Record<string, number | string>) => translate("ru", key, params);
+    expect(ru("picker.title")).toBe("Неуверенное совпадение");
+    expect(ru("picker.fromSpotify")).toBe("Из Spotify");
+    expect(ru("picker.found")).toBe("Нашлось на Amazon");
+    expect(ru("picker.recommended")).toBe("Рекомендован");
+    expect(ru("picker.choose")).toBe("Выбрать");
+    expect(ru("picker.skip")).toBe("Пропустить трек");
+    expect(ru("picker.position", { n: 1, total: 3 })).toBe("1 из 3 ждут решения");
+    expect(ru("picker.next")).toBe("следующий →");
+    expect(ru("picker.none")).toBe("Ничего не нашлось");
+    expect(ru("picker.pasteLink")).toBe("Нет нужного? Вставить ссылку");
+    expect(ru("download.status.review")).toBe("Нужно решение");
+    expect(ru("download.choose")).toBe("Выбрать…");
+    expect(ru("download.tabReview")).toBe("Ждут решения");
+    expect(ru("download.status.matching")).toBe("Поиск на Amazon…");
+    expect(ru("widget.review", { count: 1 })).toBe("⚠ 1 трек ждёт твоего решения");
+    expect(ru("widget.review", { count: 3 })).toBe("⚠ 3 трека ждут твоего решения");
+    expect(ru("widget.review", { count: 5 })).toBe("⚠ 5 треков ждут твоего решения");
+    expect(ru("widget.reviewOpen")).toBe("Решить");
+    expect(ru("widget.siteBusy", { count: 12, limit: 50 })).toBe("качает · 12/50");
+    expect(ru("widget.sitePaused", { time: "24:13" })).toBe("пауза · 24:13");
+    expect(ru("download.resume")).toBe("Продолжить");
+});

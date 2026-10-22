@@ -2,7 +2,8 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDownloads } from "@/hooks/useDownloads";
-import { cancelAllDownloads, cancelDownload, clearFinishedDownloads, guardContinue, refreshDownloads, retryDownload, retryFailedDownloads, type DownloadItem } from "@/lib/downloads";
+import { cancelAllDownloads, cancelDownload, clearFinishedDownloads, refreshDownloads, resumeQueue, retryDownload, retryFailedDownloads, type DownloadItem } from "@/lib/downloads";
+import { openPicker } from "@/lib/picker";
 import { getSettings } from "@/lib/settings";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { GetDownloadTags, GetSourceStatus, OpenFolder } from "../../wailsjs/go/main/App";
@@ -14,8 +15,9 @@ vi.mock("../../wailsjs/go/main/App", () => ({ OpenFolder: vi.fn(), GetSourceStat
 vi.mock("@/hooks/useDownloads", () => ({ useDownloads: vi.fn() }));
 vi.mock("@/lib/downloads", () => ({
     cancelDownload: vi.fn(), cancelAllDownloads: vi.fn(), retryDownload: vi.fn(), retryFailedDownloads: vi.fn(),
-    clearFinishedDownloads: vi.fn(), guardContinue: vi.fn(), refreshDownloads: vi.fn(),
+    clearFinishedDownloads: vi.fn(), resumeQueue: vi.fn(), refreshDownloads: vi.fn(),
 }));
+vi.mock("@/lib/picker", () => ({ openPicker: vi.fn() }));
 vi.mock("@/lib/settings", async (original) => ({ ...await original<typeof import("@/lib/settings")>(), getSettings: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
 
@@ -31,10 +33,11 @@ const all = [
 ];
 const noSites: Record<string, unknown>[] = [];
 let view: Awaited<ReturnType<typeof mount>>;
-const show = async (items: DownloadItem[], sites: Record<string, unknown>[] = noSites, activeCount = 2) => {
-    vi.mocked(useDownloads).mockReturnValue({ items, byTrackId: new Map(), activeCount, sites, held: false } as unknown as ReturnType<typeof useDownloads>);
+const show = async (items: DownloadItem[], sites: Record<string, unknown>[] = noSites, activeCount = 2, held = false) => {
+    vi.mocked(useDownloads).mockReturnValue({ items, byTrackId: new Map(), activeCount, sites, held } as unknown as ReturnType<typeof useDownloads>);
     view = await mount(<TooltipProvider><DownloadsPage/></TooltipProvider>);
 };
+const titles = () => [...view.container.querySelectorAll("tbody tr")].map((r) => r.querySelector("td:nth-child(2) div")!.textContent);
 const rows = () => view.container.querySelectorAll("tbody tr").length;
 const row = (id: string) => [...view.container.querySelectorAll("tbody tr")].find((r) => r.textContent?.includes(`Song ${id}`))!;
 const press = (el: Element, label: string) => act(async () => el.querySelector<HTMLElement>(`[aria-label="${label}"]`)!.click());
@@ -45,7 +48,7 @@ beforeEach(() => {
     vi.mocked(getSettings).mockReturnValue({ downloadSource: "auto" } as ReturnType<typeof getSettings>);
     vi.mocked(OpenFolder).mockResolvedValue(undefined);
     vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "doubledouble", available: false, needs_check: true, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 }]);
-    for (const action of [cancelDownload, cancelAllDownloads, retryDownload, retryFailedDownloads, clearFinishedDownloads, guardContinue]) vi.mocked(action).mockResolvedValue(undefined);
+    for (const action of [cancelDownload, cancelAllDownloads, retryDownload, retryFailedDownloads, clearFinishedDownloads, resumeQueue]) vi.mocked(action).mockResolvedValue(undefined);
 });
 afterEach(async () => { await view.unmount(); vi.unstubAllGlobals(); });
 
@@ -139,17 +142,70 @@ describe("DownloadsPage", () => {
         expect(rows()).toBe(0);
     });
 
-    it("shows the paused banner with the local time and resumes", async () => {
-        const until = new Date(2026, 0, 5, 7, 4).getTime();
-        await show(all, [{ name: "lucida", paused_until: until }]);
-        expect(view.container.textContent).toContain("Downloads paused until 07:04");
-        await act(async () => button(view.container, "Resume now").click());
-        expect(guardContinue).toHaveBeenCalledWith("lucida");
+    it("has a tab for the tracks that wait for a decision, with their count", async () => {
+        await show([item("r1", "review"), item("r2", "review"), item("q", "queued"), item("m", "matching")]);
+        const tab = button(view.container, "Awaiting decision 2");
+        await act(async () => tab.click());
+        expect(titles()).toEqual(["Song r1", "Song r2"]);
     });
 
-    it("shows no banner when not paused", async () => {
+    it("shows no count on the tab while nothing waits", async () => {
+        await show([item("q", "queued")]);
+        expect(button(view.container, "Awaiting decision")).toBeTruthy();
+    });
+
+    it("lists matching under Active and not found and ignored under Done", async () => {
+        await show([item("m", "matching"), item("n", "not_found"), item("i", "ignored"), item("c", "completed")]);
+        await act(async () => button(view.container, "Active").click());
+        expect(titles()).toEqual(["Song m"]);
+        await act(async () => button(view.container, "Done").click());
+        expect(titles()).toEqual(["Song n", "Song i", "Song c"]);
+    });
+
+    it("labels the matching, review, not found and ignored rows", async () => {
+        await show([item("m", "matching"), item("r", "review"), item("n", "not_found"), item("i", "ignored")]);
+        expect(row("m").textContent).toContain("Searching Amazon…");
+        expect(row("r").textContent).toContain("Needs a decision");
+        expect(row("n").textContent).toContain("Not found");
+        expect(row("i").textContent).toContain("Skipped manually");
+    });
+
+    it("opens the picker for a review row", async () => {
+        await show([item("a", "review"), item("r", "review")]);
+        await act(async () => button(row("r"), "Choose…").click());
+        expect(openPicker).toHaveBeenCalledWith("r");
+        expect(openPicker).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts not found and ignored rows as finished", async () => {
+        await show([item("q", "queued"), item("n", "not_found"), item("i", "ignored"), item("c", "completed")]);
+        expect(view.container.textContent).toContain("Downloading: 3 of 4");
+    });
+
+    it("shows a bar with Continue while the queue is held", async () => {
+        await show([item("q", "queued")], noSites, 0, true);
+        await act(async () => button(view.container, "Continue").click());
+        expect(resumeQueue).toHaveBeenCalled();
+    });
+
+    it("shows no hold bar when the queue runs", async () => {
         await show(all);
-        expect(view.container.textContent).not.toContain("paused until");
+        expect([...view.container.querySelectorAll("button")].some((b) => b.textContent === "Continue")).toBe(false);
+    });
+
+    it("reports a failed resume as a toast", async () => {
+        vi.mocked(resumeQueue).mockRejectedValue("nope");
+        await show([item("q", "queued")], noSites, 0, true);
+        await act(async () => button(view.container, "Continue").click());
+        expect(toast.error).toHaveBeenCalledWith("nope");
+    });
+
+    it("shows a paused site's countdown here too, since the widget is hidden on this page", async () => {
+        const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+        await show(all, [{ name: "lucida", available: true, count: 50, limit: 50, asking: false, paused_until: 1_000_000 + 24 * 60_000 + 13_000 }]);
+        expect(view.container.textContent).toContain("lucida");
+        expect(view.container.textContent).toContain("paused · 24:13");
+        now.mockRestore();
     });
 
     it("sums up the queue and shows each download's size", async () => {

@@ -189,11 +189,11 @@ describe("downloads store", () => {
 
     it("computes batch progress and stops only that queue's active items", async () => {
         const { api, store } = await load();
-        const items = [item("a", "completed"), item("b", "skipped"), item("c", "failed"), item("d", "cancelled"), item("e", "downloading"), item("f", "queued"), item("g", "queued", "playlist:P")];
+        const items = [item("a", "completed"), item("b", "skipped"), item("c", "failed"), item("d", "cancelled"), item("e", "downloading"), item("f", "queued"), item("g", "queued", "playlist:P"), item("h", "not_found"), item("i", "ignored")];
         state(api, items);
         await store.refreshDownloads();
 
-        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toEqual({ done: 2, total: 6, failed: 2, review: 0, active: true });
+        expect(store.batchProgress(store.getSnapshot(), "album:A1")).toEqual({ done: 4, total: 8, failed: 2, review: 0, active: true });
         await store.stopQueue("album:A1");
         expect(vi.mocked(api.CancelDownload).mock.calls.map((c) => c[0])).toEqual(["e", "f"]);
     });

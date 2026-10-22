@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { Download, X } from "lucide-react";
+import { SiteRows } from "@/components/SiteRows";
 import { Progress } from "@/components/ui/progress";
 import { useDownloadSpeed } from "@/hooks/useDownloadSpeed";
 import { useDownloads } from "@/hooks/useDownloads";
 import { mb } from "@/lib/download-format";
 import { useI18n } from "@/lib/i18n";
+import { openPicker } from "@/lib/picker";
 import type { DownloadItem } from "@/lib/downloads";
 
 const isActive = (i: DownloadItem) => i.status === "queued" || i.status === "downloading";
@@ -44,7 +46,7 @@ interface Run { before: Set<string>; seen: Set<string>; closed: boolean }
 /** Card with the current run's progress, speed and size; it can be dragged to any corner. */
 export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: () => void }) {
     const { t, language } = useI18n();
-    const { items, activeCount } = useDownloads();
+    const { items, activeCount, sites } = useDownloads();
     const speed = useDownloadSpeed(items);
     const [run, setRun] = useState<Run | null>(null);
     const prevItems = useRef(items);
@@ -92,7 +94,7 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
     const own = items.filter((i) => run.seen.has(i.id) || !run.before.has(i.id));
     if (!own.length) return null;
     const count = (...statuses: string[]) => own.filter((i) => statuses.includes(i.status)).length;
-    const done = count("completed", "skipped"), failed = count("failed", "cancelled"), queued = count("queued");
+    const done = count("completed", "skipped", "ignored", "not_found"), failed = count("failed", "cancelled"), queued = count("queued"), review = count("review");
     const current = own.filter((i) => i.status === "downloading");
     const partial = current.reduce((sum, i) => sum + (i.size ? i.bytes / i.size : 0), 0);
     const total = own.reduce((sum, i) => sum + (i.bytes ?? 0), 0);
@@ -115,6 +117,11 @@ export function DownloadWidget({ hidden, onOpen }: { hidden: boolean; onOpen: ()
         {item.message && <p className="text-xs text-muted-foreground truncate">{item.message}</p>}
         {item.size > 0 && <Progress value={item.bytes / item.size}/>}
       </div>))}
+      {review > 0 && (<div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-500">
+        <span className="flex-1">{t("widget.review", { count: review })}</span>
+        <button type="button" className="shrink-0 underline cursor-pointer" onClick={() => openPicker()}>{t("widget.reviewOpen")}</button>
+      </div>)}
+      <SiteRows sites={sites} items={items}/>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground tabular-nums">
         {running && <span>{t("widget.speed", { speed: mb(speed.total, language) })}</span>}
         <span>{t("widget.downloaded", { size: mb(total, language) })}</span>

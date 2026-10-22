@@ -10,3 +10,9 @@ export const eta = (left: number, speed: number) => {
     const s = Math.ceil(left / speed);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
+
+/** Milliseconds as "m:ss", rounded up. */
+export const clock = (ms: number) => {
+    const s = Math.ceil(Math.max(0, ms) / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};

@@ -43,7 +43,7 @@ export function batchProgress(all: DownloadItem[], queueId: string): BatchProgre
     const ids = batches.get(queueId)?.ids;
     const own = all.filter((i) => i.queue_id === queueId && (!ids || ids.has(i.id)));
     return {
-        done: own.filter((i) => i.status === "completed" || i.status === "skipped" || i.status === "ignored").length,
+        done: own.filter((i) => i.status === "completed" || i.status === "skipped" || i.status === "ignored" || i.status === "not_found").length,
         total: own.length,
         failed: own.filter((i) => i.status === "failed" || i.status === "cancelled").length,
         review: own.filter((i) => i.status === "review").length,

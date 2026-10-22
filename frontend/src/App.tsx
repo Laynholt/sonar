@@ -15,6 +15,7 @@ import { AboutPage } from "@/components/AboutPage";
 import { HistoryPage } from "@/components/HistoryPage";
 import { DownloadsPage } from "@/components/DownloadsPage";
 import { GuardDialog } from "@/components/GuardDialog";
+import { CandidatePicker } from "@/components/CandidatePicker";
 import { DownloadWidget } from "@/components/DownloadWidget";
 import { SearchBar } from "@/components/SearchBar";
 import { TrackInfo } from "@/components/TrackInfo";
@@ -25,6 +26,7 @@ import { useMetadata } from "@/hooks/useMetadata";
 import type { View } from "@/hooks/navigation";
 import { stopPreview } from "@/hooks/usePreview";
 import { useDownloads } from "@/hooks/useDownloads";
+import { closePicker, usePicker } from "@/lib/picker";
 import { artistTracks, batchProgress, refreshDownloads, retryDownload, startDownload, stopQueue, toSource, toSources, type CollectionKind } from "@/lib/downloads";
 import type { AlbumRef } from "@/components/ArtistLinks";
 import { extractArtistID } from "@/lib/spotify-url";
@@ -59,6 +61,7 @@ function App() {
     const [artistTab, setArtistTab] = useState("albums");
     const metadata = useMetadata();
     const downloads = useDownloads();
+    const pickerId = usePicker();
     const resetSettingsFn = useRef<(() => void) | null>(null);
     const rememberSettingsReset = useCallback((reset: () => void) => { resetSettingsFn.current = reset; }, []);
     const saveSettingsFn = useRef<(() => Promise<boolean>) | null>(null);
@@ -256,6 +259,7 @@ function App() {
             </div>
 
             <GuardDialog />
+            {pickerId && <CandidatePicker key={pickerId} itemId={pickerId} onClose={closePicker}/>}
             <DownloadWidget hidden={currentPage === "downloads"} onOpen={() => handlePageChange("downloads")}/>
 
             <Dialog open={showUnsavedChangesDialog} onOpenChange={(open) => !open && handleCancelNavigation()}>
