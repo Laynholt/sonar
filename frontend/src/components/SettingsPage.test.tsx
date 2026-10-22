@@ -2,15 +2,16 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLanguage, setLanguage } from "@/lib/i18n";
+import { downloadOptions, type Settings } from "@/lib/settings";
 import { toastWithSound } from "@/lib/toast-with-sound";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import { SettingsPage } from "./SettingsPage";
 import { mount, button, change, deferred } from "../test/render";
-import { GetSourceStatus, PassDoubleDoubleCheck, PreviewDownloadPath, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
+import { GetSourceStatus, PassDoubleDoubleCheck, SaveSettings, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
 
 vi.mock("@/components/ui/select", () => import("../test/nativeSelect"));
 vi.mock("../../wailsjs/go/main/App", () => ({
-    LoadSettings: vi.fn(), SaveSettings: vi.fn(), SelectDownloadFolder: vi.fn(), DefaultDownloadDir: vi.fn(), PreviewDownloadPath: vi.fn(),
+    LoadSettings: vi.fn(), SaveSettings: vi.fn(), SelectDownloadFolder: vi.fn(), DefaultDownloadDir: vi.fn(),
     GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn(), FindFFmpeg: vi.fn(), SelectFFmpeg: vi.fn(),
 }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn() }));
@@ -23,7 +24,6 @@ beforeEach(async () => {
     vi.resetAllMocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.mocked(DefaultDownloadDir).mockResolvedValue("C:\\Music\\sonar");
-    vi.mocked(PreviewDownloadPath).mockResolvedValue("C:\\Music\\sonar\\Song - Artist.flac");
     vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "lucida", available: true, needs_check: false, reason: "" }, { name: "doubledouble", available: false, needs_check: true, reason: "" }]);
     vi.mocked(FindFFmpeg).mockResolvedValue("");
     vi.mocked(SelectFFmpeg).mockResolvedValue("C:\\ff\\ffmpeg.exe");
@@ -83,12 +83,18 @@ describe("SettingsPage", () => {
             select.dispatchEvent(new Event("change", { bubbles: true }));
         });
         const dirInput = () => [...view.container.querySelectorAll("input")].find((input) => input.placeholder === "C:\\Music\\sonar");
-        const lastOptions = () => vi.mocked(PreviewDownloadPath).mock.lastCall![0];
+        // Saves, then reads the download options from what reached the backend.
+        const lastOptions = async () => {
+            await act(async () => button(view.container, "Save Changes").click());
+            return downloadOptions(vi.mocked(SaveSettings).mock.lastCall![0] as unknown as Settings);
+        };
 
         it("is the second tab and shows its settings", async () => {
             await open();
-            for (const text of ["Download folder", "Source", "Format", "Folder structure", "File name", "Playlist folder", "Preview", "C:\\Music\\sonar\\Song - Artist.flac"])
+            expect([...view.container.querySelectorAll("h2")].map((item) => item.textContent)).toEqual(["Saving", "Folders and file names", "Source"]);
+            for (const text of ["Download folder", "Site", "Site status", "Format", "Folder structure", "File name", "Playlist folder"])
                 expect(view.container.textContent).toContain(text);
+            expect(view.container.textContent).not.toContain("Preview");
             expect(dirInput()).toBeDefined();
             expect(view.container.textContent).not.toContain("Found automatically");
         });
@@ -107,7 +113,7 @@ describe("SettingsPage", () => {
             await pick(selectWith("{artist} - {title}"), "custom");
             const input = view.container.querySelector('input[value="{title} - {artist}"]') as HTMLInputElement;
             await act(async () => change(input, "{artist}/{title}"));
-            expect(lastOptions()).toMatchObject({ filename_template: "{artist}/{title}" });
+            expect(await lastOptions()).toMatchObject({ filename_template: "{artist}/{title}" });
         });
 
         it("doubledouble that needs the check offers the button", async () => {
@@ -145,7 +151,7 @@ describe("SettingsPage", () => {
             await act(async () => [...view.container.querySelectorAll("button")].filter((item) => item.textContent === "Browse")[1].click());
             expect(SelectDownloadFolder).not.toHaveBeenCalled();
             expect([...view.container.querySelectorAll("input")].some((input) => input.value === "C:\\ff\\ffmpeg.exe")).toBe(true);
-            expect(lastOptions()).toMatchObject({ ffmpeg_path: "C:\\ff\\ffmpeg.exe", format: "mp3-320" });
+            expect(await lastOptions()).toMatchObject({ ffmpeg_path: "C:\\ff\\ffmpeg.exe", format: "mp3-320" });
         });
 
         it("the Download FFmpeg link opens ffmpeg.org", async () => {
@@ -173,9 +179,9 @@ describe("SettingsPage", () => {
         it("No subfolder saves an empty folder template", async () => {
             await open();
             await pick(selectWith("{artist}"), "{artist}");
-            expect(lastOptions()).toMatchObject({ folder_template: "{artist}" });
+            expect(await lastOptions()).toMatchObject({ folder_template: "{artist}" });
             await pick(selectWith("none"), "none");
-            expect(lastOptions()).toMatchObject({ folder_template: "" });
+            expect(await lastOptions()).toMatchObject({ folder_template: "" });
         });
 
         it("opening the tab alone does not mark the page unsaved", async () => {
@@ -188,16 +194,16 @@ describe("SettingsPage", () => {
             const limit = view.container.querySelector('input[type="number"]') as HTMLInputElement;
             expect(limit.min).toBe("1");
             await act(async () => change(limit, "30"));
-            expect(lastOptions()).toMatchObject({ guard_limit: 30 });
+            expect(await lastOptions()).toMatchObject({ guard_limit: 30 });
             await act(async () => change(limit, ""));
-            expect(lastOptions()).toMatchObject({ guard_limit: 30 });
+            expect(await lastOptions()).toMatchObject({ guard_limit: 30 });
             await act(async () => limit.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
             expect(limit.value).toBe("30");
             await act(async () => change(limit, "99999999999999999999"));
-            expect(lastOptions()).toMatchObject({ guard_limit: 30 });
+            expect(await lastOptions()).toMatchObject({ guard_limit: 30 });
             await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
             expect(view.container.querySelector('input[type="number"]')).toBeNull();
-            expect(lastOptions()).toMatchObject({ guard_limit: 0 });
+            expect(await lastOptions()).toMatchObject({ guard_limit: 0 });
         });
     });
 });

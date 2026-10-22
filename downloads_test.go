@@ -132,14 +132,6 @@ func TestGetDownloadQueueNeverNil(t *testing.T) {
 	}
 }
 
-func TestPreviewDownloadPath(t *testing.T) {
-	a, _ := newTestApp(t, "")
-	got := a.PreviewDownloadPath(download.Options{Dir: "D", Format: "mp3-320", FolderTemplate: "{artist}/{album}", FilenameTemplate: "{track}. {title}"})
-	if want := filepath.Join("D", "Pitbull", "Global Warming", "01. Global Warming.mp3"); got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
 type recSource struct {
 	calls int
 	path  string
@@ -185,13 +177,6 @@ func TestFetch(t *testing.T) {
 				t.Errorf("source called %d times, want %d", src.calls, tc.wantCalls)
 			}
 		})
-	}
-}
-
-func TestPreviewDownloadPathEmptyFormat(t *testing.T) {
-	a, _ := newTestApp(t, "")
-	if got := a.PreviewDownloadPath(download.Options{Dir: "D", FilenameTemplate: "x"}); filepath.Ext(got) != ".flac" {
-		t.Fatalf("got %q", got)
 	}
 }
 

@@ -6,13 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { getSettings, saveSettings, applyThemeMode, applyFont, downloadOptions, FONT_OPTIONS, type Settings as SettingsType, type FontFamily } from "@/lib/settings";
+import { getSettings, saveSettings, applyThemeMode, applyFont, FONT_OPTIONS, type Settings as SettingsType, type FontFamily } from "@/lib/settings";
 import { themes, applyTheme } from "@/lib/themes";
 import { LOCALES, availableLanguages, setLanguage, t as translate, useI18n, type MessageKey } from "@/lib/i18n";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { FILENAME_PRESETS, FOLDER_PRESETS } from "@/lib/downloadPresets";
 import { SourceStatus } from "@/components/SourceStatus";
-import { DefaultDownloadDir, FindFFmpeg, PreviewDownloadPath, SelectDownloadFolder, SelectFFmpeg } from "../../wailsjs/go/main/App";
+import { DefaultDownloadDir, FindFFmpeg, SelectDownloadFolder, SelectFFmpeg } from "../../wailsjs/go/main/App";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 
 const SECTIONS = [
@@ -44,14 +44,22 @@ const THEME_LABELS: Record<string, MessageKey> = {
 };
 type SectionId = typeof SECTIONS[number]["id"];
 
-function Row({ id, label, description, children, wide }: { id: string; label: string; description?: string; children: ReactNode; wide?: boolean }) {
+// Every control sits in one right-hand column of the same width, so their edges line up.
+function Row({ id, label, description, children }: { id: string; label: string; description?: string; children: ReactNode }) {
     return (<div className="flex items-center justify-between gap-6 px-4 py-4 border-b last:border-b-0">
       <div className="space-y-1 min-w-0">
         <Label htmlFor={id}>{label}</Label>
         {description && <p className="text-xs text-muted-foreground">{description}</p>}
       </div>
-      <div className={wide ? "w-80 shrink-0" : "w-48 shrink-0"}>{children}</div>
+      <div className="w-72 shrink-0 flex flex-col items-end [&_[data-slot=select-trigger]]:w-full">{children}</div>
     </div>);
+}
+
+function Block({ title, children }: { title: string; children: ReactNode }) {
+    return (<section className="rounded-md border overflow-hidden">
+      <h2 className="h-10 px-4 flex items-center border-b bg-muted/50 text-xs font-medium uppercase text-muted-foreground">{title}</h2>
+      <div>{children}</div>
+    </section>);
 }
 
 // Radix Select rejects an empty item value, so the "no subfolder" preset gets a stand-in.
@@ -63,7 +71,7 @@ const MAX_GUARD_LIMIT = 100000;
 function TemplateSelect({ id, value, presets, onChange }: { id: string; value: string; presets: readonly string[]; onChange: (value: string) => void }) {
     const { t } = useI18n();
     const [custom, setCustom] = useState(!presets.includes(value));
-    return (<div className="space-y-2">
+    return (<div className="w-full space-y-2">
       <Select value={custom ? CUSTOM : value || NONE} onValueChange={(next) => {
           setCustom(next === CUSTOM);
           if (next !== CUSTOM) onChange(next === NONE ? "" : next);
@@ -76,26 +84,22 @@ function TemplateSelect({ id, value, presets, onChange }: { id: string; value: s
           <SelectItem value={CUSTOM}>{t("download.custom")}</SelectItem>
         </SelectContent>
       </Select>
-      {custom && <Input value={value} onChange={(e) => onChange(e.target.value)} className="font-mono"/>}
+      {custom && (<>
+        <Input value={value} onChange={(e) => onChange(e.target.value)} className="font-mono"/>
+        <p className="text-xs text-muted-foreground">{t("settings.templateDesc")}</p>
+      </>)}
     </div>);
 }
 
 function DownloadsSection({ settings, set }: { settings: SettingsType; set: (partial: Partial<SettingsType>) => void }) {
     const { t } = useI18n();
     const [defaultDir, setDefaultDir] = useState("");
-    const [preview, setPreview] = useState("");
     const [ffmpegFound, setFfmpegFound] = useState<string | null>(null);
     // The limit is typed as text so it can be cleared while editing; only a valid value reaches the settings.
     const [limitText, setLimitText] = useState(String(settings.rateGuardLimit));
     useEffect(() => {
         DefaultDownloadDir().then(setDefaultDir, (error) => console.error("Failed to get the default download folder:", error));
     }, []);
-    const optionsKey = JSON.stringify(downloadOptions(settings));
-    useEffect(() => {
-        let stale = false;
-        PreviewDownloadPath(JSON.parse(optionsKey)).then((path) => { if (!stale) setPreview(path); }, () => { if (!stale) setPreview(""); });
-        return () => { stale = true; };
-    }, [optionsKey]);
     const needsFFmpeg = settings.downloadFormat !== "original";
     useEffect(() => {
         if (!needsFFmpeg) return;
@@ -111,15 +115,54 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
         }
         catch (error) { toast.error(String(error)); }
     };
-    return (<>
-    <Row id="download-path" label={t("settings.downloadFolder")} description={t("settings.downloadFolderDesc")} wide>
-      <div className="flex gap-2">
-        <Input id="download-path" value={settings.downloadPath} onChange={(e) => set({ downloadPath: e.target.value })} placeholder={defaultDir}/>
-        <Button type="button" variant="outline" onClick={() => browse(() => SelectDownloadFolder(settings.downloadPath || defaultDir), (path) => set({ downloadPath: path }))}>{t("settings.browse")}</Button>
-      </div>
-    </Row>
-    <Row id="download-source" label={t("settings.source")} description={t("settings.sourceDesc")} wide>
-      <div className="space-y-2">
+    return (<div className="space-y-4">
+    <Block title={t("settings.blockSaving")}>
+      <Row id="download-path" label={t("settings.downloadFolder")} description={t("settings.downloadFolderDesc")}>
+        <div className="w-full flex gap-2">
+          <Input id="download-path" value={settings.downloadPath} onChange={(e) => set({ downloadPath: e.target.value })} placeholder={defaultDir}/>
+          <Button type="button" variant="outline" onClick={() => browse(() => SelectDownloadFolder(settings.downloadPath || defaultDir), (path) => set({ downloadPath: path }))}>{t("settings.browse")}</Button>
+        </div>
+      </Row>
+      <Row id="download-format" label={t("settings.format")} description={t("settings.formatDesc")}>
+        <Select value={settings.downloadFormat} onValueChange={(value: SettingsType["downloadFormat"]) => set({ downloadFormat: value })}>
+          <SelectTrigger id="download-format">
+            <SelectValue/>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="original">{t("download.formatOriginal")}</SelectItem>
+            <SelectItem value="mp3-320">MP3 320 kbps</SelectItem>
+            <SelectItem value="m4a-aac-320">M4A AAC 320 kbps</SelectItem>
+          </SelectContent>
+        </Select>
+      </Row>
+      {needsFFmpeg && (<Row id="ffmpeg-path" label={t("settings.ffmpeg")} description={t("settings.ffmpegDesc")}>
+        <div className="w-full space-y-2">
+          <div className="flex gap-2">
+            <Input id="ffmpeg-path" value={settings.ffmpegPath} onChange={(e) => set({ ffmpegPath: e.target.value })} placeholder={t("download.ffmpegAuto")}/>
+            <Button type="button" variant="outline" onClick={() => browse(SelectFFmpeg, (path) => set({ ffmpegPath: path }))}>{t("settings.browse")}</Button>
+          </div>
+          {ffmpegFound === null ? null : ffmpegFound
+              ? <p className="text-xs text-muted-foreground break-all">{t("download.ffmpegFound", { path: ffmpegFound })}</p>
+              : <p className="text-xs text-destructive">
+                  {t("download.ffmpegMissing")}{" "}
+                  <button type="button" className="underline" onClick={() => BrowserOpenURL("https://ffmpeg.org/download.html")}>{t("download.ffmpegGet")}</button>
+                </p>}
+        </div>
+      </Row>)}
+    </Block>
+    <Block title={t("settings.blockNaming")}>
+      <Row id="folder-template" label={t("settings.folderTemplate")} description={t("settings.folderTemplateDesc")}>
+        <TemplateSelect id="folder-template" value={settings.folderTemplate} presets={FOLDER_PRESETS} onChange={(value) => set({ folderTemplate: value })}/>
+      </Row>
+      <Row id="filename-template" label={t("settings.filenameTemplate")} description={t("settings.filenameTemplateDesc")}>
+        <TemplateSelect id="filename-template" value={settings.filenameTemplate} presets={FILENAME_PRESETS} onChange={(value) => set({ filenameTemplate: value })}/>
+      </Row>
+      <Row id="playlist-folder" label={t("settings.playlistFolder")} description={t("settings.playlistFolderDesc")}>
+        <Switch id="playlist-folder" checked={settings.playlistFolder} onCheckedChange={(checked) => set({ playlistFolder: checked })}/>
+      </Row>
+    </Block>
+    <Block title={t("settings.blockSource")}>
+      <Row id="download-source" label={t("settings.source")} description={t("settings.sourceDesc")}>
         <Select value={settings.downloadSource} onValueChange={(value: SettingsType["downloadSource"]) => set({ downloadSource: value })}>
           <SelectTrigger id="download-source">
             <SelectValue/>
@@ -130,58 +173,22 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
             <SelectItem value="doubledouble">doubledouble</SelectItem>
           </SelectContent>
         </Select>
-        <SourceStatus/>
-      </div>
-    </Row>
-    <Row id="download-format" label={t("settings.format")}>
-      <Select value={settings.downloadFormat} onValueChange={(value: SettingsType["downloadFormat"]) => set({ downloadFormat: value })}>
-        <SelectTrigger id="download-format">
-          <SelectValue/>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="original">{t("download.formatOriginal")}</SelectItem>
-          <SelectItem value="mp3-320">MP3 320 kbps</SelectItem>
-          <SelectItem value="m4a-aac-320">M4A AAC 320 kbps</SelectItem>
-        </SelectContent>
-      </Select>
-    </Row>
-    {needsFFmpeg && (<Row id="ffmpeg-path" label={t("settings.ffmpeg")} description={t("settings.ffmpegDesc")} wide>
-      <div className="space-y-2">
-        <div className="flex gap-2">
-          <Input id="ffmpeg-path" value={settings.ffmpegPath} onChange={(e) => set({ ffmpegPath: e.target.value })} placeholder={t("download.ffmpegAuto")}/>
-          <Button type="button" variant="outline" onClick={() => browse(SelectFFmpeg, (path) => set({ ffmpegPath: path }))}>{t("settings.browse")}</Button>
+      </Row>
+      <Row id="site-status" label={t("settings.siteStatus")} description={t("settings.siteStatusDesc")}>
+        <div className="w-full"><SourceStatus/></div>
+      </Row>
+      <Row id="rate-guard" label={t("settings.rateGuard")} description={t("settings.rateGuardDesc")}>
+        <div className="flex items-center gap-3">
+          {settings.rateGuard && <Input type="number" min={1} step={1} value={limitText} className="w-20" aria-label={t("settings.rateGuardLimit")} onChange={(e) => {
+              setLimitText(e.target.value);
+              const limit = Number(e.target.value);
+              if (/^[1-9]\d*$/.test(e.target.value) && limit <= MAX_GUARD_LIMIT) set({ rateGuardLimit: limit });
+          }} onBlur={() => setLimitText(String(settings.rateGuardLimit))}/>}
+          <Switch id="rate-guard" checked={settings.rateGuard} onCheckedChange={(checked) => set({ rateGuard: checked })}/>
         </div>
-        {ffmpegFound === null ? null : ffmpegFound
-            ? <p className="text-xs text-muted-foreground break-all">{t("download.ffmpegFound", { path: ffmpegFound })}</p>
-            : <p className="text-xs text-destructive">
-                {t("download.ffmpegMissing")}{" "}
-                <button type="button" className="underline" onClick={() => BrowserOpenURL("https://ffmpeg.org/download.html")}>{t("download.ffmpegGet")}</button>
-              </p>}
-      </div>
-    </Row>)}
-    <Row id="folder-template" label={t("settings.folderTemplate")} description={t("settings.templateDesc")} wide>
-      <TemplateSelect id="folder-template" value={settings.folderTemplate} presets={FOLDER_PRESETS} onChange={(value) => set({ folderTemplate: value })}/>
-    </Row>
-    <Row id="filename-template" label={t("settings.filenameTemplate")} description={t("settings.templateDesc")} wide>
-      <TemplateSelect id="filename-template" value={settings.filenameTemplate} presets={FILENAME_PRESETS} onChange={(value) => set({ filenameTemplate: value })}/>
-    </Row>
-    <Row id="playlist-folder" label={t("settings.playlistFolder")} description={t("settings.playlistFolderDesc")}>
-      <Switch id="playlist-folder" checked={settings.playlistFolder} onCheckedChange={(checked) => set({ playlistFolder: checked })}/>
-    </Row>
-    <Row id="rate-guard" label={t("settings.rateGuard")} description={t("settings.rateGuardDesc")}>
-      <div className="flex items-center gap-3">
-        <Switch id="rate-guard" checked={settings.rateGuard} onCheckedChange={(checked) => set({ rateGuard: checked })}/>
-        {settings.rateGuard && <Input type="number" min={1} step={1} value={limitText} className="w-20" onChange={(e) => {
-            setLimitText(e.target.value);
-            const limit = Number(e.target.value);
-            if (/^[1-9]\d*$/.test(e.target.value) && limit <= MAX_GUARD_LIMIT) set({ rateGuardLimit: limit });
-        }} onBlur={() => setLimitText(String(settings.rateGuardLimit))}/>}
-      </div>
-    </Row>
-    <Row id="download-preview" label={t("settings.preview")} wide>
-      <p id="download-preview" className="text-xs font-mono text-muted-foreground break-all">{preview}</p>
-    </Row>
-    </>);
+      </Row>
+    </Block>
+    </div>);
 }
 
 interface SettingsPageProps {
@@ -268,11 +275,8 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
         </Button>))}
       </div>
 
-      <div className="rounded-md border overflow-hidden">
-        <div className="h-10 px-4 flex items-center border-b bg-muted/50 text-xs font-medium uppercase text-muted-foreground">
-          {t(SECTIONS.find((s) => s.id === section)!.label)}
-        </div>
-        <div>
+      {section === "downloads" ? <DownloadsSection key={resetCount} settings={tempSettings} set={set}/> : (
+        <Block title={t(SECTIONS.find((s) => s.id === section)!.label)}>
           {section === "general" && (<>
             <Row id="language" label={t("settings.language")} description={t("settings.languageDesc")}>
               <Select value={Object.hasOwn(LOCALES, tempSettings.language) ? tempSettings.language : "auto"} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, language: value }))}>
@@ -289,8 +293,6 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
               <Switch id="sfx-enabled" checked={tempSettings.sfxEnabled} onCheckedChange={(checked) => setTempSettings(prev => ({ ...prev, sfxEnabled: checked }))}/>
             </Row>
           </>)}
-
-          {section === "downloads" && <DownloadsSection key={resetCount} settings={tempSettings} set={set}/>}
 
           {section === "appearance" && (<>
             <Row id="theme-mode" label={t("settings.mode")} description={t("settings.modeDesc")}>
@@ -337,11 +339,10 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
           </>)}
 
           {section === "network" && (
-            <Row id="proxy" label={t("settings.proxy")} wide description={t("settings.proxyDesc")}>
+            <Row id="proxy" label={t("settings.proxy")} description={t("settings.proxyDesc")}>
               <Input id="proxy" value={tempSettings.proxy} onChange={(e) => setTempSettings((prev) => ({ ...prev, proxy: e.target.value }))} placeholder={t("settings.proxyPlaceholder")}/>
             </Row>
           )}
-        </div>
-      </div>
+        </Block>)}
     </div>);
 }

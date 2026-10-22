@@ -224,17 +224,3 @@ func (a *App) SelectFFmpeg() (string, error) {
 	}
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Filters: filters})
 }
-
-// PreviewDownloadPath shows where a sample track would land with these options.
-func (a *App) PreviewDownloadPath(o download.Options) string {
-	if o.Format == "" {
-		o.Format = "original"
-	}
-	if o.Dir == "" {
-		o.Dir = a.DefaultDownloadDir()
-	}
-	t := download.Track{Title: "Global Warming", Artist: "Pitbull", Album: "Global Warming", AlbumArtist: "Pitbull",
-		ReleaseDate: "2012-11-16", TrackNumber: 1, DiscNumber: 1, Position: 1}
-	c := download.Collection{Kind: "album", ID: "B00A3SGWYC", Name: "Global Warming"}
-	return download.PathNoExt(t, c, o) + convert.Ext(o.Format)
-}
