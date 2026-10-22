@@ -242,13 +242,13 @@ describe("downloads store with Spotify tracks and review", () => {
         await store.skipReview("S1");
         await store.resumeQueue();
         await store.clearQueue();
-        await store.guardWait("lucida");
+        await store.guardWait("lucida", 60);
         await store.guardContinue("lucida");
 
         expect(api.ChooseCandidate).toHaveBeenCalledWith("S1", "B0X");
         expect(api.UseAmazonLink).toHaveBeenCalledWith("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
         expect(api.SkipReview).toHaveBeenCalledWith("S1");
-        expect(api.GuardWait).toHaveBeenCalledWith("lucida");
+        expect(api.GuardWait).toHaveBeenCalledWith("lucida", 60);
         expect(api.GuardContinue).toHaveBeenCalledWith("lucida");
         expect(vi.mocked(api.GetDownloadState)).toHaveBeenCalledTimes(7);
     });

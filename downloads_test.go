@@ -354,7 +354,9 @@ func TestDownloadGuardFlow(t *testing.T) {
 	enqueue(a, 60)
 	waitStatus(t, a, done, done, queued)
 	waitFor(t, func() bool { return site(a, "lucida").Asking })
-	a.GuardWait("lucida")
+	if err := a.GuardWait("lucida", 60); err != nil {
+		t.Fatal(err)
+	}
 	s := site(a, "lucida")
 	if s.Asking || s.Count != 2 {
 		t.Fatalf("lucida after wait = %+v", s)
@@ -383,7 +385,15 @@ func TestGuardWaitValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { return site(a, "lucida").Asking })
-	a.GuardWait("lucida")
+	if err := a.GuardWait("lucida", 45); err == nil || err.Error() != "guard wait must be 15, 30, 60 or 120 minutes" {
+		t.Fatalf("GuardWait 45: err = %v", err)
+	}
+	if s := site(a, "lucida"); !s.Asking || s.PausedUntil != 0 {
+		t.Fatalf("a rejected wait changed lucida: %+v", s)
+	}
+	if err := a.GuardWait("lucida", 0); err != nil {
+		t.Fatal(err)
+	}
 	if d := time.UnixMilli(site(a, "lucida").PausedUntil).Sub(time.Now().Add(30 * time.Minute)); d < -time.Minute || d > time.Minute {
 		t.Fatalf("0 should mean 30 minutes; off by %v", d)
 	}
@@ -571,7 +581,9 @@ func TestGuardPauseSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { return site(a, "lucida").Asking })
-	a.GuardWait("lucida")
+	if err := a.GuardWait("lucida", 30); err != nil {
+		t.Fatal(err)
+	}
 	until := site(a, "lucida").PausedUntil
 	if until == 0 {
 		t.Fatal("no guard pause")
@@ -587,14 +599,14 @@ func TestGuardPauseSurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestRestoredGuardWaitZeroMeans30 restores a queue saved with no guard wait: "Wait" must still pause for 30 minutes.
-func TestRestoredGuardWaitZeroMeans30(t *testing.T) {
+// TestGuardWaitTakesTheDialogsMinutes restores a queue saved with a 120-minute wait: "Wait" pauses for the minutes it is given.
+func TestGuardWaitTakesTheDialogsMinutes(t *testing.T) {
 	dir := t.TempDir()
 	tr := download.Track{ID: "B00A3SGXA1", Title: "T"}
 	err := download.SaveState(filepath.Join(dir, "queue.json"), download.State{Version: 1, Items: []download.Saved{{
 		Item:       download.Item{ID: tr.ID, Track: tr, Status: download.Queued, AmazonID: tr.ID},
 		Collection: download.Collection{Kind: "track", ID: tr.ID, Name: "T"},
-		Options:    download.Options{Dir: t.TempDir(), Format: "original", Source: "lucida", FilenameTemplate: "{title}", GuardLimit: 1},
+		Options:    download.Options{Dir: t.TempDir(), Format: "original", Source: "lucida", FilenameTemplate: "{title}", GuardLimit: 1, GuardWait: 120},
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -602,9 +614,11 @@ func TestRestoredGuardWaitZeroMeans30(t *testing.T) {
 	a := newQueueApp(t, dir, nil, fakeSource("lucida"))
 	a.ResumeQueue()
 	waitFor(t, func() bool { return site(a, "lucida").Asking })
-	a.GuardWait("lucida")
-	if d := time.UnixMilli(site(a, "lucida").PausedUntil).Sub(time.Now().Add(30 * time.Minute)); d < -time.Minute || d > time.Minute {
-		t.Fatalf("restored wait 0 should mean 30 minutes; off by %v", d)
+	if err := a.GuardWait("lucida", 15); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.UnixMilli(site(a, "lucida").PausedUntil).Sub(time.Now().Add(15 * time.Minute)); d < -time.Minute || d > time.Minute {
+		t.Fatalf("want a 15-minute pause; off by %v", d)
 	}
 }
 

@@ -142,7 +142,7 @@ export const useAmazonLink = (id: string, link: string) => then(UseAmazonLink(id
 export const skipReview = (id: string) => then(SkipReview(id));
 export const resumeQueue = () => then(ResumeQueue());
 export const clearQueue = () => then(ClearQueue());
-export const guardWait = (site: string) => then(GuardWait(site));
+export const guardWait = (site: string, minutes: number) => then(GuardWait(site, minutes));
 export const guardContinue = (site: string) => then(GuardContinue(site));
 
 /** The artist's discography tracks, then the top tracks that are not on a listed album; each track id once, first wins. */

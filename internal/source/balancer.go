@@ -41,7 +41,6 @@ type Balancer struct {
 	mu    sync.Mutex // guards the fields below and every site's
 	sites map[string]*site
 	limit int // 0 or less = guard off
-	wait  time.Duration
 }
 
 // GuardRest is how long a site must go unused before its count restarts.
@@ -172,11 +171,11 @@ func (b *Balancer) punish(name string, err error) {
 	}
 }
 
-// SetGuard sets how many successful downloads one site may serve before it asks, and how long
-// GuardWait pauses it. A limit of 0 or less turns the guard off; a site asking below the new limit stops asking.
-func (b *Balancer) SetGuard(limit int, wait time.Duration) {
+// SetGuard sets how many successful downloads one site may serve before it asks.
+// A limit of 0 or less turns the guard off; a site asking below the new limit stops asking.
+func (b *Balancer) SetGuard(limit int) {
 	b.mu.Lock()
-	b.limit, b.wait = limit, wait
+	b.limit = limit
 	changed := false
 	for _, s := range b.sites {
 		if s.asking && (limit <= 0 || s.count < limit) {
@@ -206,8 +205,8 @@ func (b *Balancer) pauseGuard(s *site, until time.Time) {
 	})
 }
 
-// GuardWait is "Wait" on an asking site: it pauses for the guard wait, then counts from 0 again.
-func (b *Balancer) GuardWait(name string) {
+// GuardWait is "Wait" on an asking site: it pauses for wait, then counts from 0 again.
+func (b *Balancer) GuardWait(name string, wait time.Duration) {
 	b.mu.Lock()
 	s := b.sites[name]
 	if s == nil || !s.asking {
@@ -215,7 +214,7 @@ func (b *Balancer) GuardWait(name string) {
 		return
 	}
 	s.asking = false
-	b.pauseGuard(s, b.now().Add(b.wait))
+	b.pauseGuard(s, b.now().Add(wait))
 	b.mu.Unlock()
 	b.changed()
 }

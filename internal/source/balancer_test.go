@@ -159,7 +159,7 @@ func TestNeedCheck(t *testing.T) {
 func TestUsable(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a", results: []error{fmt.Errorf("%w: down", ErrUnavailable)}}, &fake{name: "b"})
 	fetch(bal, "a")
-	bal.SetGuard(1, time.Hour)
+	bal.SetGuard(1)
 	mustFetch(t, bal, "b")
 	if bal.Ready("a") || bal.Ready("b") || !bal.Usable("a") || !bal.Usable("b") {
 		t.Fatal("a cooling down and b asking must stay usable")
@@ -240,7 +240,7 @@ func TestFetchCountsPerSite(t *testing.T) {
 func TestLimitAsksOnlyThatSite(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
-	bal.SetGuard(2, time.Hour)
+	bal.SetGuard(2)
 	mustFetch(t, bal, "a")
 	mustFetch(t, bal, "b")
 	noChange(t, ch)
@@ -258,7 +258,7 @@ func TestLimitAsksOnlyThatSite(t *testing.T) {
 
 func TestGuardRestResetsCount(t *testing.T) {
 	bal, clk := newTest(&fake{name: "a"})
-	bal.SetGuard(3, time.Hour)
+	bal.SetGuard(3)
 	for range 3 { // the site rests between successes, so it never builds up
 		mustFetch(t, bal, "a")
 		clk.t = clk.t.Add(GuardRest)
@@ -271,20 +271,20 @@ func TestGuardRestResetsCount(t *testing.T) {
 func TestGuardOff(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"})
 	ch := changes(bal)
-	bal.SetGuard(0, time.Hour)
+	bal.SetGuard(0)
 	for range 5 {
 		mustFetch(t, bal, "a")
 	}
 	if !bal.Ready("a") {
 		t.Fatal("asked with the guard off")
 	}
-	bal.SetGuard(3, time.Hour) // switched on past the current count
+	bal.SetGuard(3) // switched on past the current count
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
 	if !status(bal, "a").Asking {
 		t.Fatal("not asking past the limit")
 	}
-	bal.SetGuard(-1, time.Hour) // switched off while asking
+	bal.SetGuard(-1) // switched off while asking
 	waitChange(t, ch)
 	if !bal.Ready("a") {
 		t.Fatal("still asking with the guard off")
@@ -294,16 +294,16 @@ func TestGuardOff(t *testing.T) {
 func TestRaisingLimitClearsAsking(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
-	bal.SetGuard(2, time.Hour)
+	bal.SetGuard(2)
 	mustFetch(t, bal, "a")
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
-	bal.SetGuard(2, time.Hour) // same limit: still asking
+	bal.SetGuard(2) // same limit: still asking
 	noChange(t, ch)
 	if !status(bal, "a").Asking {
 		t.Fatal("stopped asking at the same limit")
 	}
-	bal.SetGuard(3, time.Hour)
+	bal.SetGuard(3)
 	waitChange(t, ch)
 	noChange(t, ch)
 	if st := status(bal, "a"); !bal.Ready("a") || st.Asking || st.Count != 2 {
@@ -319,12 +319,12 @@ func TestRaisingLimitClearsAsking(t *testing.T) {
 func TestGuardWaitPausesThenResumes(t *testing.T) {
 	bal, clk := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
-	bal.SetGuard(1, 200*time.Millisecond)
+	bal.SetGuard(1)
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
-	bal.GuardWait("b") // not asking: no-op
+	bal.GuardWait("b", 200*time.Millisecond) // not asking: no-op
 	noChange(t, ch)
-	bal.GuardWait("a")
+	bal.GuardWait("a", 200*time.Millisecond)
 	waitChange(t, ch)
 	st := status(bal, "a")
 	if want := clk.t.Add(200 * time.Millisecond).UnixMilli(); st.PausedUntil != want || st.Asking || st.Count != 1 || bal.Ready("a") {
@@ -345,7 +345,7 @@ func TestGuardWaitPausesThenResumes(t *testing.T) {
 func TestGuardContinueResetsCount(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"})
 	ch := changes(bal)
-	bal.SetGuard(2, time.Hour)
+	bal.SetGuard(2)
 	mustFetch(t, bal, "a")
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
@@ -358,7 +358,7 @@ func TestGuardContinueResetsCount(t *testing.T) {
 	mustFetch(t, bal, "a")
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
-	bal.GuardWait("a")
+	bal.GuardWait("a", time.Hour)
 	waitChange(t, ch)
 	bal.GuardContinue("a") // "Resume now" during the pause
 	waitChange(t, ch)
@@ -388,7 +388,7 @@ func TestResetStopsTimers(t *testing.T) {
 	bal, _ := newTest(a)
 	bal.cooldown = 200 * time.Millisecond
 	ch := changes(bal)
-	bal.SetGuard(1, 200*time.Millisecond)
+	bal.SetGuard(1)
 	fetch(bal, "a")
 	bal.Reset("a")
 	waitChange(t, ch)
@@ -397,7 +397,7 @@ func TestResetStopsTimers(t *testing.T) {
 
 	mustFetch(t, bal, "a")
 	waitChange(t, ch) // asking
-	bal.GuardWait("a")
+	bal.GuardWait("a", 200*time.Millisecond)
 	waitChange(t, ch)
 	bal.GuardContinue("a")
 	waitChange(t, ch)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -66,9 +65,8 @@ func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder 
 	if err != nil {
 		log.Printf("queue %s: %v; starting empty", a.queuePath(), err)
 	}
-	if n := len(st.Items); n > 0 { // the restored tracks keep the guard they were queued with
-		o := st.Items[n-1].Options
-		a.sources.SetGuard(o.GuardLimit, time.Duration(cmp.Or(o.GuardWait, 30))*time.Minute)
+	if n := len(st.Items); n > 0 { // the restored tracks keep the guard limit they were queued with
+		a.sources.SetGuard(st.Items[n-1].Options.GuardLimit)
 	}
 	a.dl.Restore(st.Items)
 	pauses := map[string]time.Time{}
@@ -153,18 +151,15 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 		return fmt.Errorf("unknown download format %q", o.Format)
 	}
 	// Up front: in fetch this error would fail the track on every site in turn.
-	if _, err := a.ffmpeg(o); err != nil {
+	_, err := a.ffmpeg(o)
+	if err != nil {
 		return err
 	}
 	if o.GuardLimit < 0 {
 		return errors.New("guard limit must be 0 or more")
 	}
-	switch o.GuardWait {
-	case 0:
-		o.GuardWait = 30
-	case 15, 30, 60, 120:
-	default:
-		return errors.New("guard wait must be 15, 30, 60 or 120 minutes")
+	if o.GuardWait, err = guardMinutes(o.GuardWait); err != nil {
+		return err
 	}
 	if o.Source == "" {
 		o.Source = source.Auto
@@ -198,7 +193,7 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 			return fmt.Errorf("unknown service %q", t.Service)
 		}
 	}
-	a.sources.SetGuard(o.GuardLimit, time.Duration(o.GuardWait)*time.Minute)
+	a.sources.SetGuard(o.GuardLimit)
 	a.dl.Enqueue(req.Collection, o, tracks)
 	return nil
 }
@@ -259,8 +254,26 @@ func (a *App) UseAmazonLink(id, link string) error {
 
 func (a *App) SkipReview(id string) { a.dl.Skip(id) }
 
-// GuardWait is "Wait" on an asking site: it pauses for the guard wait, then resumes by itself.
-func (a *App) GuardWait(site string) { a.sources.GuardWait(site) }
+// GuardWait is "Wait" on an asking site: it pauses for minutes (0 means 30), then resumes by itself.
+func (a *App) GuardWait(site string, minutes int) error {
+	minutes, err := guardMinutes(minutes)
+	if err != nil {
+		return err
+	}
+	a.sources.GuardWait(site, time.Duration(minutes)*time.Minute)
+	return nil
+}
+
+// guardMinutes checks a guard wait in minutes; 0 means the default 30.
+func guardMinutes(m int) (int, error) {
+	switch m {
+	case 0:
+		return 30, nil
+	case 15, 30, 60, 120:
+		return m, nil
+	}
+	return 0, errors.New("guard wait must be 15, 30, 60 or 120 minutes")
+}
 
 // GuardContinue is "Continue anyway", and also "Resume now" during a pause.
 func (a *App) GuardContinue(site string) { a.sources.GuardContinue(site) }

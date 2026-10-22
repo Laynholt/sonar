@@ -66,11 +66,13 @@ describe("GuardDialog", () => {
         expect(text()).not.toContain("keeps downloading");
     });
 
-    it("uses the wait from the settings on the button", async () => {
+    it("uses the wait from the settings on the button and in the call", async () => {
+        vi.mocked(guardWait).mockResolvedValue(undefined);
         vi.mocked(getSettings).mockReturnValue({ rateGuardWait: 60 } as ReturnType<typeof getSettings>);
         await show([lucida, double]);
-        expect(button(document.body, "Wait 60 min")).toBeTruthy();
         expect(text()).toContain("Lucida will rest for 60 min");
+        await act(async () => button(document.body, "Wait 60 min").click());
+        expect(guardWait).toHaveBeenCalledWith("lucida", 60);
     });
 
     it("reads in Russian as the mockup does", async () => {
@@ -89,7 +91,7 @@ describe("GuardDialog", () => {
         vi.mocked(guardContinue).mockResolvedValue(undefined);
         await show([lucida, double]);
         await act(async () => button(document.body, "Wait 30 min").click());
-        expect(guardWait).toHaveBeenCalledWith("lucida");
+        expect(guardWait).toHaveBeenCalledWith("lucida", 30);
         await act(async () => button(document.body, "Continue anyway").click());
         expect(guardContinue).toHaveBeenCalledWith("lucida");
     });
@@ -178,11 +180,11 @@ describe("GuardDialog", () => {
         await show(both);
         expect(text()).toContain("Lucida: 7 tracks this session");
         await act(async () => button(document.body, "Wait 30 min").click());
-        expect(guardWait).toHaveBeenCalledWith("lucida");
+        expect(guardWait).toHaveBeenCalledWith("lucida", 30);
         vi.mocked(useDownloads).mockReturnValue(state([{ ...both[0], asking: false }, both[1]]));
         await view.render(<GuardDialog/>);
         expect(text()).toContain("DoubleDouble: 9 tracks this session");
         await act(async () => button(document.body, "Wait 30 min").click());
-        expect(guardWait).toHaveBeenLastCalledWith("doubledouble");
+        expect(guardWait).toHaveBeenLastCalledWith("doubledouble", 30);
     });
 });
