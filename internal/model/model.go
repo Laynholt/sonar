@@ -148,6 +148,7 @@ type ArtistDiscographyPayload struct {
 	ArtistInfo ArtistInfoMetadata         `json:"artist_info"`
 	AlbumList  []DiscographyAlbumMetadata `json:"album_list"`
 	TrackList  []AlbumTrackMetadata       `json:"track_list"`
+	TopTracks  []AlbumTrackMetadata       `json:"top_tracks"`
 }
 
 type SearchResult struct {

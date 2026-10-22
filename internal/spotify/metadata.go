@@ -153,6 +153,7 @@ type apiArtistResponse struct {
 		} `json:"all"`
 		Total int `json:"total"`
 	} `json:"discography"`
+	TopTracks []model.AlbumTrackMetadata `json:"-"`
 }
 
 type apiSearchResponse struct {
@@ -568,6 +569,9 @@ func (c *metadataClient) fetchArtistDiscography(ctx context.Context, parsed spot
 		return nil, fmt.Errorf("failed to query artist overview: %w", err)
 	}
 
+	topTracks := parseTopTracks(data)
+	c.fillTopTrackGaps(ctx, topTracks)
+
 	allDiscographyItems := []interface{}{}
 	offset := 0
 	limit := 50
@@ -708,6 +712,7 @@ func (c *metadataClient) fetchArtistDiscography(ctx context.Context, parsed spot
 	if err := json.Unmarshal(jsonData, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal to apiArtistResponse: %w", err)
 	}
+	result.TopTracks = topTracks
 
 	return &result, nil
 }
@@ -1045,7 +1050,88 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 		ArtistInfo: info,
 		AlbumList:  albumList,
 		TrackList:  allTracks,
+		TopTracks:  raw.TopTracks,
 	}, nil
+}
+
+// parseTopTracks reads the artist's popular tracks from a queryArtistOverview response.
+// The overview has no track number, release date or album name; fillTopTrackGaps adds them.
+func parseTopTracks(overview map[string]interface{}) []model.AlbumTrackMetadata {
+	items := getSlice(getMap(getMap(getMap(getMap(overview, "data"), "artistUnion"), "discography"), "topTracks"), "items")
+	var out []model.AlbumTrackMetadata
+	for _, it := range items {
+		im, _ := it.(map[string]interface{})
+		tr := getMap(im, "track")
+		id := getString(tr, "id")
+		if id == "" {
+			continue
+		}
+		album := getMap(tr, "albumOfTrack")
+		albumID := lastURIPart(getString(album, "uri"))
+		var names []string
+		var artistsData []model.ArtistSimple
+		for _, a := range getSlice(getMap(tr, "artists"), "items") {
+			am, _ := a.(map[string]interface{})
+			name := getString(getMap(am, "profile"), "name")
+			aid := lastURIPart(getString(am, "uri"))
+			names = append(names, name)
+			if aid != "" {
+				artistsData = append(artistsData, model.ArtistSimple{ID: aid, Name: name, ExternalURL: "https://open.spotify.com/artist/" + aid})
+			}
+		}
+		var cover string
+		if srcs := getSlice(getMap(album, "coverArt"), "sources"); len(srcs) > 0 {
+			sm, _ := srcs[0].(map[string]interface{})
+			cover = getString(sm, "url")
+		}
+		t := model.AlbumTrackMetadata{
+			Service:     model.Spotify,
+			ID:          id,
+			Artists:     strings.Join(names, ", "),
+			Name:        getString(tr, "name"),
+			DurationMS:  int(getFloat64(getMap(tr, "duration"), "totalMilliseconds")),
+			Images:      cover,
+			DiscNumber:  int(getFloat64(tr, "discNumber")),
+			ExternalURL: "https://open.spotify.com/track/" + id,
+			AlbumType:   "album",
+			Plays:       getString(tr, "playcount"),
+			IsExplicit:  getString(getMap(tr, "contentRating"), "label") == "EXPLICIT",
+			ArtistsData: artistsData,
+		}
+		if albumID != "" {
+			t.AlbumID, t.AlbumURL = albumID, "https://open.spotify.com/album/"+albumID
+		}
+		if len(artistsData) > 0 {
+			t.ArtistID, t.ArtistURL = artistsData[0].ID, artistsData[0].ExternalURL
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func lastURIPart(uri string) string {
+	return uri[strings.LastIndex(uri, ":")+1:]
+}
+
+// fillTopTrackGaps asks fetchTrack for what the overview lacks: one request per track, sequential.
+func (c *metadataClient) fillTopTrackGaps(ctx context.Context, tracks []model.AlbumTrackMetadata) {
+	for i := range tracks {
+		t := &tracks[i]
+		if t.TrackNumber != 0 && t.DiscNumber != 0 && t.ReleaseDate != "" && t.AlbumName != "" {
+			continue
+		}
+		full, err := c.fetchTrack(ctx, t.ID)
+		if err != nil {
+			log.Printf("spotify: top track %s: %v", t.ID, err)
+			continue
+		}
+		tm := c.formatTrackData(full).Track
+		t.TrackNumber, t.ReleaseDate, t.AlbumName = tm.TrackNumber, tm.ReleaseDate, tm.AlbumName
+		t.TotalTracks, t.AlbumArtist = tm.TotalTracks, tm.AlbumArtist
+		if t.DiscNumber == 0 {
+			t.DiscNumber = tm.DiscNumber
+		}
+	}
 }
 
 func parseDuration(durationStr string) int {

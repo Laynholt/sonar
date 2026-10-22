@@ -1,0 +1,584 @@
+{
+ "data": {
+  "artistUnion": {
+   "id": "0TnOYISbd1XYRBk9myaseg",
+   "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg",
+   "discography": {
+    "topTracks": {
+     "items": [
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e02d7b2aa3834b82b1cbe899a48"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d00004851d7b2aa3834b82b1cbe899a48"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b273d7b2aa3834b82b1cbe899a48"
+           }
+          ]
+         },
+         "uri": "spotify:album:3sysiYphqNRQw7VKLCg1yE"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Jennifer Lopez"
+           },
+           "uri": "spotify:artist:2DlGxzQSjYe5N6G9nkYghR"
+          },
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 284866
+        },
+        "id": "3C0nOe05EIt1390bVABLyN",
+        "name": "On The Floor",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "1308164916",
+        "uri": "spotify:track:3C0nOe05EIt1390bVABLyN"
+       },
+       "uid": "c9496544edf2da239bd3"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e021dc7483a9fcfce54822a2f19"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d000048511dc7483a9fcfce54822a2f19"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b2731dc7483a9fcfce54822a2f19"
+           }
+          ]
+         },
+         "uri": "spotify:album:4rG0MhkU6UojACJxkMHIXB"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          },
+          {
+           "profile": {
+            "name": "AFROJACK"
+           },
+           "uri": "spotify:artist:4D75GcNG95ebPtNvoNVXhz"
+          },
+          {
+           "profile": {
+            "name": "Ne-Yo"
+           },
+           "uri": "spotify:artist:21E3waRsmPlU7jZsS13rcj"
+          },
+          {
+           "profile": {
+            "name": "Nayer"
+           },
+           "uri": "spotify:artist:1ruutHJcECI7cos2n5TqpO"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 252306
+        },
+        "id": "4QNpBfC0zvjKqPJcyqBy9W",
+        "name": "Give Me Everything (feat. Nayer)",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "2327661655",
+        "uri": "spotify:track:4QNpBfC0zvjKqPJcyqBy9W"
+       },
+       "uid": "8be97ae62547e4c8d81e"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e022ffc2c580b6595a3e675a730"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d000048512ffc2c580b6595a3e675a730"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b2732ffc2c580b6595a3e675a730"
+           }
+          ]
+         },
+         "uri": "spotify:album:2F7tejLHzTqFq2XLol9ZGy"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          },
+          {
+           "profile": {
+            "name": "Kesha"
+           },
+           "uri": "spotify:artist:6LqNN22kT3074XbTVUrhzX"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 204134
+        },
+        "id": "3cHyrEgdyYRjgJKSOiOtcS",
+        "name": "Timber",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "2290974297",
+        "uri": "spotify:track:3cHyrEgdyYRjgJKSOiOtcS"
+       },
+       "uid": "9998e47e516672186561"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e0286b0c9728ad3ed338eaeea79"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000485186b0c9728ad3ed338eaeea79"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b27386b0c9728ad3ed338eaeea79"
+           }
+          ]
+         },
+         "uri": "spotify:album:6A1F3Fkq5dYeYYNkXflcTX"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "USHER"
+           },
+           "uri": "spotify:artist:23zg3TcAtWQy7J6upgbUnj"
+          },
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 220800
+        },
+        "id": "4356Typ82hUiFAynbLYbPn",
+        "name": "DJ Got Us Fallin' In Love (feat. Pitbull)",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "1541747569",
+        "uri": "spotify:track:4356Typ82hUiFAynbLYbPn"
+       },
+       "uid": "4f66e84b60900e70d3db"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e02e6efeff81a318670a292090f"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d00004851e6efeff81a318670a292090f"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b273e6efeff81a318670a292090f"
+           }
+          ]
+         },
+         "uri": "spotify:album:4EUf4YyNjuXypWY6W5wEDm"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          },
+          {
+           "profile": {
+            "name": "Ne-Yo"
+           },
+           "uri": "spotify:artist:21E3waRsmPlU7jZsS13rcj"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "EXPLICIT"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 229358
+        },
+        "id": "2bJvI42r8EF3wxjOuDav4r",
+        "name": "Time of Our Lives",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "2067482630",
+        "uri": "spotify:track:2bJvI42r8EF3wxjOuDav4r"
+       },
+       "uid": "b89888a9ce9ada748b42"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e0217db13c5730433ca2f0088e0"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000485117db13c5730433ca2f0088e0"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b27317db13c5730433ca2f0088e0"
+           }
+          ]
+         },
+         "uri": "spotify:album:00zN65JStpVnpJn9ckMsQI"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 237640
+        },
+        "id": "6Rb0ptOEjBjPPQUlQtQGbL",
+        "name": "Hotel Room Service",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "1040835785",
+        "uri": "spotify:track:6Rb0ptOEjBjPPQUlQtQGbL"
+       },
+       "uid": "7b4144cede0a21144f47"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e022ffc2c580b6595a3e675a730"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d000048512ffc2c580b6595a3e675a730"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b2732ffc2c580b6595a3e675a730"
+           }
+          ]
+         },
+         "uri": "spotify:album:2F7tejLHzTqFq2XLol9ZGy"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          },
+          {
+           "profile": {
+            "name": "Christina Aguilera"
+           },
+           "uri": "spotify:artist:1l7ZsJRRS8wlW3WfJfPfNS"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 229500
+        },
+        "id": "0Hf4aIJpsN4Os2f0y0VqWl",
+        "name": "Feel This Moment (feat. Christina Aguilera)",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "1184621504",
+        "uri": "spotify:track:0Hf4aIJpsN4Os2f0y0VqWl"
+       },
+       "uid": "e9ca79c8cda5be613335"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e02e6efeff81a318670a292090f"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d00004851e6efeff81a318670a292090f"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b273e6efeff81a318670a292090f"
+           }
+          ]
+         },
+         "uri": "spotify:album:4EUf4YyNjuXypWY6W5wEDm"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          },
+          {
+           "profile": {
+            "name": "John Ryan"
+           },
+           "uri": "spotify:artist:41PsMGvbGsJRtAXk6Kbh5n"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 236253
+        },
+        "id": "4Y7XAxTANhu3lmnLAzhWJW",
+        "name": "Fireball (feat. John Ryan)",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "1030976831",
+        "uri": "spotify:track:4Y7XAxTANhu3lmnLAzhWJW"
+       },
+       "uid": "54a5e8ad686bcc97324c"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e0217db13c5730433ca2f0088e0"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000485117db13c5730433ca2f0088e0"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b27317db13c5730433ca2f0088e0"
+           }
+          ]
+         },
+         "uri": "spotify:album:00zN65JStpVnpJn9ckMsQI"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 0
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 237120
+        },
+        "id": "5RzFJd6W40SDTyZkX6xx45",
+        "name": "I Know You Want Me (Calle Ocho)",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "827390821",
+        "uri": "spotify:track:5RzFJd6W40SDTyZkX6xx45"
+       },
+       "uid": "5ee1ba88e17dbf9469ea"
+      },
+      {
+       "track": {
+        "albumOfTrack": {
+         "coverArt": {
+          "sources": [
+           {
+            "url": "https://i.scdn.co/image/ab67616d00001e021dc7483a9fcfce54822a2f19"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d000048511dc7483a9fcfce54822a2f19"
+           },
+           {
+            "url": "https://i.scdn.co/image/ab67616d0000b2731dc7483a9fcfce54822a2f19"
+           }
+          ]
+         },
+         "uri": "spotify:album:4rG0MhkU6UojACJxkMHIXB"
+        },
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Pitbull"
+           },
+           "uri": "spotify:artist:0TnOYISbd1XYRBk9myaseg"
+          },
+          {
+           "profile": {
+            "name": "Chris Brown"
+           },
+           "uri": "spotify:artist:7bXgB6jMjp9ATFy66eO08Z"
+          }
+         ]
+        },
+        "associationsV3": {
+         "videoAssociations": {
+          "totalCount": 1
+         }
+        },
+        "contentRating": {
+         "label": "NONE"
+        },
+        "discNumber": 1,
+        "duration": {
+         "totalMilliseconds": 227280
+        },
+        "id": "62zFEHfAYl5kdHYOivj4BC",
+        "name": "International Love (feat. Chris Brown)",
+        "playability": {
+         "playable": true,
+         "reason": "PLAYABLE"
+        },
+        "playcount": "985677356",
+        "uri": "spotify:track:62zFEHfAYl5kdHYOivj4BC"
+       },
+       "uid": "8e8cd933c607f5a50dab"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

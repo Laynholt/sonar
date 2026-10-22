@@ -164,6 +164,14 @@ func TestLive(t *testing.T) {
 				if len(p.AlbumList) == 0 {
 					t.Error("empty AlbumList")
 				}
+				if len(p.TopTracks) == 0 {
+					t.Error("empty TopTracks")
+				}
+				for _, tt := range p.TopTracks {
+					if tt.ID == "" || tt.TrackNumber == 0 || tt.ReleaseDate == "" || tt.AlbumID == "" || tt.DurationMS == 0 {
+						t.Errorf("top track gaps: %+v", tt)
+					}
+				}
 			default:
 				t.Fatalf("unexpected %T", got)
 			}
@@ -190,6 +198,21 @@ func TestLive(t *testing.T) {
 	}
 	if len(res.Tracks) == 0 {
 		t.Error("search returned no tracks")
+	}
+
+	ids, err := TracksByISRC(ctx, "USRC11201326")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, id := range ids {
+		found = found || id == "6OmhkSOpvYBokMKQxpIGx2"
+	}
+	if !found {
+		t.Errorf("TracksByISRC = %v, want 6OmhkSOpvYBokMKQxpIGx2", ids)
+	}
+	if ids, err := TracksByISRC(ctx, ""); ids != nil || err != nil {
+		t.Errorf("empty ISRC: %v %v", ids, err)
 	}
 }
 
