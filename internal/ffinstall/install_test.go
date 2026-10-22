@@ -82,7 +82,7 @@ func newFixture(t *testing.T, body []byte, sumHex string) *fixture {
 
 func stubVerify(t *testing.T, err error) {
 	old := verify
-	verify = func(p string) error {
+	verify = func(_ context.Context, p string) error {
 		if _, serr := os.Stat(p); serr != nil {
 			return serr
 		}
@@ -349,5 +349,61 @@ func TestInstallVerifyFails(t *testing.T) {
 	}
 	if left := names(t, parent); len(left) != 0 {
 		t.Errorf("leftovers: %v", left)
+	}
+}
+
+// installBad runs Install on a zip and checks it errors with nothing left
+// in the parent and nothing written above it.
+func installBad(t *testing.T, files map[string]string, wantErr string) {
+	t.Helper()
+	stubVerify(t, nil)
+	f := newFixture(t, buildZip(t, files), "")
+	root := t.TempDir()
+	parent := filepath.Join(root, "app")
+	_, err := Install(context.Background(), f.srv.Client(), f.archive, f.sum, filepath.Join(parent, "ffmpeg"), nil)
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("err = %v, want %q", err, wantErr)
+	}
+	if left := names(t, parent); len(left) != 0 {
+		t.Errorf("leftovers: %v", left)
+	}
+	if left := names(t, root); !reflect.DeepEqual(left, []string{"app"}) {
+		t.Errorf("root holds %v", left)
+	}
+}
+
+func TestInstallRejectsPathTraversalInZip(t *testing.T) {
+	installBad(t, map[string]string{
+		"x/bin/ffmpeg.exe":        "f",
+		`x/bin/..\..\..\evil.dll`: "evil", // backslashes are separators to filepath on Windows
+	}, "unsafe")
+}
+
+func TestInstallRejectsDuplicateNames(t *testing.T) {
+	installBad(t, map[string]string{
+		"x/bin/ffmpeg.exe": "f",
+		"a/bin/x.dll":      "1",
+		"b/bin/x.dll":      "2",
+	}, "duplicate")
+}
+
+func TestInstallCapsUnpackedSize(t *testing.T) {
+	old := maxUnpacked
+	maxUnpacked = 5
+	t.Cleanup(func() { maxUnpacked = old })
+	installBad(t, map[string]string{"x/bin/ffmpeg.exe": "0123456789"}, "too large")
+}
+
+func TestInstallChecksumsHostHangs(t *testing.T) {
+	stubVerify(t, nil)
+	old := sumsTimeout
+	sumsTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { sumsTimeout = old })
+	f := newFixture(t, goodZip(t), "")
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer hang.Close()
+	f.sum.URL = hang.URL
+	if _, err := Install(context.Background(), f.srv.Client(), f.archive, f.sum, filepath.Join(t.TempDir(), "ffmpeg"), nil); err == nil {
+		t.Fatal("want error")
 	}
 }

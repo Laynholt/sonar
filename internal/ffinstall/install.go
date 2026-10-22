@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -32,8 +33,8 @@ type Progress struct {
 
 var (
 	// verify runs the new binary; tests replace it.
-	verify = func(ffmpegPath string) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	verify = func(ctx context.Context, ffmpegPath string) error {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, ffmpegPath, "-version")
 		hideWindow(cmd)
@@ -43,6 +44,8 @@ var (
 		return nil
 	}
 	stallTimeout = 30 * time.Second // no bytes for this long aborts the download
+	sumsTimeout  = 30 * time.Second // the checksums file is tiny: a slow host is a dead host
+	maxUnpacked  = int64(MaxSize * 3)
 
 	errStalled  = errors.New("stalled")
 	errTooLarge = errors.New("download too large")
@@ -115,7 +118,7 @@ func Install(ctx context.Context, c *http.Client, archive, sums Asset, dir strin
 	if err != nil {
 		return "", err
 	}
-	if err := verify(filepath.Join(tmp, "ffmpeg.exe")); err != nil {
+	if err := verify(ctx, filepath.Join(tmp, "ffmpeg.exe")); err != nil {
 		return "", fmt.Errorf("new FFmpeg does not run: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -129,6 +132,8 @@ func Install(ctx context.Context, c *http.Client, archive, sums Asset, dir strin
 
 // fetchSum returns the sha256 hex listed for name in the checksums asset.
 func fetchSum(ctx context.Context, c *http.Client, sums Asset, name string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, sumsTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sums.URL, nil)
 	if err != nil {
 		return "", err
@@ -244,21 +249,37 @@ func unpack(ctx context.Context, zipPath, dst string, report func(Progress)) ([]
 		return nil, errors.New("archive has no bin/ffmpeg.exe")
 	}
 
+	// Validate every entry before writing anything. The basename must be a plain
+	// file name: filepath treats backslashes as separators on Windows.
 	var names []string
+	var total uint64
+	for _, f := range picked {
+		name := path.Base(f.Name)
+		if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `\/`) {
+			return nil, fmt.Errorf("unsafe file name in archive: %q", f.Name)
+		}
+		if slices.Contains(names, name) {
+			return nil, fmt.Errorf("duplicate file name in archive: %q", name)
+		}
+		names = append(names, name)
+		if total += f.UncompressedSize64; total > uint64(maxUnpacked) {
+			return nil, fmt.Errorf("%w: unpacked size over %d bytes", errTooLarge, maxUnpacked)
+		}
+	}
+
 	for i, f := range picked {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		name := path.Base(f.Name)
-		if err := extract(f, filepath.Join(dst, name)); err != nil {
+		if err := extract(f, filepath.Join(dst, names[i])); err != nil {
 			return nil, err
 		}
-		names = append(names, name)
 		report(Progress{"install", int64(i + 1), int64(len(picked))})
 	}
 	return names, nil
 }
 
+// extract copies at most the entry's declared size, so a lying header can't inflate it.
 func extract(f *zip.File, to string) error {
 	rc, err := f.Open()
 	if err != nil {
@@ -269,7 +290,11 @@ func extract(f *zip.File, to string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, rc); err != nil {
+	n, err := io.Copy(out, io.LimitReader(rc, int64(f.UncompressedSize64)+1))
+	if err == nil && uint64(n) > f.UncompressedSize64 {
+		err = fmt.Errorf("%w: %s is bigger than its header says", errTooLarge, f.Name)
+	}
+	if err != nil {
 		out.Close()
 		return err
 	}
