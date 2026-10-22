@@ -146,3 +146,43 @@ func TestWatchSaveFailureStillClosesBrowser(t *testing.T) {
 		t.Fatalf("browser got %v", m)
 	}
 }
+
+func TestWatchCancelClosesBrowser(t *testing.T) {
+	pollEvery = 5 * time.Millisecond
+	t.Cleanup(func() { pollEvery = time.Second })
+	c := New(filepath.Join(t.TempDir(), "token"))
+	endpoint, msgs := fakeBrowser(t, c, []string{`{"type":"object","subtype":"null"}`})
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(30*time.Millisecond, cancel)
+
+	if _, err := c.watch(ctx, endpoint, "/devtools/browser/abc", make(chan struct{})); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	if m := *msgs; len(m) != 2 || m[1]["method"] != "Browser.close" {
+		t.Fatalf("want a graceful Browser.close on cancel, browser got %v", m)
+	}
+}
+
+func TestClearSessionDropsRestoredTabs(t *testing.T) {
+	dir := t.TempDir()
+	sessions := filepath.Join(dir, "Default", "Sessions")
+	if err := os.MkdirAll(sessions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(sessions, "Tabs_1"), []byte("x"), 0o644)
+	cookies := filepath.Join(dir, "Default", "Cookies")
+	os.WriteFile(cookies, []byte("keep"), 0o644)
+
+	if err := clearSession(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sessions); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("sessions left: %v", err)
+	}
+	if _, err := os.Stat(cookies); err != nil {
+		t.Fatalf("cookies must stay: %v", err)
+	}
+	if err := clearSession(t.TempDir()); err != nil { // fresh profile
+		t.Fatal(err)
+	}
+}

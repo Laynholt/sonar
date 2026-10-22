@@ -76,6 +76,9 @@ func (c *Client) Check(ctx context.Context, browser, profileDir, trackURL string
 	if err := os.Remove(filepath.Join(profileDir, "DevToolsActivePort")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := clearSession(profileDir); err != nil {
+		return err
+	}
 	cmd := exec.Command(browser,
 		"--user-data-dir="+profileDir, "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check",
 		"--new-window", c.Base+"/?url="+url.QueryEscape(trackURL+"?musicTerritory=US"))
@@ -113,6 +116,12 @@ func (c *Client) Check(ctx context.Context, browser, profileDir, trackURL string
 	endpoint := "http://127.0.0.1:" + strconv.Itoa(port)
 	_, err = c.watch(ctx, endpoint, browserPath, exited)
 	return err
+}
+
+// clearSession drops the saved tabs, so a window that was killed last time is not restored
+// next to the new one; cookies stay, so Cloudflare may remember the browser.
+func clearSession(profileDir string) error {
+	return os.RemoveAll(filepath.Join(profileDir, "Default", "Sessions"))
 }
 
 // readDevToolsPort waits for the browser to write DevToolsActivePort: line 1 is the port, line 2 the browser socket path.
@@ -218,6 +227,9 @@ func (c *Client) watch(ctx context.Context, endpoint, browserPath string, exited
 		}
 		select {
 		case <-ctx.Done():
+			if browser != nil {
+				browser.call("Browser.close", nil) // close it cleanly, so it does not offer to restore the tab
+			}
 			return "", ctx.Err()
 		case <-exited:
 			return "", ErrCheckClosed

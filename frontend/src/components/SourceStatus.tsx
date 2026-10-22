@@ -42,6 +42,7 @@ export function SourceStatus({ compact }: { compact?: boolean }) {
         {status.name === "doubledouble" && status.needs_check && (<Button type="button" variant="outline" size="sm" disabled={checking} onClick={passCheck}>
           {checking ? t("download.checkWaiting") : t("download.passCheck")}
         </Button>)}
+        {status.name === "doubledouble" && checking && (<p className="basis-full text-muted-foreground">{t("download.checkHint")}</p>)}
       </li>))}
     </ul>);
 }

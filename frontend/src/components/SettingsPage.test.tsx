@@ -119,7 +119,9 @@ describe("SettingsPage", () => {
             await act(async () => button(view.container, "Pass check").click());
             expect(PassDoubleDoubleCheck).toHaveBeenCalled();
             expect(button(view.container, "Pass the check in the browser window…").disabled).toBe(true);
+            expect(view.container.textContent).toContain("untick “Upload to”, tick “Hide my download”");
             await act(async () => check.resolve());
+            expect(view.container.textContent).not.toContain("untick “Upload to”");
             expect(vi.mocked(GetSourceStatus).mock.calls.length).toBeGreaterThan(calls);
             expect(vi.mocked(toastWithSound.success)).toHaveBeenCalledWith("Check passed, doubledouble is back");
         });

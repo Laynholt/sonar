@@ -184,6 +184,7 @@
     "download.siteNeedsCheck": "нужна проверка",
     "download.passCheck": "Пройти проверку",
     "download.checkWaiting": "Пройдите проверку в окне браузера…",
+    "download.checkHint": "В этом окне снимите галку «Upload to», поставьте «Hide my download», нажмите Download и пройдите проверку Cloudflare. Окно закроется само. Загрузки самого Sonar всегда идут без заливки и без показа в недавних.",
     "download.checkPassed": "Проверка пройдена, doubledouble снова работает",
     "download.ffmpegAuto": "Ищется автоматически в PATH",
     "download.ffmpegFound": "Найден: {path}",

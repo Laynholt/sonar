@@ -185,6 +185,7 @@ export const en = {
     "download.siteNeedsCheck": "needs the check",
     "download.passCheck": "Pass check",
     "download.checkWaiting": "Pass the check in the browser window…",
+    "download.checkHint": "In that window: untick “Upload to”, tick “Hide my download”, press Download and pass the Cloudflare check. The window closes by itself. Sonar's own downloads always skip both.",
     "download.checkPassed": "Check passed, doubledouble is back",
     "download.ffmpegAuto": "Found automatically in PATH",
     "download.ffmpegFound": "Found: {path}",
