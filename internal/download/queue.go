@@ -78,6 +78,7 @@ type Sites interface {
 }
 
 // ErrSiteDown marks a Fetch error that is the site's fault, not the track's: in auto mode the track waits for another site.
+// Sites must stop reporting that site Ready before Fetch returns it, or the site retakes the track at once.
 var ErrSiteDown = errors.New("download site unavailable")
 
 // Fetch downloads one track through site to pathNoExt+extension and returns the file path.
@@ -487,7 +488,11 @@ func (q *Queue) takeLocked(site string) *entry {
 			e.Status, e.Path = Skipped, p
 			continue
 		}
-		if e.auto() && slices.Contains(e.tried, site) || !e.auto() && e.o.Source != site {
+		if e.auto() {
+			if slices.Contains(e.tried, site) {
+				continue
+			}
+		} else if e.o.Source != site {
 			continue
 		}
 		if q.busyPathLocked(e) {
