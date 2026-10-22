@@ -1,4 +1,5 @@
 import { LoadSettings, SaveSettings as SaveToBackend } from "../../wailsjs/go/main/App";
+import type { download } from "../../wailsjs/go/models";
 
 export type FontFamily = "google-sans" | "inter" | "poppins" | "roboto" | "dm-sans" | "plus-jakarta-sans" | "manrope" | "space-grotesk" | "noto-sans" | "nunito-sans" | "figtree" | "raleway" | "public-sans" | "outfit" | "jetbrains-mono" | "geist-sans" | "bricolage-grotesque";
 
@@ -9,6 +10,15 @@ export interface Settings {
     sfxEnabled: boolean;
     proxy: string;
     language: string;
+    downloadPath: string;
+    downloadFormat: "original" | "mp3-320" | "m4a-aac-320";
+    downloadSource: "auto" | "lucida" | "doubledouble";
+    folderTemplate: string;
+    filenameTemplate: string;
+    playlistFolder: boolean;
+    ffmpegPath: string;
+    rateGuard: boolean;
+    rateGuardLimit: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -18,7 +28,30 @@ export const DEFAULT_SETTINGS: Settings = {
     sfxEnabled: true,
     proxy: "",
     language: "auto",
+    downloadPath: "",
+    downloadFormat: "original",
+    downloadSource: "auto",
+    folderTemplate: "",
+    filenameTemplate: "{title} - {artist}",
+    playlistFolder: true,
+    ffmpegPath: "",
+    rateGuard: true,
+    rateGuardLimit: 50,
 };
+
+/** The backend's download options; a guard_limit of 0 means the rate guard is off. */
+export function downloadOptions(s: Settings): download.Options {
+    return {
+        dir: s.downloadPath,
+        format: s.downloadFormat,
+        source: s.downloadSource,
+        folder_template: s.folderTemplate,
+        filename_template: s.filenameTemplate,
+        playlist_folder: s.playlistFolder,
+        ffmpeg_path: s.ffmpegPath,
+        guard_limit: s.rateGuard ? s.rateGuardLimit : 0,
+    };
+}
 
 export const FONT_OPTIONS: {
     value: FontFamily;

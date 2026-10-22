@@ -89,3 +89,13 @@ it("defaults the language to auto and keeps a saved one", async () => {
     vi.mocked(api.LoadSettings).mockResolvedValue({ language: "ru" });
     expect((await settings.loadSettings()).language).toBe("ru");
 });
+
+it("fills the download defaults for old saved settings and turns the guard off as limit 0", async () => {
+    const api = await import("../../wailsjs/go/main/App");
+    const settings = await import("./settings");
+    vi.mocked(api.LoadSettings).mockResolvedValue({ theme: "blue" });
+    const loaded = await settings.loadSettings();
+    expect(loaded).toMatchObject({ theme: "blue", filenameTemplate: "{title} - {artist}", rateGuard: true, rateGuardLimit: 50, downloadFormat: "original" });
+    expect(settings.downloadOptions(loaded)).toMatchObject({ dir: "", filename_template: "{title} - {artist}", playlist_folder: true, guard_limit: 50 });
+    expect(settings.downloadOptions({ ...loaded, rateGuard: false }).guard_limit).toBe(0);
+});
