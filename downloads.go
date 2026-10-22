@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -67,7 +68,7 @@ func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder 
 	}
 	if n := len(st.Items); n > 0 { // the restored tracks keep the guard they were queued with
 		o := st.Items[n-1].Options
-		a.sources.SetGuard(o.GuardLimit, time.Duration(o.GuardWait)*time.Minute)
+		a.sources.SetGuard(o.GuardLimit, time.Duration(cmp.Or(o.GuardWait, 30))*time.Minute)
 	}
 	a.dl.Restore(st.Items)
 	pauses := map[string]time.Time{}
@@ -208,7 +209,7 @@ func (a *App) GetDownloadState() DownloadState {
 
 // GetPendingQueue is zero unless the restored queue is held, so the resume dialog shows only after a restart.
 func (a *App) GetPendingQueue() PendingQueue {
-	var p PendingQueue
+	p := PendingQueue{Collections: []string{}} // [] in JSON, never null
 	if !a.dl.Held() {
 		return p
 	}

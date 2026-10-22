@@ -478,8 +478,8 @@ func TestSkipReview(t *testing.T) {
 func TestQueueSavedAndRestored(t *testing.T) {
 	dir := t.TempDir()
 	a := reviewApp(t, dir)
-	if p := a.GetPendingQueue(); p.Tracks != 0 || p.Review != 0 || p.Collections != nil {
-		t.Fatalf("pending while not held = %+v", p)
+	if b, _ := json.Marshal(a.GetPendingQueue()); string(b) != `{"tracks":0,"review":0,"collections":[]}` {
+		t.Fatalf("pending while not held = %s", b)
 	}
 	waitFor(t, func() bool { // the saver writes it, without a shutdown
 		s, _ := download.LoadState(filepath.Join(dir, "queue.json"))
@@ -541,8 +541,19 @@ func TestShutdownSavesBeforeClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-started
+	path := filepath.Join(dir, "queue.json")
+	waitFor(t, func() bool { // the saver has written the downloading item and has nothing left to do
+		s, _ := download.LoadState(path)
+		return len(s.Items) == 1
+	})
+	if err := os.Remove(path); err != nil { // so only shutdown's own save can bring it back
+		t.Fatal(err)
+	}
 	a.shutdown(nil)
-	s, err := download.LoadState(filepath.Join(dir, "queue.json"))
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("shutdown did not save: %v", err)
+	}
+	s, err := download.LoadState(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,11 +579,32 @@ func TestGuardPauseSurvivesRestart(t *testing.T) {
 	a.shutdown(nil)
 
 	b := newQueueApp(t, dir, nil, fakeSource("lucida"))
-	if got := site(b, "lucida").PausedUntil; got != until {
-		t.Fatalf("PausedUntil = %d, want %d", got, until)
+	if got := site(b, "lucida"); got.PausedUntil != until || got.Count != 0 {
+		t.Fatalf("restored lucida = %+v, want PausedUntil %d and Count 0", got, until)
 	}
 	if b.sources.Ready("lucida") {
 		t.Fatal("lucida is ready during its guard pause")
+	}
+}
+
+// TestRestoredGuardWaitZeroMeans30 restores a queue saved with no guard wait: "Wait" must still pause for 30 minutes.
+func TestRestoredGuardWaitZeroMeans30(t *testing.T) {
+	dir := t.TempDir()
+	tr := download.Track{ID: "B00A3SGXA1", Title: "T"}
+	err := download.SaveState(filepath.Join(dir, "queue.json"), download.State{Version: 1, Items: []download.Saved{{
+		Item:       download.Item{ID: tr.ID, Track: tr, Status: download.Queued, AmazonID: tr.ID},
+		Collection: download.Collection{Kind: "track", ID: tr.ID, Name: "T"},
+		Options:    download.Options{Dir: t.TempDir(), Format: "original", Source: "lucida", FilenameTemplate: "{title}", GuardLimit: 1},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newQueueApp(t, dir, nil, fakeSource("lucida"))
+	a.ResumeQueue()
+	waitFor(t, func() bool { return site(a, "lucida").Asking })
+	a.GuardWait("lucida")
+	if d := time.UnixMilli(site(a, "lucida").PausedUntil).Sub(time.Now().Add(30 * time.Minute)); d < -time.Minute || d > time.Minute {
+		t.Fatalf("restored wait 0 should mean 30 minutes; off by %v", d)
 	}
 }
 
