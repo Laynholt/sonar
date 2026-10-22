@@ -58,11 +58,17 @@ describe("GuardDialog", () => {
         expect(toast.error).toHaveBeenCalledWith("nope");
     });
 
-    it("cannot be dismissed by Escape and has no close button", async () => {
+    it("focuses Wait, not Continue, when it opens", async () => {
         await show(asking);
-        await act(async () => { document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
-        expect(document.body.textContent).toContain("Slow down a little");
+        expect(document.activeElement).toBe(button(document.body, "OK, I'll wait"));
+    });
+
+    it("has no close button and goes away once the guard stops asking", async () => {
+        await show(asking);
         expect(document.querySelector('[data-slot="dialog-close"]')).toBeNull();
+        vi.mocked(useDownloads).mockReturnValue({ items: [], byTrackId: new Map(), activeCount: 0, guard: { ...asking, asking: false } } as unknown as ReturnType<typeof useDownloads>);
+        await view.render(<GuardDialog/>);
+        expect(document.body.textContent).not.toContain("Slow down a little");
     });
 
     it("renders nothing when not asking", async () => {

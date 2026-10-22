@@ -57,13 +57,14 @@ describe("DownloadsPage", () => {
 
     it("filters rows by tab", async () => {
         await show(all);
-        expect(rows()).toBe(6);
+        const titles = () => [...view.container.querySelectorAll("tbody tr")].map((r) => r.querySelector("td:nth-child(2) div")!.textContent);
+        expect(titles()).toEqual(["Song q", "Song d", "Song c", "Song s", "Song f", "Song x"]);
         await act(async () => button(view.container, "Active").click());
-        expect(rows()).toBe(2);
+        expect(titles()).toEqual(["Song q", "Song d"]);
         await act(async () => button(view.container, "Done").click());
-        expect(rows()).toBe(2);
+        expect(titles()).toEqual(["Song c", "Song s"]);
         await act(async () => button(view.container, "Failed").click());
-        expect(rows()).toBe(2);
+        expect(titles()).toEqual(["Song f", "Song x"]);
     });
 
     it("shows the translated status and the live message", async () => {
@@ -105,6 +106,14 @@ describe("DownloadsPage", () => {
         expect(button(view.container, "Retry failed").disabled).toBe(true);
         expect(button(view.container, "Stop all").disabled).toBe(true);
         expect(button(view.container, "Clear finished").disabled).toBe(false);
+    });
+
+    it("enables Retry failed only for failed items, not cancelled ones", async () => {
+        await show([item("x", "cancelled"), item("c", "completed", { path: "p" })], noGuard, 0);
+        expect(button(view.container, "Retry failed").disabled).toBe(true);
+        vi.mocked(useDownloads).mockReturnValue({ items: [item("f", "failed")], byTrackId: new Map(), activeCount: 0, guard: noGuard } as unknown as ReturnType<typeof useDownloads>);
+        await view.render(<TooltipProvider><DownloadsPage/></TooltipProvider>);
+        expect(button(view.container, "Retry failed").disabled).toBe(false);
     });
 
     it("offers the check only in doubledouble mode", async () => {

@@ -24,9 +24,10 @@ export function GuardDialog() {
           <DialogTitle>{t("download.guardTitle")}</DialogTitle>
           <DialogDescription>{t("download.guardText", { count: guard.count, site: guard.site })}</DialogDescription>
         </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => void answer(guardContinue)}>{t("download.guardContinue")}</Button>
+        {/* Wait comes first in the DOM so Radix focuses the safe choice; flex-row-reverse keeps it on the right. */}
+        <DialogFooter className="sm:flex-row-reverse sm:justify-start">
           <Button disabled={busy} onClick={() => void answer(guardWait)}>{t("download.guardWait")}</Button>
+          <Button variant="outline" disabled={busy} onClick={() => void answer(guardContinue)}>{t("download.guardContinue")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>);

@@ -60,7 +60,7 @@ export function DownloadsPage() {
                     {items.length > 0 && (<Badge variant="secondary" className="font-mono">{items.length.toLocaleString(language)}</Badge>)}
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" disabled={!has(FAILED)} className="cursor-pointer" onClick={() => run(retryFailedDownloads)}>{t("download.retryFailed")}</Button>
+                    <Button variant="outline" size="sm" disabled={!has(["failed"])} className="cursor-pointer" onClick={() => run(retryFailedDownloads)}>{t("download.retryFailed")}</Button>
                     <Button variant="outline" size="sm" disabled={activeCount === 0} className="cursor-pointer" onClick={() => run(cancelAllDownloads)}>{t("download.stopAll")}</Button>
                     <Button variant="outline" size="sm" disabled={!has([...DONE, ...FAILED])} className="cursor-pointer" onClick={() => run(clearFinishedDownloads)}>{t("download.clearFinished")}</Button>
                 </div>

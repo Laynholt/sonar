@@ -34,7 +34,7 @@ export function Sidebar({ currentPage, onPageChange, activeCount }: SidebarProps
         const active = currentPage === page;
         return (<Tooltip key={page} delayDuration={0}>
         <TooltipTrigger asChild>
-          <Button aria-label={label} aria-current={active ? "page" : undefined} variant={active ? "secondary" : "ghost"} size="icon" className={`relative h-10 w-10 ${active ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`} onClick={() => onPageChange(page)}>
+          <Button aria-label={page === "downloads" && activeCount > 0 ? `${label} (${activeCount})` : label} aria-current={active ? "page" : undefined} variant={active ? "secondary" : "ghost"} size="icon" className={`relative h-10 w-10 ${active ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`} onClick={() => onPageChange(page)}>
             {icon}
             {page === "downloads" && activeCount > 0 && (<Badge className="absolute -right-1 -top-1 h-4 min-w-4 justify-center px-1 text-[10px] font-mono">{activeCount}</Badge>)}
           </Button>
