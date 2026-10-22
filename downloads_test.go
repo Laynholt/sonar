@@ -347,3 +347,13 @@ func TestRunCheckMapsTimeoutAndRejectsSecond(t *testing.T) {
 	}
 	close(release)
 }
+
+func TestExistingDir(t *testing.T) {
+	dir := t.TempDir()
+	if got := existingDir(filepath.Join(dir, "missing", "deeper")); got != dir {
+		t.Fatalf("got %q, want %q", got, dir)
+	}
+	if got := existingDir(""); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}

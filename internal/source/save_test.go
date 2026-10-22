@@ -5,10 +5,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sonar/internal/download"
 )
 
 func resp(status int, ct, cd, body string) *http.Response {
@@ -120,5 +123,19 @@ func TestCheckStatus(t *testing.T) {
 	}
 	if err := CheckStatus("lucida", resp(404, "", "", "")); err == nil || errors.Is(err, ErrUnavailable) {
 		t.Fatalf("404: %v", err)
+	}
+}
+
+func TestSaveReportsProgress(t *testing.T) {
+	var done, total int64
+	ctx := download.WithProgress(context.Background(), func(d, n int64) { done, total = d, n })
+	r := resp(200, "audio/flac", "", "abcdef")
+	r.ContentLength = 6
+	r.Request = httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	if _, err := Save(r, filepath.Join(t.TempDir(), "x")); err != nil {
+		t.Fatal(err)
+	}
+	if done != 6 || total != 6 {
+		t.Fatalf("got %d of %d", done, total)
 	}
 }

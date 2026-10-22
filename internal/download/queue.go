@@ -28,6 +28,8 @@ type Item struct {
 	Message string `json:"message"`
 	Path    string `json:"path"`
 	Error   string `json:"error"`
+	Bytes   int64  `json:"bytes"` // written so far
+	Size    int64  `json:"size"`  // expected file size, 0 when the site does not say
 }
 
 // Fetch downloads one track to pathNoExt+extension and returns the file path.
@@ -150,7 +152,7 @@ func (q *Queue) requeue(e *entry) {
 	if q.closed || (e.Status != Failed && e.Status != Cancelled) {
 		return
 	}
-	e.Status, e.Error, e.Message, e.Path = Queued, "", "", ""
+	e.Status, e.Error, e.Message, e.Path, e.Bytes, e.Size = Queued, "", "", "", 0, 0
 	q.cond.Broadcast()
 }
 
@@ -246,6 +248,13 @@ func (q *Queue) worker() {
 		ctx, cancel := context.WithTimeout(context.Background(), trackTimeout)
 		e.Status, e.cancel = Downloading, cancel
 		q.mu.Unlock()
+		ctx = WithProgress(ctx, func(done, total int64) {
+			q.mu.Lock()
+			defer q.mu.Unlock()
+			if e.Status == Downloading {
+				e.Bytes, e.Size = done, total
+			}
+		})
 
 		path, err := q.fetch(ctx, e.ID, e.o, e.pathNoExt, func(msg string) {
 			q.mu.Lock()

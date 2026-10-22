@@ -44,6 +44,15 @@ describe("SettingsPage", () => {
         expect(view.container.textContent).not.toContain("Sound Effects");
     });
 
+    it("saves the recent limit and ignores values over the cap", async () => {
+        const limit = view.container.querySelector("#recent-limit") as HTMLInputElement;
+        expect(limit.value).toBe("20");
+        await act(async () => change(limit, "8"));
+        await act(async () => change(limit, "201"));
+        await act(async () => button(view.container, "Save Changes").click());
+        expect(vi.mocked(SaveSettings).mock.lastCall![0]).toMatchObject({ recentLimit: 8 });
+    });
+
     it("switching sections alone does not mark the page unsaved", async () => {
         await act(async () => button(view.container, "Appearance").click());
         await act(async () => button(view.container, "Network").click());

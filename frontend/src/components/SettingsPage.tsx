@@ -67,6 +67,18 @@ const NONE = "none";
 const CUSTOM = "custom";
 // Keeps a pasted huge number out of the Go int.
 const MAX_GUARD_LIMIT = 100000;
+// The history keeps 200 items.
+const MAX_RECENT = 200;
+
+// Typed as text so it can be cleared while editing; only a whole number from 1 to max reaches onChange.
+function LimitInput({ id, value, max, label, onChange }: { id?: string; value: number; max: number; label: string; onChange: (value: number) => void }) {
+    const [text, setText] = useState(String(value));
+    return (<Input id={id} type="number" min={1} max={max} step={1} value={text} className="w-20" aria-label={label} onChange={(e) => {
+        setText(e.target.value);
+        const n = Number(e.target.value);
+        if (/^[1-9]\d*$/.test(e.target.value) && n <= max) onChange(n);
+    }} onBlur={() => setText(String(value))}/>);
+}
 
 function TemplateSelect({ id, value, presets, onChange }: { id: string; value: string; presets: readonly string[]; onChange: (value: string) => void }) {
     const { t } = useI18n();
@@ -95,8 +107,6 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
     const { t } = useI18n();
     const [defaultDir, setDefaultDir] = useState("");
     const [ffmpegFound, setFfmpegFound] = useState<string | null>(null);
-    // The limit is typed as text so it can be cleared while editing; only a valid value reaches the settings.
-    const [limitText, setLimitText] = useState(String(settings.rateGuardLimit));
     useEffect(() => {
         DefaultDownloadDir().then(setDefaultDir, (error) => console.error("Failed to get the default download folder:", error));
     }, []);
@@ -179,11 +189,7 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
       </Row>
       <Row id="rate-guard" label={t("settings.rateGuard")} description={t("settings.rateGuardDesc")}>
         <div className="flex items-center gap-3">
-          {settings.rateGuard && <Input type="number" min={1} step={1} value={limitText} className="w-20" aria-label={t("settings.rateGuardLimit")} onChange={(e) => {
-              setLimitText(e.target.value);
-              const limit = Number(e.target.value);
-              if (/^[1-9]\d*$/.test(e.target.value) && limit <= MAX_GUARD_LIMIT) set({ rateGuardLimit: limit });
-          }} onBlur={() => setLimitText(String(settings.rateGuardLimit))}/>}
+          {settings.rateGuard && <LimitInput value={settings.rateGuardLimit} max={MAX_GUARD_LIMIT} label={t("settings.rateGuardLimit")} onChange={(limit) => set({ rateGuardLimit: limit })}/>}
           <Switch id="rate-guard" checked={settings.rateGuard} onCheckedChange={(checked) => set({ rateGuard: checked })}/>
         </div>
       </Row>
@@ -291,6 +297,9 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
             </Row>
             <Row id="sfx-enabled" label={t("settings.sfx")} description={t("settings.sfxDesc")}>
               <Switch id="sfx-enabled" checked={tempSettings.sfxEnabled} onCheckedChange={(checked) => setTempSettings(prev => ({ ...prev, sfxEnabled: checked }))}/>
+            </Row>
+            <Row id="recent-limit" label={t("settings.recentLimit")} description={t("settings.recentLimitDesc")}>
+              <LimitInput key={resetCount} id="recent-limit" value={tempSettings.recentLimit} max={MAX_RECENT} label={t("settings.recentLimit")} onChange={(limit) => set({ recentLimit: limit })}/>
             </Row>
           </>)}
 

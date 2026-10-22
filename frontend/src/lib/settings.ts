@@ -19,6 +19,7 @@ export interface Settings {
     ffmpegPath: string;
     rateGuard: boolean;
     rateGuardLimit: number;
+    recentLimit: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ffmpegPath: "",
     rateGuard: true,
     rateGuardLimit: 50,
+    recentLimit: 20,
 };
 
 /** The backend's download options; a guard_limit of 0 means the rate guard is off. */

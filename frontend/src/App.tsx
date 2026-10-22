@@ -15,6 +15,7 @@ import { AboutPage } from "@/components/AboutPage";
 import { HistoryPage } from "@/components/HistoryPage";
 import { DownloadsPage } from "@/components/DownloadsPage";
 import { GuardDialog } from "@/components/GuardDialog";
+import { DownloadWidget } from "@/components/DownloadWidget";
 import { SearchBar } from "@/components/SearchBar";
 import { TrackInfo } from "@/components/TrackInfo";
 import { AlbumInfo } from "@/components/AlbumInfo";
@@ -28,12 +29,12 @@ import { batchProgress, refreshDownloads, retryDownload, startDownload, stopQueu
 import type { AlbumRef } from "@/components/ArtistLinks";
 import { extractArtistID } from "@/lib/spotify-url";
 import { errorMessage } from "@/lib/utils";
+import { uniqueRecent } from "@/lib/history-info";
 import { DeleteFetchHistoryItem, GetFetchHistory, GetFetchHistoryData } from "../wailsjs/go/main/App";
 import type { history } from "../wailsjs/go/models";
 import type { TrackMetadata } from "@/types/api";
 
 const ITEMS_PER_PAGE = 50;
-const RECENT_FETCHES = 5;
 
 function applySavedAppearance() {
     const settings = getSettings();
@@ -101,7 +102,7 @@ function App() {
     };
     const loadRecentFetches = useCallback(async () => {
         try {
-            setRecentFetches(((await GetFetchHistory()) || []).slice(0, RECENT_FETCHES));
+            setRecentFetches(uniqueRecent((await GetFetchHistory()) || [], getSettings().recentLimit));
         }
         catch (err) {
             toast.error(t("recent.loadFailed"), { description: errorMessage(err, t("recent.unknownError")) });
@@ -247,6 +248,7 @@ function App() {
             </div>
 
             <GuardDialog />
+            <DownloadWidget hidden={currentPage === "downloads"} onOpen={() => handlePageChange("downloads")}/>
 
             <Dialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
                 <DialogContent className="sm:max-w-[425px] [&>button]:hidden">

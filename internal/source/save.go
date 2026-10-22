@@ -1,6 +1,7 @@
 package source
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"sonar/internal/download"
 )
 
 var audioExt = map[string]string{
@@ -55,7 +58,11 @@ func Save(resp *http.Response, pathNoExt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, err = io.Copy(f, resp.Body)
+	var w io.Writer = f
+	if resp.Request != nil {
+		w = io.MultiWriter(f, &progress{ctx: resp.Request.Context(), total: max(resp.ContentLength, 0)})
+	}
+	_, err = io.Copy(w, resp.Body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -67,4 +74,16 @@ func Save(resp *http.Response, pathNoExt string) (string, error) {
 		return "", err
 	}
 	return final, nil
+}
+
+// progress reports the bytes written so far to the download queue.
+type progress struct {
+	ctx         context.Context
+	done, total int64
+}
+
+func (p *progress) Write(b []byte) (int, error) {
+	p.done += int64(len(b))
+	download.Report(p.ctx, p.done, p.total)
+	return len(b), nil
 }

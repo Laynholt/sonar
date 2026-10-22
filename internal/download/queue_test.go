@@ -439,3 +439,20 @@ func TestQueueSameTargetWaitsForRunningDownload(t *testing.T) {
 	gate <- struct{}{}
 	waitFor(t, q, allIn(Completed, "1", "2"))
 }
+
+func TestQueueReportsProgress(t *testing.T) {
+	release := make(chan struct{})
+	q := NewQueue(func(ctx context.Context, _ string, _ Options, pathNoExt string, _ func(string)) (string, error) {
+		Report(ctx, 5, 10)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return pathNoExt + ".flac", nil
+	}, 1)
+	t.Cleanup(q.Close)
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	waitFor(t, q, func(s []Item) bool { it := find(s, "1"); return it.Bytes == 5 && it.Size == 10 })
+	close(release)
+	waitFor(t, q, allIn(Completed, "1"))
+}

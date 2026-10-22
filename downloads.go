@@ -211,7 +211,23 @@ func (a *App) DefaultDownloadDir() string {
 
 // SelectDownloadFolder returns "" when the user cancels.
 func (a *App) SelectDownloadFolder(current string) (string, error) {
-	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{DefaultDirectory: current})
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{DefaultDirectory: existingDir(current)})
+}
+
+// existingDir returns dir or its nearest existing parent, or "": the dialog fails on a missing folder,
+// and the default one does not exist before the first download.
+func existingDir(dir string) string {
+	for dir != "" {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+	return ""
 }
 
 func (a *App) FindFFmpeg(custom string) string { return a.findFFmpeg(custom) }

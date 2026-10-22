@@ -67,8 +67,9 @@ export function useMetadata() {
                 image = data.artist_info.images;
             }
             const jsonStr = JSON.stringify(data);
-            // Album/playlist payloads carry the canonical link; a pasted spotify: URI or ?si= form must not persist.
-            const canonicalUrl = ("album_info" in data && data.album_info.external_urls) || ("playlist_info" in data && data.playlist_info.external_urls) || url;
+            // Every payload carries the canonical link; a pasted spotify: URI, ?si= or name-slug form must not persist,
+            // or one page gets two history entries.
+            const canonicalUrl = ("track" in data && data.track.external_urls) || ("album_info" in data && data.album_info.external_urls) || ("playlist_info" in data && data.playlist_info.external_urls) || ("artist_info" in data && data.artist_info.external_urls) || url;
             await AddFetchHistory({
                 id: crypto.randomUUID(),
                 url: canonicalUrl,
