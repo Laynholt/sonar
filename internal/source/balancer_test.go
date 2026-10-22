@@ -272,6 +272,31 @@ func TestGuardOff(t *testing.T) {
 	}
 }
 
+func TestRaisingLimitClearsAsking(t *testing.T) {
+	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
+	ch := changes(bal)
+	bal.SetGuard(2, time.Hour)
+	mustFetch(t, bal, "a")
+	mustFetch(t, bal, "a")
+	waitChange(t, ch)
+	bal.SetGuard(2, time.Hour) // same limit: still asking
+	noChange(t, ch)
+	if !status(bal, "a").Asking {
+		t.Fatal("stopped asking at the same limit")
+	}
+	bal.SetGuard(3, time.Hour)
+	waitChange(t, ch)
+	noChange(t, ch)
+	if st := status(bal, "a"); !bal.Ready("a") || st.Asking || st.Count != 2 {
+		t.Fatalf("after raising the limit: %+v", st)
+	}
+	mustFetch(t, bal, "a")
+	waitChange(t, ch)
+	if !status(bal, "a").Asking {
+		t.Fatal("not asking at the new limit")
+	}
+}
+
 func TestGuardWaitPausesThenResumes(t *testing.T) {
 	bal, clk := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
@@ -364,9 +389,18 @@ func TestResetStopsTimers(t *testing.T) {
 func TestRestoreGuardPauses(t *testing.T) {
 	bal, clk := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
+	bal.RestoreGuardPauses(map[string]time.Time{"b": clk.t.Add(-time.Second)}) // only a past pause: nothing to arm
+	time.Sleep(50 * time.Millisecond)
+	noChange(t, ch)
+	if !bal.Ready("b") || len(bal.GuardPauses()) != 0 {
+		t.Fatalf("past pause restored: %+v", status(bal, "b"))
+	}
+
 	until := clk.t.Add(200 * time.Millisecond)
 	bal.RestoreGuardPauses(map[string]time.Time{"a": until, "b": clk.t.Add(-time.Second), "zzz": until})
-	waitChange(t, ch)
+	waitChange(t, ch) // exactly one for the restore
+	time.Sleep(50 * time.Millisecond)
+	noChange(t, ch) // the past entry fired nothing
 	if bal.Ready("a") || status(bal, "a").PausedUntil != until.UnixMilli() {
 		t.Fatalf("a: %+v", status(bal, "a"))
 	}
@@ -376,8 +410,10 @@ func TestRestoreGuardPauses(t *testing.T) {
 	if p := bal.GuardPauses(); len(p) != 1 || !p["a"].Equal(until) {
 		t.Fatalf("GuardPauses = %v", p)
 	}
-	waitChange(t, ch)
+	waitChange(t, ch) // exactly one for the end of a's pause
 	if !bal.Ready("a") {
 		t.Fatal("a not ready after its pause")
 	}
+	time.Sleep(300 * time.Millisecond)
+	noChange(t, ch) // b armed no timer
 }

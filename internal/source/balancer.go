@@ -165,16 +165,14 @@ func (b *Balancer) punish(name string, err error) {
 }
 
 // SetGuard sets how many successful downloads one site may serve before it asks, and how long
-// GuardWait pauses it. A limit of 0 or less turns the guard off and stops any site asking.
+// GuardWait pauses it. A limit of 0 or less turns the guard off; a site asking below the new limit stops asking.
 func (b *Balancer) SetGuard(limit int, wait time.Duration) {
 	b.mu.Lock()
 	b.limit, b.wait = limit, wait
 	changed := false
-	if limit <= 0 {
-		for _, s := range b.sites {
-			if s.asking {
-				s.asking, changed = false, true
-			}
+	for _, s := range b.sites {
+		if s.asking && (limit <= 0 || s.count < limit) {
+			s.asking, changed = false, true
 		}
 	}
 	b.mu.Unlock()
