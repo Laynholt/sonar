@@ -26,11 +26,31 @@ func Ext(format string) string {
 	return ""
 }
 
-// FindFFmpeg returns custom if it is an existing regular file, else ffmpeg from PATH, else "".
+// exeDir is a variable so tests can fake it.
+var exeDir = func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exe)
+}
+
+// ExeDir is the folder of the running executable, "" if unknown.
+func ExeDir() string { return exeDir() }
+
+func isFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// FindFFmpeg returns custom if it is an existing regular file, else <exe dir>fmpegfmpeg.exe, else ffmpeg from PATH, else "".
 func FindFFmpeg(custom string) string {
-	if custom != "" {
-		if st, err := os.Stat(custom); err == nil && st.Mode().IsRegular() {
-			return custom
+	if custom != "" && isFile(custom) {
+		return custom
+	}
+	if d := exeDir(); d != "" {
+		if p := filepath.Join(d, "ffmpeg", "ffmpeg.exe"); isFile(p) {
+			return p
 		}
 	}
 	p, _ := exec.LookPath("ffmpeg")

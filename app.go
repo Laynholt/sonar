@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +19,7 @@ import (
 	"sonar/internal/convert"
 	"sonar/internal/doubledouble"
 	"sonar/internal/download"
+	"sonar/internal/ffinstall"
 	"sonar/internal/history"
 	"sonar/internal/httpx"
 	"sonar/internal/lucida"
@@ -39,6 +41,12 @@ type App struct {
 	cache         *resolve.Cache                                       // matches.json, shared with the resolver
 	findFFmpeg    func(custom string) string                           // a field so tests can fake it
 	amazonPreview func(ctx context.Context, id string) (string, error) // a field so tests can fake it
+
+	ffLatest  func(context.Context, *http.Client, string) (ffinstall.Asset, ffinstall.Asset, error) // fields so tests can fake them
+	ffInstall func(context.Context, *http.Client, ffinstall.Asset, ffinstall.Asset, string, func(ffinstall.Progress)) (string, error)
+	ffMu      sync.Mutex // guards the two fields below
+	ffState   FFmpegInstall
+	ffCancel  context.CancelFunc // non-nil while an install runs
 
 	saveCh    chan struct{} // cap 1: a pending request to save queue.json
 	saveStop  chan struct{} // closed to stop the saver
@@ -85,6 +93,7 @@ func (a *App) init() {
 	}
 	a.dd = doubledouble.New(filepath.Join(a.dataDir, "doubledouble-token"))
 	a.findFFmpeg = convert.FindFFmpeg
+	a.ffLatest, a.ffInstall = ffinstall.Latest, ffinstall.Install
 	a.amazonPreview = amazon.PreviewURL
 	sources := source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
 	if a.dd.Token() == "" { // first run: say so before any track fails

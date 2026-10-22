@@ -1,0 +1,135 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"sonar/internal/download"
+	"sonar/internal/ffinstall"
+)
+
+func fakeLatest(context.Context, *http.Client, string) (ffinstall.Asset, ffinstall.Asset, error) {
+	return ffinstall.Asset{Name: "a.zip"}, ffinstall.Asset{Name: "sums"}, nil
+}
+
+func waitFF(t *testing.T, a *App, step string) FFmpegInstall {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if s := a.GetFFmpegInstall(); s.Step == step {
+			return s
+		}
+	}
+	t.Fatalf("state never reached %q: %+v", step, a.GetFFmpegInstall())
+	return FFmpegInstall{}
+}
+
+func TestStartFFmpegInstallReportsSteps(t *testing.T) {
+	release, reported := make(chan struct{}), make(chan struct{})
+	a := &App{ffLatest: fakeLatest}
+	a.ffInstall = func(_ context.Context, _ *http.Client, _, _ ffinstall.Asset, dir string, report func(ffinstall.Progress)) (string, error) {
+		report(ffinstall.Progress{Step: "download", Done: 5, Total: 10})
+		close(reported)
+		<-release
+		return filepath.Join(dir, "ffmpeg.exe"), nil
+	}
+	if err := a.StartFFmpegInstall("D:/ff"); err != nil {
+		t.Fatal(err)
+	}
+	<-reported
+	if s := a.GetFFmpegInstall(); s.Step != "download" || s.Done != 5 || s.Total != 10 {
+		t.Errorf("state = %+v", s)
+	}
+	if err := a.StartFFmpegInstall("D:/ff"); err == nil {
+		t.Error("second Start while running must fail")
+	}
+	close(release)
+	if s := waitFF(t, a, "done"); s.Path != filepath.Join("D:/ff", "ffmpeg.exe") || s.Error != "" {
+		t.Errorf("state = %+v", s)
+	}
+}
+
+func TestFFmpegInstallNotEmpty(t *testing.T) {
+	a := &App{ffLatest: fakeLatest}
+	a.ffInstall = func(context.Context, *http.Client, ffinstall.Asset, ffinstall.Asset, string, func(ffinstall.Progress)) (string, error) {
+		return "", ffinstall.ErrNotEmpty
+	}
+	if err := a.StartFFmpegInstall(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if s := waitFF(t, a, "error"); !s.NotEmpty || s.Error == "" {
+		t.Errorf("state = %+v", s)
+	}
+}
+
+func TestCancelFFmpegInstall(t *testing.T) {
+	started := make(chan struct{})
+	a := &App{ffLatest: fakeLatest}
+	a.ffInstall = func(ctx context.Context, _ *http.Client, _, _ ffinstall.Asset, _ string, _ func(ffinstall.Progress)) (string, error) {
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	if err := a.StartFFmpegInstall(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	a.CancelFFmpegInstall()
+	if s := waitFF(t, a, "error"); s.Error != "cancelled" || s.NotEmpty {
+		t.Errorf("state = %+v", s)
+	}
+	// a finished run can be started again
+	a.ffInstall = func(context.Context, *http.Client, ffinstall.Asset, ffinstall.Asset, string, func(ffinstall.Progress)) (string, error) {
+		return "p", errors.New("boom")
+	}
+	if err := a.StartFFmpegInstall(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if s := waitFF(t, a, "error"); s.Error != "boom" {
+		t.Errorf("state = %+v", s)
+	}
+}
+
+func TestDownloadTracksNoFFmpegSentinel(t *testing.T) {
+	a := &App{findFFmpeg: func(string) string { return "" }}
+	_, err := a.ffmpeg(download.Options{Format: "mp3-320"})
+	if err == nil || !strings.HasPrefix(err.Error(), "NO_FFMPEG: ") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDefaultFFmpegDirFallback(t *testing.T) {
+	old := writable
+	defer func() { writable = old }()
+	local := t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+
+	writable = func(string) bool { return false }
+	dir, fb := (&App{}).DefaultFFmpegDir()
+	if want := filepath.Join(local, "Sonar", "ffmpeg"); dir != want || !fb {
+		t.Errorf("unwritable: %q, %v", dir, fb)
+	}
+	writable = func(string) bool { return true }
+	dir, fb = (&App{}).DefaultFFmpegDir()
+	if filepath.Base(dir) != "ffmpeg" || fb || strings.HasPrefix(dir, local) {
+		t.Errorf("writable: %q, %v", dir, fb)
+	}
+}
+
+func TestWritable(t *testing.T) {
+	d := t.TempDir()
+	if !writable(d) {
+		t.Error("temp dir must be writable")
+	}
+	if es, _ := os.ReadDir(d); len(es) != 0 {
+		t.Errorf("probe left files: %v", es)
+	}
+	if writable(filepath.Join(d, "missing")) {
+		t.Error("missing dir must not be writable")
+	}
+}

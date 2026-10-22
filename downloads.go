@@ -20,7 +20,8 @@ import (
 	"sonar/internal/source"
 )
 
-var errNoFFmpeg = errors.New("FFmpeg is needed to convert to MP3 or M4A; set its path in Settings → Downloads")
+// errNoFFmpeg starts with the NO_FFMPEG: sentinel the frontend matches on.
+var errNoFFmpeg = errors.New("NO_FFMPEG: FFmpeg is needed to convert to MP3 or M4A; set its path in Settings → Downloads")
 
 const (
 	sourceCooldown = 10 * time.Minute

@@ -232,3 +232,27 @@ func TestLastBytesKeepsRunesWhole(t *testing.T) {
 		t.Error("short input changed")
 	}
 }
+
+func TestFindFFmpegExeDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "ffmpeg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inExe := filepath.Join(dir, "ffmpeg", "ffmpeg.exe")
+	if err := os.WriteFile(inExe, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := exeDir
+	exeDir = func() string { return dir }
+	defer func() { exeDir = old }()
+	if got := FindFFmpeg(""); got != inExe {
+		t.Errorf("exe dir = %q, want %q", got, inExe)
+	}
+	custom := filepath.Join(t.TempDir(), "myffmpeg")
+	if err := os.WriteFile(custom, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindFFmpeg(custom); got != custom {
+		t.Errorf("custom = %q, want %q", got, custom)
+	}
+}
