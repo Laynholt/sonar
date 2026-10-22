@@ -2,7 +2,7 @@
 
 Desktop app (Wails v2: Go backend, React/Vite frontend) for looking up Spotify and Amazon Music links and search results, with a SpotiDownloader-style UI. No sign-in needed.
 
-Status: stage 2 (Spotify + Amazon Music viewer). Nothing is downloaded yet.
+Status: stage 3a (downloads of Amazon Music sources through lucida and doubledouble).
 
 ## Features
 
@@ -10,6 +10,7 @@ Status: stage 2 (Spotify + Amazon Music viewer). Nothing is downloaded yet.
 - Paste an Amazon Music track, album, playlist or artist link (any `music.amazon.*` host) to see the same view.
 - Search Spotify or Amazon Music by text (switch in the search bar).
 - Fetch history (recent fetches and a full history page).
+- Download a track, album, playlist or artist from an Amazon Music source through lucida.to or doubledouble.top: Auto alternates between the two and skips a site that is down, or pick one fixed site. A Downloads page shows the queue.
 - Themes and soft UI sounds, configurable in Settings.
 
 ## Amazon Music limits
@@ -21,6 +22,23 @@ Amazon is read as a guest (no sign-in) from the US catalog, so:
 - Links from other Amazon stores (e.g. `music.amazon.co.uk`) only open if the release is in the US catalog.
 - No previews.
 - No disc numbers, label, plays, followers or listeners; empty counts are hidden.
+
+## Downloads
+
+Settings > Downloads:
+
+- **Folder** (default: `Music/sonar` in your home folder) and **folder / file name templates**, with a live preview.
+- **Source:** Auto, lucida or doubledouble.
+- **doubledouble check:** doubledouble asks for a Cloudflare check now and then. "Pass check" opens a visible Chrome or Edge window on the site; you pass the check yourself, sonar only reads the resulting token, then closes the window. Needs Chrome or Edge installed.
+- **Format:** both sites always deliver FLAC. MP3 320 or M4A AAC 320 are converted locally with FFmpeg, which must be in PATH or chosen in Settings (sonar does not download it).
+- **Rate guard** (on by default): after 50 tracks in a row from one site, sonar warns that the site may ban you for a while. "OK, I'll wait" pauses all downloads for 30 minutes; "I don't care, continue" goes on. The limit can be changed or the guard switched off.
+
+Limits:
+
+- Only Amazon Music sources download for now; Spotify needs matching to Amazon (stage 3b).
+- Both sites are unofficial and may break or rate-limit.
+- At most 2 tracks download at once.
+- No genre tags yet (stage 3c).
 
 ## Proxy
 
@@ -38,7 +56,8 @@ Go error texts and Spotify and Amazon data (titles, playlist descriptions) are n
 
 ## Roadmap
 
-- Stage 3: downloads via lucida.to.
+- Stage 3b: download Spotify links by matching them to Amazon Music.
+- Stage 3c: genre tags from chosic.
 
 ## Requirements
 
@@ -59,6 +78,7 @@ go tool wails build    # output: build/bin/sonar.exe
 go test ./...
 cd frontend; corepack pnpm test
 $env:SONAR_LIVE=1; $env:HTTPS_PROXY="http://127.0.0.1:10808"; go test -run Live -v ./internal/spotify/   # hits real Spotify; proxy only if you need one
+$env:SONAR_LIVE=1; go test -run Live -v ./internal/lucida/ ./internal/amazon/   # real lucida and Amazon downloads
 ```
 
 ## Credits
