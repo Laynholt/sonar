@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useDownloads } from "@/hooks/useDownloads";
 import { useI18n } from "@/lib/i18n";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { GetSourceStatus, PassDoubleDoubleCheck } from "../../wailsjs/go/main/App";
@@ -14,7 +15,10 @@ export function SourceStatus({ compact }: { compact?: boolean }) {
         try { setStatuses(await GetSourceStatus()); }
         catch (error) { console.error("Failed to load source status:", error); }
     }, []);
-    useEffect(() => { void load(); }, [load]);
+    // A failed download can mean a site now needs its check; the key changes on status changes only, not on every poll.
+    const { items } = useDownloads();
+    const statusKey = items.map((item) => item.status).join();
+    useEffect(() => { void load(); }, [load, statusKey]);
     const passCheck = async () => {
         setChecking(true);
         try {

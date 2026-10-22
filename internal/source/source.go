@@ -13,7 +13,7 @@ var (
 	// ErrUnavailable means the site is down or refusing us: pause it and try another.
 	ErrUnavailable = errors.New("site unavailable")
 	// ErrNeedsCheck means the site wants a browser check: pause it until Reset.
-	ErrNeedsCheck = errors.New("needs the browser check")
+	ErrNeedsCheck = errors.New("needs the browser check (Settings → Downloads)")
 )
 
 // Auto lets the Balancer choose the site.

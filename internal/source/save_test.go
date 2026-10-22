@@ -66,7 +66,7 @@ func TestSaveExtensions(t *testing.T) {
 func TestSaveRejectsNonAudio(t *testing.T) {
 	dir := t.TempDir()
 	_, err := Save(resp(200, "text/html", "", "<html>Just a moment...</html>"), filepath.Join(dir, "t"))
-	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "text/html") || !strings.Contains(err.Error(), "Just a moment") {
+	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "text/html") || strings.Contains(err.Error(), "Just a moment") {
 		t.Fatalf("err = %v", err)
 	}
 	if n := dirNames(t, dir); len(n) != 0 {

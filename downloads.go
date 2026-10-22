@@ -84,6 +84,9 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 	if o.Source != source.Auto && !a.sources.Has(o.Source) {
 		return fmt.Errorf("unknown download source %q", o.Source)
 	}
+	if o.Source == "doubledouble" && a.dd.Token() == "" {
+		return errors.New("pass the doubledouble check in Settings → Downloads first")
+	}
 	if o.Dir == "" {
 		o.Dir = a.DefaultDownloadDir()
 	}
@@ -147,17 +150,55 @@ func (a *App) PassDoubleDoubleCheck() error {
 	if browser == "" {
 		return errors.New("Chrome or Edge is needed for the doubledouble check")
 	}
-	parent := a.ctx
-	if parent == nil {
-		parent = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(parent, checkTimeout)
-	defer cancel()
-	if err := a.dd.Check(ctx, browser, filepath.Join(a.dataDir, "doubledouble-browser"), checkTrackURL); err != nil {
+	err := a.runCheck(func(ctx context.Context) error {
+		return a.dd.Check(ctx, browser, filepath.Join(a.dataDir, "doubledouble-browser"), checkTrackURL)
+	})
+	if err != nil {
 		return err
 	}
 	a.sources.Reset("doubledouble")
 	return nil
+}
+
+// runCheck runs fn under the check timeout. The ctx is not Wails' (it is never cancelled),
+// so stopCheck can end the check, and with it the browser window, on quit.
+func (a *App) runCheck(fn func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
+	defer cancel()
+	done := make(chan struct{})
+	a.checkMu.Lock()
+	if a.checkCancel != nil {
+		a.checkMu.Unlock()
+		return errors.New("a doubledouble check is already open")
+	}
+	a.checkCancel, a.checkDone = cancel, done
+	a.checkMu.Unlock()
+	defer func() {
+		a.checkMu.Lock()
+		a.checkCancel, a.checkDone = nil, nil
+		a.checkMu.Unlock()
+		close(done)
+	}()
+	err := fn(ctx)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("the doubledouble check timed out")
+	}
+	return err
+}
+
+// stopCheck cancels a running check and waits up to wait for it to return.
+func (a *App) stopCheck(wait time.Duration) {
+	a.checkMu.Lock()
+	cancel, done := a.checkCancel, a.checkDone
+	a.checkMu.Unlock()
+	if cancel == nil {
+		return
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(wait):
+	}
 }
 
 // DefaultDownloadDir is <home>/Music/sonar, or <dataDir>/downloads when the home dir is unknown.

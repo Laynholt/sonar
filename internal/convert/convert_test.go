@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestArgs(t *testing.T) {
@@ -218,5 +219,16 @@ func TestConvertFailureCleansUp(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 {
 		t.Errorf("left behind: %v", left)
+	}
+}
+
+func TestLastBytesKeepsRunesWhole(t *testing.T) {
+	s := strings.Repeat("я", 200) // 2 bytes each; a 301-byte tail starts inside a rune
+	got := lastBytes(s, 301)
+	if !utf8.ValidString(got) || len(got) > 301 || got == "" {
+		t.Fatalf("got %d bytes, valid=%v", len(got), utf8.ValidString(got))
+	}
+	if lastBytes("short", 300) != "short" {
+		t.Error("short input changed")
 	}
 }

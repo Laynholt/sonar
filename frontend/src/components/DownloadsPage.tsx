@@ -81,7 +81,7 @@ export function DownloadsPage() {
         <div className="rounded-md border overflow-hidden">
             {shown.length === 0 ? (<div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-3">
                 <Download className="h-10 w-10 opacity-40"/>
-                <p className="font-medium text-foreground/80">{t("download.empty")}</p>
+                <p className="font-medium text-foreground/80">{t(items.length > 0 ? "download.emptyTab" : "download.empty")}</p>
             </div>) : (<table className="w-full table-fixed">
                 <thead>
                     <tr className="border-b bg-muted/50">

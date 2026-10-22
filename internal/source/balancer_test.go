@@ -314,3 +314,34 @@ func TestBalancerGuardIgnoresFailures(t *testing.T) {
 		t.Fatalf("fired = %d, want 1 (only the 2 successes count)", fired)
 	}
 }
+
+func TestBalancerDoesNotPrefixTwice(t *testing.T) {
+	a := &fake{name: "a", results: []error{fmt.Errorf("a: HTTP 503: %w", ErrUnavailable)}}
+	b := &fake{name: "b", results: []error{errors.New("boom")}}
+	_, err := autoCall(func() *Balancer { x, _ := newTest(a, b); return x }())
+	if err == nil || err.Error() != "a: HTTP 503: site unavailable; b: boom" {
+		t.Fatalf("err = %v", err)
+	}
+	if !errors.Is(err, ErrUnavailable) {
+		t.Error("lost the wrapped error")
+	}
+}
+
+func TestBalancerNeedCheck(t *testing.T) {
+	a, b := &fake{name: "a"}, &fake{name: "b"}
+	bal, _ := newTest(a, b)
+	bal.NeedCheck("a")
+	if st := bal.Status()[0]; !st.NeedsCheck || st.Available || !strings.Contains(st.Reason, "Settings") {
+		t.Fatalf("status %+v", st)
+	}
+	for range 3 {
+		autoCall(bal)
+	}
+	if a.calls != 0 {
+		t.Fatalf("a called %d times while it needs the check", a.calls)
+	}
+	bal.Reset("a")
+	if !bal.Status()[0].Available {
+		t.Error("Reset did not lift NeedCheck")
+	}
+}

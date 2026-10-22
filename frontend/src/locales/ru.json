@@ -215,6 +215,7 @@
     "download.retry": "Повторить",
     "download.openFolder": "Показать в папке",
     "download.empty": "Загрузок пока нет",
+    "download.emptyTab": "Здесь пусто",
     "download.guardTitle": "Притормозите немного",
     "download.guardText": "С {site} подряд скачано {count} треков. Если продолжить, сайт может временно заблокировать загрузки. Лучше подождать 30 минут.",
     "download.guardWait": "Хорошо, подожду",

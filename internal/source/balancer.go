@@ -98,8 +98,11 @@ func (b *Balancer) Download(ctx context.Context, mode, trackURL, pathNoExt strin
 			return "", cerr
 		}
 		b.punish(name, err)
-		msgs = append(msgs, "%s: %w")
-		errs = append(errs, name, err)
+		if !strings.HasPrefix(err.Error(), name+": ") { // the clients usually prefix their own errors
+			err = fmt.Errorf("%s: %w", name, err)
+		}
+		msgs = append(msgs, "%w")
+		errs = append(errs, err)
 	}
 	return "", fmt.Errorf(strings.Join(msgs, "; "), errs...)
 }
@@ -163,6 +166,11 @@ func (b *Balancer) Status() []Status {
 		out = append(out, st)
 	}
 	return out
+}
+
+// NeedCheck pauses a source until Reset, e.g. doubledouble before its first browser check.
+func (b *Balancer) NeedCheck(name string) {
+	b.punish(name, fmt.Errorf("%s: %w", name, ErrNeedsCheck))
 }
 
 // Reset puts a paused source back in rotation, e.g. after the user passed its browser check.

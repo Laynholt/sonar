@@ -35,6 +35,10 @@ type App struct {
 	guardMu    sync.Mutex // guards guard
 	guard      DownloadGuard
 	findFFmpeg func(custom string) string // a field so tests can fake it
+
+	checkMu     sync.Mutex // guards the two fields below
+	checkCancel context.CancelFunc
+	checkDone   chan struct{} // closed when the running check has returned
 }
 
 var errNoHistory = errors.New("history is unavailable")
@@ -74,11 +78,15 @@ func (a *App) init() {
 	a.findFFmpeg = convert.FindFFmpeg
 	a.sources.OnLimit = a.onLimit
 	a.dl = download.NewQueue(a.fetch, downloadWorkers)
+	if a.dd.Token() == "" { // first run: say so before any track fails
+		a.sources.NeedCheck("doubledouble")
+	}
 }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
 func (a *App) shutdown(context.Context) {
+	a.stopCheck(5 * time.Second)
 	a.dl.Close()
 	if a.hist != nil {
 		a.hist.Close()

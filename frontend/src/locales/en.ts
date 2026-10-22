@@ -216,6 +216,7 @@ export const en = {
     "download.retry": "Retry",
     "download.openFolder": "Show in folder",
     "download.empty": "No downloads yet",
+    "download.emptyTab": "Nothing here",
     "download.guardTitle": "Slow down a little",
     "download.guardText": "{count} tracks in a row came from {site}. Keep going and the site may ban you for a while. Better to wait 30 minutes.",
     "download.guardWait": "OK, I'll wait",

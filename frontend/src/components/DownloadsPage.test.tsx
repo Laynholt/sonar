@@ -55,6 +55,13 @@ describe("DownloadsPage", () => {
         expect(refreshDownloads).toHaveBeenCalled();
     });
 
+    it("says nothing here for an empty tab while other tabs have items", async () => {
+        await show([item("q", "queued")]);
+        await act(async () => button(view.container, "Failed").click());
+        expect(view.container.textContent).toContain("Nothing here");
+        expect(view.container.textContent).not.toContain("No downloads yet");
+    });
+
     it("filters rows by tab", async () => {
         await show(all);
         const titles = () => [...view.container.querySelectorAll("tbody tr")].map((r) => r.querySelector("td:nth-child(2) div")!.textContent);

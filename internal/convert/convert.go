@@ -76,12 +76,17 @@ func Convert(ctx context.Context, ffmpeg, in, format string) (string, error) {
 	}
 	os.Remove(part)
 	os.Remove(in)
-	msg := strings.TrimSpace(stderr.String())
-	if len(msg) > 300 {
-		msg = msg[len(msg)-300:]
-	}
+	msg := lastBytes(strings.TrimSpace(stderr.String()), 300)
 	if msg == "" {
 		msg = err.Error()
 	}
 	return "", fmt.Errorf("convert to %s: %s", format, msg)
+}
+
+// lastBytes keeps the end of s, dropping a rune the cut splits.
+func lastBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[len(s)-n:], "")
 }

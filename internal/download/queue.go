@@ -281,7 +281,19 @@ func (q *Queue) takeLocked() *entry {
 			e.Status, e.Path = Skipped, p
 			continue
 		}
+		if q.busyPathLocked(e) {
+			continue // same target as a running download; wait so they don't share a .part
+		}
 		return e
 	}
 	return nil
+}
+
+func (q *Queue) busyPathLocked(e *entry) bool {
+	for _, o := range q.order {
+		if o != e && o.Status == Downloading && o.pathNoExt == e.pathNoExt {
+			return true
+		}
+	}
+	return false
 }

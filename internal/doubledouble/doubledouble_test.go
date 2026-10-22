@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -249,5 +250,73 @@ func TestDownloadStringPercent(t *testing.T) {
 	}
 	if len(seen) != 1 || seen[0] != "Packing" {
 		t.Errorf("statuses %q", seen)
+	}
+}
+
+// A server that takes each token once and hands out the next one, as the real site does.
+func TestConcurrentStartsKeepNewestToken(t *testing.T) {
+	var mu sync.Mutex
+	valid, n := "t1", 1
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond) // widen the window in which both starts hold the same token
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Query().Get("token") != valid {
+			w.Write([]byte(`{"success":false,"error":"CAPTCHA bypass token is invalid."}`))
+			return
+		}
+		n++
+		valid = "t" + strconv.Itoa(n)
+		w.Write([]byte(`{"success":true,"id":"x","captchaToken":"` + valid + `"}`))
+	})
+	c, _ := newClient(t, mux, "t1")
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = c.start(context.Background(), trackURL)
+		}()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if errs[0] != nil || errs[1] != nil {
+		t.Fatalf("errs %v %v", errs[0], errs[1])
+	}
+	if got := c.Token(); got != valid {
+		t.Errorf("token %q, want newest %q", got, valid)
+	}
+}
+
+func TestClearTokenOnlyIfUnchanged(t *testing.T) {
+	c, _ := newClient(t, http.NotFoundHandler(), "new")
+	if err := c.clearToken("old"); err != nil || c.Token() != "new" {
+		t.Fatalf("stale clear removed the token: %q, %v", c.Token(), err)
+	}
+	if err := c.clearToken("new"); err != nil || c.Token() != "" {
+		t.Fatalf("clear kept the token: %q, %v", c.Token(), err)
+	}
+}
+
+func TestWaitResolvesFileURL(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"./files/x.flac", "/files/x.flac"},
+		{"/files/x.flac", "/files/x.flac"},
+		{"https://cdn.example/x.flac", "https://cdn.example/x.flac"},
+	} {
+		c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"status":"done","url":"` + tc.in + `"}`))
+		}), "")
+		got, _, err := c.wait(context.Background(), "x", func(string) {})
+		want := tc.want
+		if strings.HasPrefix(want, "/") {
+			want = c.Base + want
+		}
+		if err != nil || got != want {
+			t.Errorf("%s: got %q, %v; want %q", tc.in, got, err, want)
+		}
 	}
 }

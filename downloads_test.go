@@ -3,13 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"sonar/internal/doubledouble"
 	"sonar/internal/download"
 	"sonar/internal/source"
 )
@@ -32,6 +37,7 @@ func newTestApp(t *testing.T, ffmpeg string) (*App, func() []fetched) {
 	var mu sync.Mutex
 	var got []fetched
 	a := &App{dataDir: t.TempDir(), findFFmpeg: func(string) string { return ffmpeg }}
+	a.dd = doubledouble.New(filepath.Join(a.dataDir, "doubledouble-token"))
 	a.sources = source.NewBalancer(time.Minute, fakeSource("lucida"), fakeSource("doubledouble"))
 	a.dl = download.NewQueue(func(_ context.Context, _ string, o download.Options, p string, _ func(string)) (string, error) {
 		mu.Lock()
@@ -274,4 +280,85 @@ func TestDownloadTracksRejectsNegativeGuardLimit(t *testing.T) {
 	if err := a.DownloadTracks(r); err == nil || !strings.Contains(err.Error(), "guard limit must be 0 or more") {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+func TestDownloadTracksFixedDoubleDoubleNeedsToken(t *testing.T) {
+	a, fetches := newTestApp(t, "ff")
+	err := a.DownloadTracks(req("", "doubledouble", "B00A3SGXAA"))
+	if err == nil || err.Error() != "pass the doubledouble check in Settings → Downloads first" {
+		t.Fatalf("err = %v", err)
+	}
+	if n := len(a.GetDownloadQueue()); n != 0 || len(fetches()) != 0 {
+		t.Fatalf("enqueued %d, fetched %d; want none", n, len(fetches()))
+	}
+	a.dd.SetToken("t")
+	if err := a.DownloadTracks(req("", "doubledouble", "B00A3SGXAA")); err != nil {
+		t.Fatalf("with a token: %v", err)
+	}
+	if err := a.DownloadTracks(req("", "lucida", "B00A3SGXAB")); err != nil {
+		t.Fatalf("lucida never needs the token: %v", err)
+	}
+}
+
+func TestInitMarksDoubleDoubleNeedsCheckWithoutToken(t *testing.T) {
+	for _, withToken := range []bool{false, true} {
+		dir := t.TempDir()
+		if withToken {
+			os.WriteFile(filepath.Join(dir, "doubledouble-token"), []byte("t"), 0o600)
+		}
+		a := &App{dataDir: dir}
+		a.init()
+		st := a.GetSourceStatus()
+		a.shutdown(nil)
+		var dd source.Status
+		for _, s := range st {
+			if s.Name == "doubledouble" {
+				dd = s
+			}
+		}
+		if dd.NeedsCheck == withToken || dd.Available != withToken {
+			t.Errorf("token=%v: status %+v", withToken, dd)
+		}
+	}
+}
+
+func TestShutdownCancelsRunningCheckAndWaits(t *testing.T) {
+	a := &App{}
+	started := make(chan struct{})
+	var returned atomic.Bool
+	errc := make(chan error, 1)
+	go func() {
+		errc <- a.runCheck(func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			time.Sleep(20 * time.Millisecond) // the browser takes a moment to go
+			returned.Store(true)
+			return ctx.Err()
+		})
+	}()
+	<-started
+	a.stopCheck(5 * time.Second)
+	if !returned.Load() {
+		t.Fatal("stopCheck returned before the check did")
+	}
+	if err := <-errc; !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v", err)
+	}
+	a.stopCheck(time.Millisecond) // nothing running: must not block or panic
+}
+
+func TestRunCheckMapsTimeoutAndRejectsSecond(t *testing.T) {
+	a := &App{}
+	err := a.runCheck(func(context.Context) error { return fmt.Errorf("x: %w", context.DeadlineExceeded) })
+	if err == nil || err.Error() != "the doubledouble check timed out" {
+		t.Fatalf("err = %v", err)
+	}
+	release := make(chan struct{})
+	started := make(chan struct{})
+	go a.runCheck(func(context.Context) error { close(started); <-release; return nil })
+	<-started
+	if err := a.runCheck(func(context.Context) error { return nil }); err == nil {
+		t.Error("second concurrent check was allowed")
+	}
+	close(release)
 }

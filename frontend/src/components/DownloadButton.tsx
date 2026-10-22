@@ -50,7 +50,7 @@ export function DownloadButton({ item, disabled, disabledReason, onDownload, onR
         </WithTip>);
     }
     if (status === "completed" || status === "skipped") {
-        const tip = status === "completed" ? item!.path : t("download.exists");
+        const tip = status === "completed" ? item!.path : item!.path || t("download.exists");
         return (<WithTip tip={tip}>
           <CircleCheck className={`m-2 h-4 w-4 ${status === "completed" ? "text-green-500" : "text-muted-foreground"}`}/>
         </WithTip>);

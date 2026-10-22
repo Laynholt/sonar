@@ -29,6 +29,7 @@ type Client struct {
 	TokenPath string
 
 	mu       sync.Mutex  // guards the token file
+	startMu  sync.Mutex  // serializes start so a rotated token is never sent twice
 	checking atomic.Bool // set by the browser check so only one runs at a time
 }
 
@@ -62,6 +63,21 @@ func (c *Client) SetToken(t string) error {
 		return nil
 	}
 	return os.WriteFile(c.TokenPath, []byte(t), 0o600)
+}
+
+// clearToken deletes the token only if it is still the one that was sent, so a stale
+// "invalid" answer cannot remove a newer token.
+func (c *Client) clearToken(sent string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, _ := os.ReadFile(c.TokenPath)
+	if strings.TrimSpace(string(b)) != sent {
+		return nil
+	}
+	if err := os.Remove(c.TokenPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // get sends a GET and returns the response with a 2xx status; the caller closes its body.
@@ -133,6 +149,8 @@ type pollAnswer struct {
 
 // start asks the site to prepare the track and returns the job id.
 func (c *Client) start(ctx context.Context, pageURL string) (string, error) {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
 	token := c.Token()
 	if token == "" {
 		return "", fmt.Errorf("doubledouble: %w", source.ErrNeedsCheck)
@@ -144,7 +162,7 @@ func (c *Client) start(ctx context.Context, pageURL string) (string, error) {
 	}
 	if !a.Success || a.ID == "" {
 		if strings.Contains(a.Error, "CAPTCHA") {
-			if err := c.SetToken(""); err != nil {
+			if err := c.clearToken(token); err != nil {
 				return "", fmt.Errorf("doubledouble: %w", err)
 			}
 			return "", fmt.Errorf("doubledouble: %w: %s", source.ErrNeedsCheck, a.Error)
@@ -174,10 +192,12 @@ func (c *Client) wait(ctx context.Context, id string, onStatus func(string)) (fi
 			if a.URL == "" {
 				return "", false, errors.New("doubledouble: finished without a file URL")
 			}
-			if rest, ok := strings.CutPrefix(a.URL, "./"); ok {
-				return c.Base + "/" + rest, false, nil
+			base, err := url.Parse(c.Base)
+			ref, rerr := url.Parse(a.URL)
+			if err != nil || rerr != nil {
+				return "", false, fmt.Errorf("doubledouble: bad file URL %q", a.URL)
 			}
-			return a.URL, false, nil
+			return base.ResolveReference(ref).String(), false, nil
 		case "error":
 			if a.Kickback {
 				return "", true, nil

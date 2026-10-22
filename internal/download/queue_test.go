@@ -413,3 +413,29 @@ func TestQueueCloseWhileHeld(t *testing.T) {
 		t.Fatal("Close hangs while held")
 	}
 }
+
+func TestQueueSameTargetWaitsForRunningDownload(t *testing.T) {
+	gate := make(chan struct{})
+	f := &fakeFetch{fn: func(ctx context.Context, _, p string) (string, error) {
+		select {
+		case <-gate:
+			return p + ".flac", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}}
+	q := newQ(t, f, 2)
+	ts := tracks("1", "2")
+	ts[1].Title = ts[0].Title // an album and its deluxe edition share a song
+	q.Enqueue(album, testOpts(t), ts)
+	waitFor(t, q, func(s []Item) bool { return find(s, "1").Status == Downloading })
+	// The second worker would start track 2 within this window if the paths were not compared.
+	for end := time.Now().Add(30 * time.Millisecond); time.Now().Before(end); time.Sleep(time.Millisecond) {
+		if n := len(f.callLog()); n != 1 {
+			t.Fatalf("calls = %d while the same target is downloading, want 1", n)
+		}
+	}
+	gate <- struct{}{}
+	gate <- struct{}{}
+	waitFor(t, q, allIn(Completed, "1", "2"))
+}

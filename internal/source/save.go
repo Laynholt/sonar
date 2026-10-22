@@ -42,8 +42,8 @@ func Save(resp *http.Response, pathNoExt string) (string, error) {
 		if mt == "application/zip" {
 			return "", errors.New("got an archive instead of one track")
 		}
-		head, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
-		return "", fmt.Errorf("%w: got %s instead of audio: %q", ErrUnavailable, ct, head)
+		// The body (often an HTML page) stays out of the user-facing error.
+		return "", fmt.Errorf("%w: got %s instead of audio", ErrUnavailable, ct)
 	}
 
 	final := pathNoExt + "." + ext
