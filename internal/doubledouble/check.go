@@ -5,23 +5,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
-	"github.com/gorilla/websocket"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 // ErrCheckClosed means the user closed the check window before passing the check.
 var ErrCheckClosed = errors.New("the check window was closed before the check was passed")
 
-// pollEvery is how often watch reads the page; a variable so tests can speed it up.
+// pollEvery is how often waitToken reads the profile; a variable so tests can speed it up.
 var pollEvery = time.Second
 
 // FindBrowser returns the path of Chrome, else Edge, or "" when neither is installed.
@@ -62,248 +63,159 @@ func FindBrowser() string {
 	return ""
 }
 
-// Check opens a normal, visible browser window on the site for trackURL. The user passes the
-// check there; the app only reads the token the site stores, denies downloads and closes the window.
+// Check opens a normal, visible browser window on the site for trackURL, with no debugging
+// port, so Cloudflare sees a plain browser. The user passes the check there; the app only reads
+// the token the site saves in the profile on disk, then closes the window.
 func (c *Client) Check(ctx context.Context, browser, profileDir, trackURL string) error {
 	if !c.checking.CompareAndSwap(false, true) {
 		return errors.New("a doubledouble check is already open")
 	}
 	defer c.checking.Store(false)
 
-	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+	downloads := filepath.Join(profileDir, "check-downloads")
+	if err := prepareProfile(profileDir, downloads); err != nil {
 		return err
 	}
-	if err := os.Remove(filepath.Join(profileDir, "DevToolsActivePort")); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := clearSession(profileDir); err != nil {
-		return err
-	}
+	defer os.RemoveAll(downloads) // runs after the browser is gone: a file the site sent there is not kept
 	cmd := exec.Command(browser,
-		"--user-data-dir="+profileDir, "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check",
-		"--new-window", c.Base+"/?url="+url.QueryEscape(trackURL+"?musicTerritory=US"))
+		"--user-data-dir="+profileDir, "--disable-extensions", "--disable-sync", "--no-first-run",
+		"--no-default-browser-check", "--new-window", c.Base+"/?url="+url.QueryEscape(trackURL+"?musicTerritory=US"))
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start browser: %w", err)
 	}
 	exited := make(chan struct{})
 	go func() { cmd.Wait(); close(exited) }()
-	defer func() {
-		select {
-		case <-exited:
-		case <-time.After(3 * time.Second):
-			cmd.Process.Kill()
-		}
-	}()
+	defer stopBrowser(cmd.Process, exited)
 
-	pctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		select {
-		case <-exited:
-			cancel()
-		case <-pctx.Done():
-		}
-	}()
-	port, browserPath, err := readDevToolsPort(pctx, profileDir)
+	tok, err := c.waitToken(ctx, profileDir, exited)
 	if err != nil {
-		select {
-		case <-exited:
-			return ErrCheckClosed
-		default:
+		return err
+	}
+	if err := c.SetToken(tok); err != nil {
+		return fmt.Errorf("doubledouble: saving the check token: %w", err)
+	}
+	return nil
+}
+
+// prepareProfile drops the saved tabs and the old page storage (so neither a killed window
+// nor an old token comes back), marks the last exit clean so no "restore pages" offer shows,
+// and points browser downloads at downloadDir. Cookies stay, so Cloudflare may remember the browser.
+func prepareProfile(profileDir, downloadDir string) error {
+	def := filepath.Join(profileDir, "Default")
+	for _, dir := range []string{"Sessions", "Session Storage"} {
+		if err := os.RemoveAll(filepath.Join(def, dir)); err != nil {
 			return err
 		}
 	}
-	endpoint := "http://127.0.0.1:" + strconv.Itoa(port)
-	_, err = c.watch(ctx, endpoint, browserPath, exited)
-	return err
-}
-
-// clearSession drops the saved tabs, so a window that was killed last time is not restored
-// next to the new one; cookies stay, so Cloudflare may remember the browser.
-func clearSession(profileDir string) error {
-	return os.RemoveAll(filepath.Join(profileDir, "Default", "Sessions"))
-}
-
-// readDevToolsPort waits for the browser to write DevToolsActivePort: line 1 is the port, line 2 the browser socket path.
-func readDevToolsPort(ctx context.Context, profileDir string) (int, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	t := time.NewTicker(100 * time.Millisecond)
-	defer t.Stop()
-	for {
-		if b, err := os.ReadFile(filepath.Join(profileDir, "DevToolsActivePort")); err == nil {
-			if lines := strings.Fields(string(b)); len(lines) >= 2 {
-				if port, err := strconv.Atoi(lines[0]); err == nil {
-					return port, lines[1], nil
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return 0, "", errors.New("the browser did not report its debugging port")
-			}
-			return 0, "", ctx.Err()
-		case <-t.C:
-		}
+	if err := os.MkdirAll(def, 0o755); err != nil {
+		return err
 	}
+	path := filepath.Join(def, "Preferences")
+	prefs := map[string]any{}
+	if b, err := os.ReadFile(path); err == nil {
+		json.Unmarshal(b, &prefs) // a broken file is replaced
+	}
+	section := func(name string) map[string]any {
+		m, ok := prefs[name].(map[string]any)
+		if !ok {
+			m = map[string]any{}
+			prefs[name] = m
+		}
+		return m
+	}
+	dl := section("download")
+	dl["default_directory"], dl["prompt_for_download"], dl["directory_upgrade"] = downloadDir, false, true
+	profile := section("profile")
+	profile["exit_type"], profile["exited_cleanly"] = "Normal", true
+	b, err := json.Marshal(prefs)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
 }
 
-// watch reads sessionStorage.captchaToken from the check page once per pollEvery until it is set.
-// It denies downloads on the browser socket, then stores the token and closes the browser over
-// that same socket, so the denial holds until the window is gone.
-func (c *Client) watch(ctx context.Context, endpoint, browserPath string, exited <-chan struct{}) (string, error) {
-	var browser, page *cdpConn
-	defer func() {
-		for _, x := range []*cdpConn{browser, page} {
-			if x != nil {
-				x.ws.Close()
-			}
-		}
-	}()
-	hc := &http.Client{Timeout: 3 * time.Second} // loopback DevTools endpoint: no site proxy or UA needed
-	pageSeen := false
-	step := func() (string, error) {
-		if browser == nil {
-			b, err := dialCDP(ctx, wsURL(endpoint)+browserPath)
-			if err != nil {
-				return "", nil // not listening yet
-			}
-			browser = b
-			if _, err := b.call("Browser.setDownloadBehavior", map[string]string{"behavior": "deny"}); err != nil {
-				return "", fmt.Errorf("deny downloads: %w", err)
-			}
-		}
-		if page == nil {
-			wsPage, err := findPage(ctx, hc, endpoint, c.Base)
-			if err != nil || wsPage == "" {
-				if pageSeen {
-					return "", ErrCheckClosed // the browser is gone, or the tab was closed
-				}
-				return "", nil
-			}
-			pageSeen = true
-			if page, err = dialCDP(ctx, wsPage); err != nil {
-				return "", nil
-			}
-		}
-		res, err := page.call("Runtime.evaluate", map[string]any{"expression": "sessionStorage.getItem('captchaToken')", "returnByValue": true})
-		if err != nil {
-			page.ws.Close()
-			page = nil // re-find the page next tick
-			return "", nil
-		}
-		var r struct {
-			Result struct {
-				Type  string `json:"type"`
-				Value string `json:"value"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(res, &r) == nil && r.Result.Type == "string" {
-			return r.Result.Value, nil
-		}
-		return "", nil
-	}
-
+// waitToken reads the token from the profile's page storage once per pollEvery until the site saves it.
+func (c *Client) waitToken(ctx context.Context, profileDir string, exited <-chan struct{}) (string, error) {
+	origin := strings.TrimSuffix(c.Base, "/") + "/"
 	t := time.NewTicker(pollEvery)
 	defer t.Stop()
 	for {
-		tok, err := step()
-		if tok != "" {
-			saveErr := c.SetToken(tok)
-			browser.call("Browser.close", nil) // best effort: Check's deferred kill covers failure
-			if saveErr != nil {
-				return "", fmt.Errorf("doubledouble: saving the check token: %w", saveErr)
-			}
+		if tok := readToken(profileDir, origin); tok != "" {
 			return tok, nil
-		}
-		if err != nil {
-			select {
-			case <-exited:
-				return "", ErrCheckClosed
-			default:
-				return "", err
-			}
 		}
 		select {
 		case <-ctx.Done():
-			if browser != nil {
-				browser.call("Browser.close", nil) // close it cleanly, so it does not offer to restore the tab
-			}
 			return "", ctx.Err()
 		case <-exited:
+			if tok := readToken(profileDir, origin); tok != "" { // saved on the way out
+				return tok, nil
+			}
 			return "", ErrCheckClosed
 		case <-t.C:
 		}
 	}
 }
 
-// findPage returns the debugger socket of the first page open on the site, or "".
-func findPage(ctx context.Context, hc *http.Client, endpoint, base string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/json/list", http.NoBody)
+// readToken returns sessionStorage.captchaToken of origin from the profile on disk, or "".
+// Chromium keeps sessionStorage in a leveldb whose LOCK the running browser holds, so it
+// reads a copy without the LOCK. Keys: "namespace-<tab>-<origin>" -> map id, "map-<id>-<key>" -> UTF-16LE value.
+func readToken(profileDir, origin string) string {
+	src := filepath.Join(profileDir, "Default", "Session Storage")
+	entries, err := os.ReadDir(src)
 	if err != nil {
-		return "", err
+		return ""
 	}
-	resp, err := hc.Do(req)
+	tmp, err := os.MkdirTemp("", "sonar-ss-")
 	if err != nil {
-		return "", err
+		return ""
 	}
-	defer resp.Body.Close()
-	var targets []struct{ Type, URL, WebSocketDebuggerURL string }
-	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
-		return "", err
-	}
-	for _, tg := range targets {
-		if tg.Type == "page" && strings.HasPrefix(tg.URL, base) {
-			return tg.WebSocketDebuggerURL, nil
-		}
-	}
-	return "", nil
-}
-
-func wsURL(endpoint string) string { return "ws" + strings.TrimPrefix(endpoint, "http") }
-
-type cdpConn struct {
-	ws *websocket.Conn
-	n  int
-}
-
-func dialCDP(ctx context.Context, u string) (*cdpConn, error) {
-	ws, _, err := websocket.DefaultDialer.DialContext(ctx, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &cdpConn{ws: ws}, nil
-}
-
-// call sends one DevTools command and returns its result, skipping events until the reply with the same id.
-func (c *cdpConn) call(method string, params any) (json.RawMessage, error) {
-	c.n++
-	c.ws.SetReadDeadline(time.Now().Add(5 * time.Second))
-	c.ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	if params == nil {
-		params = struct{}{} // Chromium may reject "params":null
-	}
-	if err := c.ws.WriteJSON(map[string]any{"id": c.n, "method": method, "params": params}); err != nil {
-		return nil, err
-	}
-	for {
-		var m struct {
-			ID     int             `json:"id"`
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if err := c.ws.ReadJSON(&m); err != nil {
-			return nil, err
-		}
-		if m.ID != c.n {
+	defer os.RemoveAll(tmp)
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == "LOCK" {
 			continue
 		}
-		if m.Error != nil {
-			return nil, errors.New(m.Error.Message)
+		b, err := os.ReadFile(filepath.Join(src, e.Name()))
+		if err != nil || os.WriteFile(filepath.Join(tmp, e.Name()), b, 0o600) != nil {
+			return "" // mid-write; the next poll tries again
 		}
-		return m.Result, nil
+	}
+	db, err := leveldb.OpenFile(tmp, &opt.Options{ReadOnly: true, ErrorIfMissing: true, Strict: opt.NoStrict})
+	if err != nil {
+		return ""
+	}
+	defer db.Close()
+	it := db.NewIterator(util.BytesPrefix([]byte("namespace-")), nil)
+	defer it.Release()
+	for it.Next() {
+		if !strings.HasSuffix(string(it.Key()), "-"+origin) {
+			continue
+		}
+		v, err := db.Get([]byte("map-"+string(it.Value())+"-captchaToken"), nil)
+		if err != nil || len(v)%2 != 0 {
+			continue
+		}
+		u := make([]uint16, len(v)/2)
+		for i := range u {
+			u[i] = uint16(v[2*i]) | uint16(v[2*i+1])<<8
+		}
+		if tok := string(utf16.Decode(u)); tok != "" {
+			return tok
+		}
+	}
+	return ""
+}
+
+// stopBrowser asks the browser to close like a user would, then kills it if it is still open after 3 s.
+func stopBrowser(p *os.Process, exited <-chan struct{}) {
+	select {
+	case <-exited:
+		return
+	default:
+	}
+	askToClose(p)
+	select {
+	case <-exited:
+	case <-time.After(3 * time.Second):
+		p.Kill()
 	}
 }
