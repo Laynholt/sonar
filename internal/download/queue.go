@@ -70,11 +70,13 @@ type Resolution struct {
 // It must return promptly once ctx is done: Close waits for it.
 type Resolve func(ctx context.Context, tracks []Track) []Resolution
 
-// Sites are the download sites, one worker each. Ready is called under the queue lock,
-// so it must not call back into the Queue.
+// Sites are the download sites, one worker each. Ready and Usable are called under the queue lock,
+// so they must not call back into the Queue.
 type Sites interface {
 	Names() []string
 	Ready(name string) bool
+	// Usable is false while only the user can make the site ready again, e.g. by passing a browser check.
+	Usable(name string) bool
 }
 
 // ErrSiteDown marks a Fetch error that is the site's fault, not the track's: in auto mode the track waits for another site.
@@ -102,7 +104,7 @@ type Queue struct {
 	fetch      Fetch
 	resolve    Resolve
 	sites      Sites
-	nSites     int
+	names      []string
 	base       context.Context // parent of every Resolve call; cancelled by Close
 	cancelBase context.CancelFunc
 	mu         sync.Mutex
@@ -127,7 +129,7 @@ type Queue struct {
 // NewQueue starts one worker per site and the matcher. A nil resolve fails every Spotify track with "no match result".
 func NewQueue(fetch Fetch, resolve Resolve, sites Sites) *Queue {
 	names := sites.Names()
-	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, nSites: len(names), byID: map[string]*entry{}, busy: map[string]bool{}}
+	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, names: names, byID: map[string]*entry{}, busy: map[string]bool{}}
 	q.base, q.cancelBase = context.WithCancel(context.Background())
 	q.cond = sync.NewCond(&q.mu)
 	q.wg.Add(len(names) + 1)
@@ -485,23 +487,30 @@ func (q *Queue) worker(site string) {
 			e.Status = Cancelled
 		case !e.auto():
 			e.Status, e.Error = Failed, err.Error()
-		case errors.Is(err, ErrSiteDown): // the site's gate keeps it off this track until it is back
-			e.Status, e.Message, e.Bytes, e.Size = Queued, "", 0, 0
 		default:
-			msg := err.Error()
-			if !strings.HasPrefix(msg, site+": ") { // the balancer usually prefixes it already
-				msg = site + ": " + msg
-			}
-			e.tried, e.errs = append(e.tried, site), append(e.errs, msg)
 			e.Status, e.Message, e.Bytes, e.Size = Queued, "", 0, 0
-			if len(e.tried) >= q.nSites {
-				e.Status, e.Error = Failed, strings.Join(e.errs, "; ")
+			errs := append(slices.Clip(e.errs), err.Error())
+			if !errors.Is(err, ErrSiteDown) { // a site down is not tried: its gate keeps it off this track until it is back
+				msg := err.Error()
+				if !strings.HasPrefix(msg, site+": ") { // the balancer usually prefixes it already
+					msg = site + ": " + msg
+				}
+				e.tried, e.errs = append(e.tried, site), append(e.errs, msg)
+				errs = e.errs
+			}
+			if !q.usableLocked(e) {
+				e.Status, e.Error = Failed, strings.Join(errs, "; ")
 			}
 		}
 		q.cond.Broadcast() // the track may be back in the queue, and its path is free
 		q.mu.Unlock()
 		q.notify()
 	}
+}
+
+// usableLocked reports whether a site that has not tried e may still take it without the user's help.
+func (q *Queue) usableLocked(e *entry) bool {
+	return slices.ContainsFunc(q.names, func(n string) bool { return !slices.Contains(e.tried, n) && q.sites.Usable(n) })
 }
 
 // auto reports whether any site may take the track; otherwise only o.Source may.

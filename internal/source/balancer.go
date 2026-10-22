@@ -87,6 +87,14 @@ func (b *Balancer) Ready(name string) bool {
 	return s != nil && !b.active(s.pause) && !s.asking && s.guardUntil.IsZero()
 }
 
+// Usable reports whether name can become Ready without the user: false only while it waits for a browser check.
+func (b *Balancer) Usable(name string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.sites[name]
+	return s != nil && !s.pause.needsCheck
+}
+
 // Fetch downloads through name whether or not it is Ready, and updates its count and pauses.
 func (b *Balancer) Fetch(ctx context.Context, name, trackURL, pathNoExt string, onStatus func(string)) (string, error) {
 	i := slices.IndexFunc(b.sources, func(s Source) bool { return s.Name() == name })

@@ -825,16 +825,17 @@ func TestStaleResolutionDropped(t *testing.T) {
 	}
 }
 
-// fakeSites has fixed names and settable readiness.
+// fakeSites has fixed names and settable readiness; every site is Usable unless marked otherwise.
 type fakeSites struct {
-	names []string
-	mu    sync.Mutex
-	ready map[string]bool
-	asked int // Ready calls
+	names    []string
+	mu       sync.Mutex
+	ready    map[string]bool
+	unusable map[string]bool
+	asked    int // Ready calls
 }
 
 func newSites(names ...string) *fakeSites {
-	s := &fakeSites{names: names, ready: map[string]bool{}}
+	s := &fakeSites{names: names, ready: map[string]bool{}, unusable: map[string]bool{}}
 	for _, n := range names {
 		s.ready[n] = true
 	}
@@ -859,10 +860,23 @@ func (s *fakeSites) Ready(name string) bool {
 	return s.ready[name]
 }
 
+func (s *fakeSites) Usable(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.unusable[name]
+}
+
 func (s *fakeSites) set(name string, ready bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ready[name] = ready
+}
+
+// needCheck makes name neither ready nor usable, as a site waiting for the user's browser check.
+func (s *fakeSites) needCheck(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ready[name], s.unusable[name] = false, true
 }
 
 // siteLog records which site each fetch ran on.
@@ -1048,6 +1062,38 @@ func TestTrackErrorTriesOtherSiteThenFails(t *testing.T) {
 	q.Retry("1")
 	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Error != "" {
 		t.Errorf("after Retry: %+v", it)
+	}
+}
+
+// a fails the track and b waits for a browser check only the user can pass: the track fails instead of waiting forever.
+func TestTrackErrorFailsWhenNoOtherSiteUsable(t *testing.T) {
+	s := newSites("a", "b")
+	s.needCheck("b")
+	log := &siteLog{}
+	q := siteQ(t, s, log, func(_ context.Context, site, _ string) error { return errors.New("no stream on " + site) })
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	if it := find(waitFor(t, q, allIn(Failed, "1")), "1"); it.Error != "a: no stream on a" || log.String() != "a" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+}
+
+// a fails the track, then b goes down needing a check while trying it: nothing is left to try it, so it fails.
+func TestSiteDownFailsWhenNoOtherSiteUsable(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("b", false) // so a goes first
+	log := &siteLog{}
+	q := siteQ(t, s, log, func(_ context.Context, site, _ string) error {
+		if site == "a" {
+			s.set("b", true)
+			return errors.New("no stream")
+		}
+		s.needCheck("b")
+		return siteDown("b")
+	})
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	it := find(waitFor(t, q, allIn(Failed, "1")), "1")
+	if it.Error != "a: no stream; "+siteDown("b").Error() || log.String() != "a b" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
 	}
 }
 

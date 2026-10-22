@@ -155,6 +155,25 @@ func TestNeedCheck(t *testing.T) {
 	}
 }
 
+// Usable is false only while a site waits for the user's browser check; a cooldown or the guard ends without them.
+func TestUsable(t *testing.T) {
+	bal, _ := newTest(&fake{name: "a", results: []error{fmt.Errorf("%w: down", ErrUnavailable)}}, &fake{name: "b"})
+	fetch(bal, "a")
+	bal.SetGuard(1, time.Hour)
+	mustFetch(t, bal, "b")
+	if bal.Ready("a") || bal.Ready("b") || !bal.Usable("a") || !bal.Usable("b") {
+		t.Fatal("a cooling down and b asking must stay usable")
+	}
+	bal.NeedCheck("a")
+	if bal.Usable("a") || bal.Usable("nope") {
+		t.Fatal("a waiting for a check, or an unknown site, is usable")
+	}
+	bal.Reset("a")
+	if !bal.Usable("a") {
+		t.Fatal("a not usable after Reset")
+	}
+}
+
 func TestFetchSuccessClearsPause(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a", results: []error{fmt.Errorf("%w: down", ErrUnavailable)}})
 	fetch(bal, "a")
