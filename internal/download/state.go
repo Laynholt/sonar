@@ -27,7 +27,7 @@ type State struct {
 func (q *Queue) Pending() []Saved {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	var out []Saved
+	out := []Saved{} // "items": [] in the file, never null
 	for _, e := range q.order {
 		switch e.Status {
 		case Matching, Queued, Downloading, Review, Failed:
@@ -114,6 +114,9 @@ func SaveState(path string, s State) error {
 		return err
 	}
 	_, err = f.Write(raw)
+	if err == nil {
+		err = f.Sync() // the rename must not land before the data does
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}

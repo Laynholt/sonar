@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -151,6 +152,37 @@ func TestClearKeepsCompleted(t *testing.T) {
 	}
 }
 
+func TestClearedDownloadKeepsItsPathBusy(t *testing.T) {
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock() // a failing test must not leave Close waiting on the fetch
+	var calls atomic.Int32
+	f := &fakeFetch{fn: func(ctx context.Context, _, p string) (string, error) {
+		if calls.Add(1) == 1 {
+			<-release // a fetch slow to notice its cancel, still writing the .part
+			return "", context.Canceled
+		}
+		return p + ".flac", nil
+	}}
+	q := newQ(t, f, 2)
+	o := testOpts(t)
+	q.Enqueue(album, o, tracks("D"))
+	waitFor(t, q, allIn(Downloading, "D"))
+	q.Clear()
+	q.Enqueue(album, o, tracks("D"))
+	// The other site is free, so it would start D within this window if the cleared download's path were not busy.
+	for end := time.Now().Add(30 * time.Millisecond); time.Now().Before(end); time.Sleep(time.Millisecond) {
+		if n := len(f.callLog()); n != 1 {
+			t.Fatalf("calls = %d while the cleared download still runs, want 1", n)
+		}
+	}
+	unblock()
+	waitFor(t, q, allIn(Completed, "D"))
+	if n := len(f.callLog()); n != 2 {
+		t.Errorf("calls = %d, want 2", n)
+	}
+}
+
 func TestOnChangeNotCalledForProgress(t *testing.T) {
 	gate := make(chan struct{})
 	f := &fakeFetch{fn: func(ctx context.Context, _, p string) (string, error) {
@@ -186,6 +218,7 @@ func TestOnChangeSilentAfterClose(t *testing.T) {
 	q.OnChange = func() { n.Add(1) }
 	q.Enqueue(album, testOpts(t), tracks("A", "B"))
 	waitFor(t, q, allIn(Downloading, "A"))
+	waitFor(t, q, func([]Item) bool { return n.Load() >= 2 }) // Enqueue, then the worker's notify after taking A
 	before := n.Load()
 	q.Close() // its cancellations must not overwrite the save made before it
 	if got := n.Load(); got != before {
@@ -230,5 +263,16 @@ func TestLoadStateCorrupt(t *testing.T) {
 	os.WriteFile(path, []byte("{\"version\": 1, \"items\": ["), 0o644)
 	if _, err := LoadState(path); err == nil {
 		t.Error("corrupt file loaded without error")
+	}
+}
+
+func TestPendingEmptyIsNotNil(t *testing.T) {
+	q := newQ(t, &fakeFetch{}, 1)
+	path := filepath.Join(t.TempDir(), "queue.json")
+	if err := SaveState(path, State{Version: 1, Items: q.Pending()}); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), `"items": []`) {
+		t.Errorf("file:\n%s", raw)
 	}
 }
