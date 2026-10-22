@@ -87,6 +87,7 @@ type Fetch func(ctx context.Context, site, amazonID string, o Options, pathNoExt
 
 type entry struct {
 	Item
+	c         Collection
 	o         Options
 	pathNoExt string
 	cancel    context.CancelFunc // set while Downloading
@@ -114,12 +115,19 @@ type Queue struct {
 	held      bool        // workers and the matcher start nothing while held
 	heldUntil time.Time   // zero = until Resume
 	holdTimer *time.Timer // auto-resume for a timed hold
+
+	busy map[string]bool // pathNoExt of each running download, kept after Clear drops its entry
+
+	// OnChange, if set before the first Enqueue or Restore, is called outside the lock after a status change,
+	// Enqueue, Choose, Skip, Cancel, Retry, Clear or ClearFinished, never for progress and never after Close.
+	// It may call back into the Queue but should return quickly.
+	OnChange func()
 }
 
 // NewQueue starts one worker per site and the matcher. A nil resolve fails every Spotify track with "no match result".
 func NewQueue(fetch Fetch, resolve Resolve, sites Sites) *Queue {
 	names := sites.Names()
-	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, nSites: len(names), byID: map[string]*entry{}}
+	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, nSites: len(names), byID: map[string]*entry{}, busy: map[string]bool{}}
 	q.base, q.cancelBase = context.WithCancel(context.Background())
 	q.cond = sync.NewCond(&q.mu)
 	q.wg.Add(len(names) + 1)
@@ -139,6 +147,7 @@ func (q *Queue) Wake() {
 
 // Enqueue adds tracks and releases a hold. A track already matching, in review, queued or downloading is left as it is.
 func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.closed {
@@ -154,7 +163,7 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 			q.byID[t.ID] = e
 			q.order = append(q.order, e)
 		}
-		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t}, o: o, pathNoExt: PathNoExt(t, c, o), attempt: e.attempt}
+		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t}, c: c, o: o, pathNoExt: PathNoExt(t, c, o), attempt: e.attempt}
 		if t.Service == "" || t.Service == "amazon" {
 			e.AmazonID = t.ID
 		}
@@ -185,6 +194,7 @@ func (q *Queue) Snapshot() []Item {
 
 // Choose downloads amazonID for an item in review.
 func (q *Queue) Choose(id, amazonID string) error {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	e := q.byID[id]
@@ -201,6 +211,7 @@ func (q *Queue) Choose(id, amazonID string) error {
 
 // Skip gives up on an item in review: not_found when nothing was offered, ignored otherwise.
 func (q *Queue) Skip(id string) {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if e := q.byID[id]; e != nil && e.Status == Review {
@@ -212,6 +223,7 @@ func (q *Queue) Skip(id string) {
 }
 
 func (q *Queue) Cancel(id string) {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if e := q.byID[id]; e != nil {
@@ -220,6 +232,7 @@ func (q *Queue) Cancel(id string) {
 }
 
 func (q *Queue) CancelAll() {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.cancelAllLocked()
@@ -244,6 +257,7 @@ func (e *entry) stop() {
 
 // Retry re-queues a failed or cancelled item with its stored options and path.
 func (q *Queue) Retry(id string) {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if e := q.byID[id]; e != nil {
@@ -252,6 +266,7 @@ func (q *Queue) Retry(id string) {
 }
 
 func (q *Queue) RetryFailed() {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for _, e := range q.order {
@@ -276,6 +291,7 @@ func (q *Queue) requeue(e *entry) {
 
 // ClearFinished drops everything that is not matching, in review, queued or downloading.
 func (q *Queue) ClearFinished() {
+	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	kept := q.order[:0]
@@ -331,6 +347,17 @@ func (q *Queue) releaseLocked() {
 		q.holdTimer = nil
 	}
 	q.held, q.heldUntil = false, time.Time{}
+}
+
+// notify calls OnChange unless the queue is closed: Close's cancellations must not overwrite the save made before it.
+// Callers must not hold q.mu.
+func (q *Queue) notify() {
+	q.mu.Lock()
+	closed := q.closed
+	q.mu.Unlock()
+	if !closed && q.OnChange != nil {
+		q.OnChange()
+	}
 }
 
 // Close cancels everything and waits for the workers and the matcher.
@@ -400,6 +427,7 @@ func (q *Queue) matcher() {
 		}
 		q.cond.Broadcast()
 		q.mu.Unlock()
+		q.notify()
 	}
 }
 
@@ -425,8 +453,10 @@ func (q *Queue) worker(site string) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), trackTimeout)
 		e.Status, e.cancel, e.Site = Downloading, cancel, site
+		q.busy[e.pathNoExt] = true
 		id := e.AmazonID
 		q.mu.Unlock()
+		q.notify()
 		ctx = WithProgress(ctx, func(done, total int64) {
 			q.mu.Lock()
 			defer q.mu.Unlock()
@@ -447,6 +477,7 @@ func (q *Queue) worker(site string) {
 
 		q.mu.Lock()
 		e.cancel = nil
+		delete(q.busy, e.pathNoExt)
 		switch {
 		case err == nil:
 			e.Status, e.Path = Completed, path
@@ -469,6 +500,7 @@ func (q *Queue) worker(site string) {
 		}
 		q.cond.Broadcast() // the track may be back in the queue, and its path is free
 		q.mu.Unlock()
+		q.notify()
 	}
 }
 
@@ -495,19 +527,10 @@ func (q *Queue) takeLocked(site string) *entry {
 		} else if e.o.Source != site {
 			continue
 		}
-		if q.busyPathLocked(e) {
+		if q.busy[e.pathNoExt] {
 			continue // same target as a running download; wait so they don't share a .part
 		}
 		return e
 	}
 	return nil
-}
-
-func (q *Queue) busyPathLocked(e *entry) bool {
-	for _, o := range q.order {
-		if o != e && o.Status == Downloading && o.pathNoExt == e.pathNoExt {
-			return true
-		}
-	}
-	return false
 }
