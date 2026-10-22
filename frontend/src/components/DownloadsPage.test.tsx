@@ -1,0 +1,138 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useDownloads } from "@/hooks/useDownloads";
+import { cancelAllDownloads, cancelDownload, clearFinishedDownloads, guardContinue, refreshDownloads, retryDownload, retryFailedDownloads, type DownloadItem } from "@/lib/downloads";
+import { getSettings } from "@/lib/settings";
+import { toastWithSound as toast } from "@/lib/toast-with-sound";
+import { GetSourceStatus, OpenFolder } from "../../wailsjs/go/main/App";
+import { DownloadsPage } from "./DownloadsPage";
+import { TooltipProvider } from "./ui/tooltip";
+import { button, mount } from "../test/render";
+
+vi.mock("../../wailsjs/go/main/App", () => ({ OpenFolder: vi.fn(), GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn() }));
+vi.mock("@/hooks/useDownloads", () => ({ useDownloads: vi.fn() }));
+vi.mock("@/lib/downloads", () => ({
+    cancelDownload: vi.fn(), cancelAllDownloads: vi.fn(), retryDownload: vi.fn(), retryFailedDownloads: vi.fn(),
+    clearFinishedDownloads: vi.fn(), guardContinue: vi.fn(), refreshDownloads: vi.fn(),
+}));
+vi.mock("@/lib/settings", async (original) => ({ ...await original<typeof import("@/lib/settings")>(), getSettings: vi.fn() }));
+vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
+
+const item = (id: string, status: string, extra: Partial<DownloadItem> = {}) =>
+    ({ id, queue_id: "album:x", track: { title: `Song ${id}`, artist: "Artist" }, status, message: "", path: "", error: "", ...extra }) as DownloadItem;
+const all = [
+    item("q", "queued"),
+    item("d", "downloading", { message: "lucida: Ripping track..." }),
+    item("c", "completed", { path: "C:\\Music\\c.flac" }),
+    item("s", "skipped", { path: "C:\\Music\\s.flac" }),
+    item("f", "failed", { error: "boom" }),
+    item("x", "cancelled"),
+];
+const noGuard = { site: "", count: 0, asking: false, paused_until: 0 };
+let view: Awaited<ReturnType<typeof mount>>;
+const show = async (items: DownloadItem[], guard: Record<string, unknown> = noGuard, activeCount = 2) => {
+    vi.mocked(useDownloads).mockReturnValue({ items, byTrackId: new Map(), activeCount, guard } as unknown as ReturnType<typeof useDownloads>);
+    view = await mount(<TooltipProvider><DownloadsPage/></TooltipProvider>);
+};
+const rows = () => view.container.querySelectorAll("tbody tr").length;
+const row = (id: string) => [...view.container.querySelectorAll("tbody tr")].find((r) => r.textContent?.includes(`Song ${id}`))!;
+const press = (el: Element, label: string) => act(async () => el.querySelector<HTMLElement>(`[aria-label="${label}"]`)!.click());
+
+beforeEach(() => {
+    vi.resetAllMocks();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(getSettings).mockReturnValue({ downloadSource: "auto" } as ReturnType<typeof getSettings>);
+    vi.mocked(OpenFolder).mockResolvedValue(undefined);
+    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "doubledouble", available: false, needs_check: true, reason: "" }]);
+    for (const action of [cancelDownload, cancelAllDownloads, retryDownload, retryFailedDownloads, clearFinishedDownloads, guardContinue]) vi.mocked(action).mockResolvedValue(undefined);
+});
+afterEach(async () => { await view.unmount(); vi.unstubAllGlobals(); });
+
+describe("DownloadsPage", () => {
+    it("refreshes the queue when it opens", async () => {
+        await show(all);
+        expect(refreshDownloads).toHaveBeenCalled();
+    });
+
+    it("filters rows by tab", async () => {
+        await show(all);
+        expect(rows()).toBe(6);
+        await act(async () => button(view.container, "Active").click());
+        expect(rows()).toBe(2);
+        await act(async () => button(view.container, "Done").click());
+        expect(rows()).toBe(2);
+        await act(async () => button(view.container, "Failed").click());
+        expect(rows()).toBe(2);
+    });
+
+    it("shows the translated status and the live message", async () => {
+        await show(all);
+        for (const label of ["Queued", "Downloading", "Completed", "Skipped", "Failed", "Cancelled"]) expect(view.container.textContent).toContain(label);
+        expect(view.container.textContent).toContain("lucida: Ripping track...");
+        expect(view.container.querySelector('[title="boom"]')).not.toBeNull();
+    });
+
+    it("retries a failed row, cancels a downloading row, opens the folder of a completed one", async () => {
+        await show(all);
+        await press(row("f"), "Retry");
+        expect(retryDownload).toHaveBeenCalledWith("f");
+        await press(row("d"), "Stop");
+        expect(cancelDownload).toHaveBeenCalledWith("d");
+        await press(row("c"), "Show in folder");
+        expect(OpenFolder).toHaveBeenCalledWith("C:\\Music\\c.flac");
+    });
+
+    it("reports a failed row action as a toast", async () => {
+        vi.mocked(retryDownload).mockRejectedValue("nope");
+        await show(all);
+        await press(row("f"), "Retry");
+        expect(toast.error).toHaveBeenCalledWith("nope");
+    });
+
+    it("runs the header actions", async () => {
+        await show(all);
+        await act(async () => button(view.container, "Retry failed").click());
+        await act(async () => button(view.container, "Stop all").click());
+        await act(async () => button(view.container, "Clear finished").click());
+        expect(retryFailedDownloads).toHaveBeenCalled();
+        expect(cancelAllDownloads).toHaveBeenCalled();
+        expect(clearFinishedDownloads).toHaveBeenCalled();
+    });
+
+    it("disables the header actions that have nothing to act on", async () => {
+        await show([item("c", "completed", { path: "p" })], noGuard, 0);
+        expect(button(view.container, "Retry failed").disabled).toBe(true);
+        expect(button(view.container, "Stop all").disabled).toBe(true);
+        expect(button(view.container, "Clear finished").disabled).toBe(false);
+    });
+
+    it("offers the check only in doubledouble mode", async () => {
+        vi.mocked(getSettings).mockReturnValue({ downloadSource: "doubledouble" } as ReturnType<typeof getSettings>);
+        await show(all);
+        expect(button(view.container, "Pass check")).toBeTruthy();
+        await view.unmount();
+        vi.mocked(getSettings).mockReturnValue({ downloadSource: "auto" } as ReturnType<typeof getSettings>);
+        await show(all);
+        expect([...view.container.querySelectorAll("button")].some((b) => b.textContent === "Pass check")).toBe(false);
+    });
+
+    it("shows the empty state", async () => {
+        await show([], noGuard, 0);
+        expect(view.container.textContent).toContain("No downloads yet");
+        expect(rows()).toBe(0);
+    });
+
+    it("shows the paused banner with the local time and resumes", async () => {
+        const until = new Date(2026, 0, 5, 7, 4).getTime();
+        await show(all, { ...noGuard, paused_until: until });
+        expect(view.container.textContent).toContain("Downloads paused until 07:04");
+        await act(async () => button(view.container, "Resume now").click());
+        expect(guardContinue).toHaveBeenCalled();
+    });
+
+    it("shows no banner when not paused", async () => {
+        await show(all);
+        expect(view.container.textContent).not.toContain("paused until");
+    });
+});

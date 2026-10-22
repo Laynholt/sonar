@@ -13,6 +13,8 @@ import { SettingsPage } from "@/components/SettingsPage";
 import { DebugLoggerPage } from "@/components/DebugLoggerPage";
 import { AboutPage } from "@/components/AboutPage";
 import { HistoryPage } from "@/components/HistoryPage";
+import { DownloadsPage } from "@/components/DownloadsPage";
+import { GuardDialog } from "@/components/GuardDialog";
 import { SearchBar } from "@/components/SearchBar";
 import { TrackInfo } from "@/components/TrackInfo";
 import { AlbumInfo } from "@/components/AlbumInfo";
@@ -22,7 +24,7 @@ import { useMetadata } from "@/hooks/useMetadata";
 import type { View } from "@/hooks/navigation";
 import { stopPreview } from "@/hooks/usePreview";
 import { useDownloads } from "@/hooks/useDownloads";
-import { batchProgress, retryDownload, startDownload, stopQueue, toSource, toSources, type CollectionKind } from "@/lib/downloads";
+import { batchProgress, refreshDownloads, retryDownload, startDownload, stopQueue, toSource, toSources, type CollectionKind } from "@/lib/downloads";
 import type { AlbumRef } from "@/components/ArtistLinks";
 import { extractArtistID } from "@/lib/spotify-url";
 import { errorMessage } from "@/lib/utils";
@@ -59,6 +61,8 @@ function App() {
     const resetSettingsFn = useRef<(() => void) | null>(null);
     const rememberSettingsReset = useCallback((reset: () => void) => { resetSettingsFn.current = reset; }, []);
     useLayoutEffect(applySavedAppearance, []);
+    // A queue left from before a reload (and a pending guard question) must show without opening the page.
+    useEffect(() => { void refreshDownloads(); }, []);
     useEffect(() => {
         void loadSettings().then(() => {
             applySavedAppearance();
@@ -221,6 +225,8 @@ function App() {
                 return <AboutPage />;
             case "history":
                 return <HistoryPage onHistorySelect={openHistoryItem}/>;
+            case "downloads":
+                return <DownloadsPage />;
             default:
                 return (<>
                     <Header />
@@ -232,13 +238,15 @@ function App() {
     return (<TooltipProvider>
         <div className="min-h-screen bg-background flex flex-col">
             <TitleBar />
-            <Sidebar currentPage={currentPage} onPageChange={handlePageChange}/>
+            <Sidebar currentPage={currentPage} onPageChange={handlePageChange} activeCount={downloads.activeCount}/>
 
             <div className="flex-1 ml-14 mt-10 p-4 md:p-8">
                 <div className={`mx-auto space-y-6 ${currentPage === "main" ? "w-full" : "max-w-4xl"}`}>
                     {renderPage()}
                 </div>
             </div>
+
+            <GuardDialog />
 
             <Dialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
                 <DialogContent className="sm:max-w-[425px] [&>button]:hidden">
