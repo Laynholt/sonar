@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"sonar/internal/httpx"
@@ -569,9 +570,6 @@ func (c *metadataClient) fetchArtistDiscography(ctx context.Context, parsed spot
 		return nil, fmt.Errorf("failed to query artist overview: %w", err)
 	}
 
-	topTracks := parseTopTracks(data)
-	c.fillTopTrackGaps(ctx, topTracks)
-
 	allDiscographyItems := []interface{}{}
 	offset := 0
 	limit := 50
@@ -700,6 +698,9 @@ func (c *metadataClient) fetchArtistDiscography(ctx context.Context, parsed spot
 			"totalCount": len(allDiscographyItems),
 		}
 	}
+
+	topTracks := parseTopTracks(data)
+	c.fillTopTrackGaps(ctx, topTracks)
 
 	filteredData := filterArtist(data)
 
@@ -1050,7 +1051,7 @@ func (c *metadataClient) formatArtistDiscographyData(ctx context.Context, raw *a
 		ArtistInfo: info,
 		AlbumList:  albumList,
 		TrackList:  allTracks,
-		TopTracks:  raw.TopTracks,
+		TopTracks:  append([]model.AlbumTrackMetadata{}, raw.TopTracks...), // [] not null in JSON
 	}, nil
 }
 
@@ -1113,25 +1114,39 @@ func lastURIPart(uri string) string {
 	return uri[strings.LastIndex(uri, ":")+1:]
 }
 
-// fillTopTrackGaps asks fetchTrack for what the overview lacks: one request per track, sequential.
+// fillTopTrackGaps asks fetchTrack for what the overview lacks, up to 5 requests at a time.
 func (c *metadataClient) fillTopTrackGaps(ctx context.Context, tracks []model.AlbumTrackMetadata) {
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
 	for i := range tracks {
 		t := &tracks[i]
 		if t.TrackNumber != 0 && t.DiscNumber != 0 && t.ReleaseDate != "" && t.AlbumName != "" {
 			continue
 		}
-		full, err := c.fetchTrack(ctx, t.ID)
-		if err != nil {
-			log.Printf("spotify: top track %s: %v", t.ID, err)
-			continue
+		sem <- struct{}{}
+		if ctx.Err() != nil {
+			<-sem
+			break
 		}
-		tm := c.formatTrackData(full).Track
-		t.TrackNumber, t.ReleaseDate, t.AlbumName = tm.TrackNumber, tm.ReleaseDate, tm.AlbumName
-		t.TotalTracks, t.AlbumArtist = tm.TotalTracks, tm.AlbumArtist
-		if t.DiscNumber == 0 {
-			t.DiscNumber = tm.DiscNumber
-		}
+		wg.Add(1)
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			full, err := c.fetchTrack(ctx, t.ID)
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("spotify: top track %s: %v", t.ID, err)
+				}
+				return
+			}
+			tm := c.formatTrackData(full).Track
+			t.TrackNumber, t.ReleaseDate, t.AlbumName = tm.TrackNumber, tm.ReleaseDate, tm.AlbumName
+			t.TotalTracks, t.AlbumArtist = tm.TotalTracks, tm.AlbumArtist
+			if t.DiscNumber == 0 {
+				t.DiscNumber = tm.DiscNumber
+			}
+		}()
 	}
+	wg.Wait()
 }
 
 func parseDuration(durationStr string) int {

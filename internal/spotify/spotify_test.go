@@ -168,7 +168,7 @@ func TestLive(t *testing.T) {
 					t.Error("empty TopTracks")
 				}
 				for _, tt := range p.TopTracks {
-					if tt.ID == "" || tt.TrackNumber == 0 || tt.ReleaseDate == "" || tt.AlbumID == "" || tt.DurationMS == 0 {
+					if tt.ID == "" || tt.TrackNumber == 0 || tt.ReleaseDate == "" || tt.AlbumID == "" || tt.AlbumName == "" || tt.DurationMS == 0 {
 						t.Errorf("top track gaps: %+v", tt)
 					}
 				}
