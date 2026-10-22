@@ -100,6 +100,20 @@ func TestRestoreHoldsAndKeepsStatuses(t *testing.T) {
 	}
 }
 
+// Failed entries alone leave nothing to resume, so no dialog would show and nothing may hold the queue.
+func TestRestoreOnlyFailedDoesNotHold(t *testing.T) {
+	q := newMQ(t, &fakeFetch{}, &fakeResolve{})
+	o := testOpts(t)
+	q.Restore([]Saved{saved(o, "f", Failed, "")})
+	if q.Held() || !allIn(Failed, "f")(q.Snapshot()) {
+		t.Fatalf("held = %v, snapshot = %+v", q.Held(), q.Snapshot())
+	}
+	q.Restore([]Saved{saved(o, "g", Failed, ""), saved(o, "r", Review, "")})
+	if !q.Held() {
+		t.Fatal("a restored review entry did not hold the queue")
+	}
+}
+
 func TestRestoreThenEnqueueResumes(t *testing.T) {
 	q := newMQ(t, &fakeFetch{}, &fakeResolve{})
 	o := testOpts(t)

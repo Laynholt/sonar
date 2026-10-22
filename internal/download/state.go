@@ -45,14 +45,15 @@ func (q *Queue) Pending() []Saved {
 }
 
 // Restore appends saved entries whose IDs the queue does not know and holds the queue until Resume or Enqueue
-// if any were added. Review and failed entries keep their status; the rest start over as a new entry would.
+// if any of them is not failed, as GetPendingQueue counts them. Review and failed entries keep their status;
+// the rest start over as a new entry would.
 func (q *Queue) Restore(s []Saved) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.closed {
 		return
 	}
-	added := false
+	hold := false
 	for _, sv := range s {
 		if sv.Item.ID == "" || q.byID[sv.Item.ID] != nil {
 			continue
@@ -69,9 +70,9 @@ func (q *Queue) Restore(s []Saved) {
 		}
 		q.byID[e.ID] = e
 		q.order = append(q.order, e)
-		added = true
+		hold = hold || e.Status != Failed
 	}
-	if added {
+	if hold {
 		q.releaseLocked()
 		q.held = true
 	}
