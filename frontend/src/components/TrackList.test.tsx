@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrackMetadata } from "@/types/api";
 import { GetPreviewURL } from "../../wailsjs/go/main/App";
 import { stopPreview } from "@/hooks/usePreview";
+import { openPicker } from "@/lib/picker";
 import { button, mount } from "../test/render";
 import { TrackList } from "./TrackList";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { error: vi.fn() } }));
+vi.mock("@/lib/picker", () => ({ openPicker: vi.fn() }));
 
 function makeTrack(n: number, over: Partial<TrackMetadata> = {}): TrackMetadata {
     return {
@@ -194,6 +196,36 @@ describe("TrackList downloads", () => {
         expect(view.container.querySelector('tbody span[aria-description="C:/music/a.flac"]')).not.toBeNull();
         expect(onDownloadTrack).not.toHaveBeenCalled();
         await view.unmount();
+    });
+
+    it("shows a disabled spinner while matching, and opens the picker for a track in review", async () => {
+        const props = { ...base, tracks: [makeTrack(1)], canDownload: true, onDownloadTrack: vi.fn() };
+        const view = await mount(<TrackList {...props} downloadItems={new Map([["track-1", item("matching")]])}/>);
+        const own = () => rowButtons(view.container).filter((b) => !b.getAttribute("aria-label")?.startsWith("Open"));
+
+        expect(own()[0].disabled).toBe(true);
+        expect(own()[0].closest("span")!.getAttribute("aria-description")).toBe("Searching Amazon…");
+        await view.render(<TrackList {...props} downloadItems={new Map([["track-1", item("review")]])}/>);
+        expect(own()[0].closest("span")!.getAttribute("aria-description")).toBe("Needs a decision");
+        own()[0].click();
+        expect(openPicker).toHaveBeenCalledWith("track-1");
+        expect(props.onDownloadTrack).not.toHaveBeenCalled();
+        await view.unmount();
+    });
+
+    it("labels a track not found or skipped in review and downloads it afresh on click", async () => {
+        const onDownloadTrack = vi.fn();
+        const tracks = [makeTrack(1)];
+        for (const [status, label] of [["not_found", "Not found"], ["ignored", "Skipped manually"]]) {
+            const view = await mount(<TrackList {...base} tracks={tracks} canDownload onDownloadTrack={onDownloadTrack} downloadItems={new Map([["track-1", item(status)]])}/>);
+            const own = rowButtons(view.container).filter((b) => !b.getAttribute("aria-label")?.startsWith("Open"));
+
+            expect(own[0].closest("span")!.getAttribute("aria-description")).toBe(label);
+            own[0].click();
+            expect(onDownloadTrack).toHaveBeenLastCalledWith(tracks[0], 0);
+            await view.unmount();
+        }
+        expect(onDownloadTrack).toHaveBeenCalledTimes(2);
     });
 });
 

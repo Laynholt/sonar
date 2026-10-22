@@ -1,8 +1,9 @@
-import { CircleCheck, Download, Loader2, RotateCcw } from "lucide-react";
+import { CircleAlert, CircleCheck, Download, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { BatchProgress, DownloadItem } from "@/lib/downloads";
 import { useI18n } from "@/lib/i18n";
+import { openPicker } from "@/lib/picker";
 import type { TrackMetadata } from "@/types/api";
 
 export interface DownloadRowProps {
@@ -42,8 +43,8 @@ export function DownloadButton({ item, disabled, onDownload, onRetry }: Download
           <Button size="icon" variant="outline" disabled aria-label={t("download.track")}><Download className="h-4 w-4"/></Button>
         </WithTip>);
     }
-    if (status === "queued" || status === "downloading") {
-        const tip = item!.message || t("download.queued");
+    if (status === "matching" || status === "queued" || status === "downloading") {
+        const tip = status === "matching" ? t("download.status.matching") : item!.message || t("download.queued");
         return (<WithTip tip={tip}>
           <Button size="icon" variant="outline" disabled aria-label={tip}><Loader2 className="h-4 w-4 animate-spin"/></Button>
         </WithTip>);
@@ -52,6 +53,19 @@ export function DownloadButton({ item, disabled, onDownload, onRetry }: Download
         const tip = status === "completed" ? item!.path : item!.path || t("download.exists");
         return (<WithTip tip={tip}>
           <CircleCheck className={`m-2 h-4 w-4 ${status === "completed" ? "text-green-500" : "text-muted-foreground"}`}/>
+        </WithTip>);
+    }
+    if (status === "review") {
+        const tip = t("download.status.review");
+        return (<WithTip tip={tip}>
+          <Button size="icon" variant="ghost" aria-label={tip} onClick={() => openPicker(item!.id)}><CircleAlert className="h-4 w-4 text-amber-500"/></Button>
+        </WithTip>);
+    }
+    // A track the user skipped in review, or that Amazon lacks, is searched for afresh on click.
+    if (status === "not_found" || status === "ignored") {
+        const tip = t(`download.status.${status}`);
+        return (<WithTip tip={tip}>
+          <Button size="icon" variant="ghost" aria-label={tip} onClick={onDownload}><RotateCcw className="h-4 w-4 text-muted-foreground"/></Button>
         </WithTip>);
     }
     if (status === "failed") {
