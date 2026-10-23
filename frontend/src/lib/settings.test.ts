@@ -99,3 +99,10 @@ it("fills the download defaults for old saved settings and turns the guard off a
     expect(settings.downloadOptions(loaded)).toMatchObject({ dir: "", filename_template: "{title} - {artist}", playlist_folder: true, guard_limit: 50 });
     expect(settings.downloadOptions({ ...loaded, rateGuard: false }).guard_limit).toBe(0);
 });
+
+it("embeds the genre by default, all genres, and passes both switches to the download options", async () => {
+    const settings = await import("./settings");
+    expect(settings.DEFAULT_SETTINGS).toMatchObject({ embedGenre: true, useSingleGenre: false });
+    expect(settings.downloadOptions(settings.DEFAULT_SETTINGS)).toMatchObject({ embed_genre: true, single_genre: false });
+    expect(settings.downloadOptions({ ...settings.DEFAULT_SETTINGS, embedGenre: false, useSingleGenre: true })).toMatchObject({ embed_genre: false, single_genre: true });
+});

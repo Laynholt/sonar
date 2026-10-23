@@ -16,8 +16,10 @@ import (
 	"sonar/internal/convert"
 	"sonar/internal/doubledouble"
 	"sonar/internal/download"
+	"sonar/internal/genre"
 	"sonar/internal/resolve"
 	"sonar/internal/source"
+	"sonar/internal/spotify"
 )
 
 // errNoFFmpeg starts with the NO_FFMPEG: sentinel the frontend matches on.
@@ -55,6 +57,10 @@ func (a *App) queuePath() string { return filepath.Join(a.dataDir, "queue.json")
 // Both OnChange hooks are set before Restore and before any Enqueue: neither is read under a lock.
 func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder resolve.Finder) {
 	a.cache = resolve.OpenCache(filepath.Join(a.dataDir, "matches.json"))
+	a.genreCache = genre.OpenCache(filepath.Join(a.dataDir, "genres.json"))
+	if a.genres == nil {
+		a.genres = a.lookupGenres
+	}
 	a.sources = sources
 	a.dl = download.NewQueue(fetch, resolve.New(finder, a.cache).Resolve, sources)
 	a.saveCh, a.saveStop, a.saverDone = make(chan struct{}, 1), make(chan struct{}), make(chan struct{})
@@ -123,8 +129,42 @@ func (a *App) ffmpeg(o download.Options) (string, error) {
 	return "", errNoFFmpeg
 }
 
-// fetch is the queue's worker for one site: the site delivers FLAC, FFmpeg converts it when asked.
-func (a *App) fetch(ctx context.Context, site, id string, o download.Options, pathNoExt string, onStatus func(string)) (string, error) {
+// Seams for tests.
+var (
+	writeGenre    = genre.WriteFLAC
+	convertFile   = convert.Convert
+	amazonLookup  = amazon.LookupTracks
+	spotifyByISRC = spotify.TracksByISRC
+	genreBudget   = 20 * time.Second // the longest a genre lookup may hold a download back, counted from its start
+)
+
+// lookupGenres is the default a.genres: the cache first, then chosic for the track's Spotify ID.
+func (a *App) lookupGenres(ctx context.Context, t download.Track, amazonID string) ([]string, error) {
+	id := t.ID
+	if t.Service != "spotify" {
+		infos, err := amazonLookup(ctx, []string{amazonID})
+		if err != nil || len(infos) == 0 {
+			return nil, err
+		}
+		ids, err := spotifyByISRC(ctx, infos[0].ISRC)
+		if err != nil || len(ids) == 0 {
+			return nil, err
+		}
+		id = ids[0]
+	}
+	if g, ok := a.genreCache.Get(id); ok {
+		return g, nil
+	}
+	g, err := a.genreClient.Genres(ctx, id)
+	if err == nil {
+		a.genreCache.Put(id, g)
+	}
+	return g, err
+}
+
+// fetch is the queue's worker for one site: the site delivers FLAC, FFmpeg converts it when asked,
+// and the genre, looked up while the site works, goes into the file. A genre that cannot be had never fails the track.
+func (a *App) fetch(ctx context.Context, site string, t download.Track, id string, o download.Options, pathNoExt string, onStatus func(string)) (string, error) {
 	url, err := amazon.TrackURL(id)
 	if err != nil {
 		return "", err
@@ -134,15 +174,50 @@ func (a *App) fetch(ctx context.Context, site, id string, o download.Options, pa
 	if err != nil {
 		return "", err
 	}
+	var found chan []string // nil when the genre is off
+	gctx, stop := context.WithTimeout(ctx, genreBudget)
+	defer stop() // ends the lookup when fetch returns
+	if o.EmbedGenre {
+		found = make(chan []string, 1)
+		go func() {
+			g, err := a.genres(gctx, t, id)
+			if err != nil {
+				log.Printf("genre %s: %v", t.ID, err)
+			}
+			found <- g
+		}()
+	}
 	f, err := a.sources.Fetch(ctx, site, url, pathNoExt, onStatus)
 	if errors.Is(err, source.ErrUnavailable) || errors.Is(err, source.ErrNeedsCheck) {
 		return "", fmt.Errorf("%w: %w", download.ErrSiteDown, err)
 	}
-	if err != nil || o.Format == "original" {
+	if err != nil {
 		return f, err
 	}
+	var g string
+	if found != nil {
+		var res []string
+		select {
+		case res = <-found:
+		default:
+			onStatus("Looking up genre…")
+			select {
+			case res = <-found:
+			case <-gctx.Done():
+			}
+		}
+		g = genre.Format(res, o.SingleGenre)
+	}
+	if o.Format == "original" {
+		if g != "" {
+			if err := writeGenre(f, g); err != nil {
+				log.Printf("genre %s: %v", f, err)
+			}
+		}
+		return f, nil
+	}
 	onStatus("Converting to " + map[string]string{"mp3-320": "MP3", "m4a-aac-320": "M4A"}[o.Format] + "…")
-	return convert.Convert(ctx, ff, f, o.Format)
+	return convertFile(ctx, ff, f, o.Format, g)
 }
 
 // DownloadTracks validates the whole request before it queues anything; tracks with a bad Spotify ID are skipped,

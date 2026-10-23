@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +19,7 @@ import (
 	"sonar/internal/amazon"
 	"sonar/internal/doubledouble"
 	"sonar/internal/download"
+	"sonar/internal/genre"
 	"sonar/internal/history"
 	"sonar/internal/match"
 	"sonar/internal/source"
@@ -63,7 +66,7 @@ func newTestApp(t *testing.T, ffmpeg string) (*App, func() []fetched) {
 	t.Helper()
 	var mu sync.Mutex
 	var got []fetched
-	a := newQueueApp(t, t.TempDir(), func(_ context.Context, _, _ string, o download.Options, p string, _ func(string)) (string, error) {
+	a := newQueueApp(t, t.TempDir(), func(_ context.Context, _ string, _ download.Track, _ string, o download.Options, p string, _ func(string)) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, fetched{o, p})
@@ -282,7 +285,7 @@ func TestFetchMarksSiteDown(t *testing.T) {
 	}{{source.ErrUnavailable, true}, {source.ErrNeedsCheck, true}, {errors.New("no stream"), false}} {
 		a := &App{findFFmpeg: func(string) string { return "" }}
 		a.sources = source.NewBalancer(time.Minute, downSource{fmt.Errorf("x: %w", tc.err)})
-		_, err := a.fetch(context.Background(), "lucida", "B00A3SGXAA", download.Options{Format: "original"}, t.TempDir()+"/x", nil)
+		_, err := a.fetch(context.Background(), "lucida", download.Track{}, "B00A3SGXAA", download.Options{Format: "original"}, t.TempDir()+"/x", nil)
 		if errors.Is(err, download.ErrSiteDown) != tc.down || !errors.Is(err, tc.err) {
 			t.Errorf("%v: err = %v", tc.err, err)
 		}
@@ -544,7 +547,7 @@ func TestCorruptQueueFileStartsEmpty(t *testing.T) {
 func TestShutdownSavesBeforeClose(t *testing.T) {
 	dir := t.TempDir()
 	started := make(chan struct{})
-	a := newQueueApp(t, dir, func(ctx context.Context, _, _ string, _ download.Options, _ string, _ func(string)) (string, error) {
+	a := newQueueApp(t, dir, func(ctx context.Context, _ string, _ download.Track, _ string, _ download.Options, _ string, _ func(string)) (string, error) {
 		close(started)
 		<-ctx.Done()
 		return "", ctx.Err()
@@ -730,5 +733,253 @@ func TestExistingDir(t *testing.T) {
 	}
 	if got := existingDir(""); got != "" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// fnSource is a download site whose Download is fn.
+type fnSource func(ctx context.Context, pathNoExt string) (string, error)
+
+func (fnSource) Name() string { return "lucida" }
+func (f fnSource) Download(ctx context.Context, _, pathNoExt string, _ func(string)) (string, error) {
+	return f(ctx, pathNoExt)
+}
+
+func flacSource(_ context.Context, p string) (string, error) { return p + ".flac", nil }
+
+// swap sets *p to v until the test ends.
+func swap[T any](t *testing.T, p *T, v T) {
+	t.Helper()
+	old := *p
+	*p = v
+	t.Cleanup(func() { *p = old })
+}
+
+type genreWrite struct{ path, genre string }
+
+// fakeWriteGenre replaces writeGenre; the returned func gives the calls so far.
+func fakeWriteGenre(t *testing.T, err error) func() []genreWrite {
+	var mu sync.Mutex
+	var got []genreWrite
+	swap(t, &writeGenre, func(path, g string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, genreWrite{path, g})
+		return err
+	})
+	return func() []genreWrite { mu.Lock(); defer mu.Unlock(); return slices.Clone(got) }
+}
+
+var genreTrack = download.Track{ID: "6rqhFgbbKwnb9MLmUQDhG6", Title: "T", Service: "spotify"}
+
+func genreOpts(single bool) download.Options {
+	return download.Options{Format: "original", EmbedGenre: true, SingleGenre: single}
+}
+
+// fetchGenre runs a.fetch on genreTrack and returns the path, the statuses and the error.
+func fetchGenre(t *testing.T, a *App, o download.Options) (string, []string, error) {
+	t.Helper()
+	var st []string
+	p, err := a.fetch(context.Background(), "lucida", genreTrack, "B00A3SGXAA", o, t.TempDir()+"/x", func(m string) { st = append(st, m) })
+	return p, st, err
+}
+
+func TestFetchWritesGenreFLAC(t *testing.T) {
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	a.genres = func(context.Context, download.Track, string) ([]string, error) { return []string{"rap", "trap"}, nil }
+	writes := fakeWriteGenre(t, nil)
+	p, _, err := fetchGenre(t, a, genreOpts(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := writes(); !slices.Equal(w, []genreWrite{{p, "Rap, Trap"}}) {
+		t.Errorf("writes = %v, path %q", w, p)
+	}
+	writes = fakeWriteGenre(t, nil)
+	if _, _, err := fetchGenre(t, a, genreOpts(true)); err != nil || len(writes()) != 1 || writes()[0].genre != "Rap" {
+		t.Errorf("single: %v, %v", writes(), err)
+	}
+}
+
+func TestFetchGenreWriteErrorKeepsTrack(t *testing.T) {
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	a.genres = func(context.Context, download.Track, string) ([]string, error) { return []string{"rap"}, nil }
+	fakeWriteGenre(t, errors.New("disk"))
+	if p, _, err := fetchGenre(t, a, genreOpts(false)); err != nil || p == "" {
+		t.Errorf("path %q, err %v", p, err)
+	}
+}
+
+func TestFetchGenreOverlapsDownload(t *testing.T) {
+	siteStarted, lookupStarted := make(chan struct{}), make(chan struct{})
+	wait := func(c chan struct{}) error {
+		select {
+		case <-c:
+			return nil
+		case <-time.After(3 * time.Second):
+			return errors.New("no overlap")
+		}
+	}
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(func(_ context.Context, p string) (string, error) {
+		close(siteStarted)
+		if err := wait(lookupStarted); err != nil { // the lookup must start before the site returns
+			return "", err
+		}
+		return p + ".flac", nil
+	}))
+	a.genres = func(context.Context, download.Track, string) ([]string, error) {
+		close(lookupStarted)
+		return []string{"rap"}, wait(siteStarted)
+	}
+	writes := fakeWriteGenre(t, nil)
+	if _, _, err := fetchGenre(t, a, genreOpts(false)); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes()) != 1 {
+		t.Errorf("writes = %v", writes())
+	}
+}
+
+func TestFetchGenreTimeoutStillCompletes(t *testing.T) {
+	swap(t, &genreBudget, 20*time.Millisecond)
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	hang := make(chan struct{})
+	t.Cleanup(func() { close(hang) })
+	a.genres = func(context.Context, download.Track, string) ([]string, error) { <-hang; return []string{"rap"}, nil }
+	writes := fakeWriteGenre(t, nil)
+	start := time.Now()
+	p, st, err := fetchGenre(t, a, genreOpts(false))
+	if err != nil || !strings.HasSuffix(p, ".flac") {
+		t.Fatalf("path %q, err %v", p, err)
+	}
+	if time.Since(start) > 2*time.Second || len(writes()) != 0 || !slices.Contains(st, "Looking up genre…") {
+		t.Errorf("took %v, writes %v, statuses %q", time.Since(start), writes(), st)
+	}
+}
+
+func TestFetchGenreCancelsLookupOnReturn(t *testing.T) {
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(func(context.Context, string) (string, error) { return "", errors.New("boom") }))
+	done := make(chan struct{})
+	a.genres = func(ctx context.Context, _ download.Track, _ string) ([]string, error) {
+		defer close(done)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if _, _, err := fetchGenre(t, a, genreOpts(false)); err == nil {
+		t.Fatal("want the site error")
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the lookup outlived fetch")
+	}
+}
+
+func TestFetchGenreErrorNoGenre(t *testing.T) {
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	a.genres = func(context.Context, download.Track, string) ([]string, error) { return nil, errors.New("chosic down") }
+	writes := fakeWriteGenre(t, nil)
+	if p, _, err := fetchGenre(t, a, genreOpts(false)); err != nil || p == "" || len(writes()) != 0 {
+		t.Errorf("path %q, err %v, writes %v", p, err, writes())
+	}
+}
+
+func TestFetchGenreDisabled(t *testing.T) {
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	var calls atomic.Int32
+	a.genres = func(context.Context, download.Track, string) ([]string, error) {
+		calls.Add(1)
+		return []string{"rap"}, nil
+	}
+	writes := fakeWriteGenre(t, nil)
+	o := genreOpts(false)
+	o.EmbedGenre = false
+	if _, st, err := fetchGenre(t, a, o); err != nil || calls.Load() != 0 || len(writes()) != 0 || len(st) != 0 {
+		t.Errorf("err %v, lookups %d, writes %v, statuses %q", err, calls.Load(), writes(), st)
+	}
+}
+
+// fakeChosic serves one artist with genres "rap" and "trap" and records the track IDs asked for.
+func fakeChosic(t *testing.T) (*httptest.Server, func() []string) {
+	var mu sync.Mutex
+	var ids []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			w.Write([]byte(`{"success":true}`))
+		case strings.HasPrefix(r.URL.Path, "/api/tools/tracks/"):
+			mu.Lock()
+			ids = append(ids, strings.TrimPrefix(r.URL.Path, "/api/tools/tracks/"))
+			mu.Unlock()
+			w.Write([]byte(`{"artists":[{"id":"a1"}]}`))
+		default:
+			w.Write([]byte(`{"genres":["rap","trap"]}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(ids) }
+}
+
+func TestFetchGenreCachedAcrossRetry(t *testing.T) {
+	srv, asked := fakeChosic(t)
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	a.genreClient = genre.Client{Base: srv.URL, HTTP: srv.Client()}
+	writes := fakeWriteGenre(t, nil)
+	for range 2 {
+		if _, _, err := fetchGenre(t, a, genreOpts(false)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := asked(); !slices.Equal(got, []string{genreTrack.ID}) {
+		t.Errorf("chosic asked %q, want once", got)
+	}
+	if w := writes(); len(w) != 2 || w[1].genre != "Rap, Trap" {
+		t.Errorf("writes = %v", w)
+	}
+}
+
+func TestFetchGenreAmazonViaISRC(t *testing.T) {
+	srv, asked := fakeChosic(t)
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	a.genreClient = genre.Client{Base: srv.URL, HTTP: srv.Client()}
+	swap(t, &amazonLookup, func(_ context.Context, ids []string) ([]amazon.TrackInfo, error) {
+		if !slices.Equal(ids, []string{"B00A3SGXAA"}) {
+			t.Errorf("lookup ids = %q", ids)
+		}
+		return []amazon.TrackInfo{{ID: ids[0], ISRC: "USRC17607839"}}, nil
+	})
+	swap(t, &spotifyByISRC, func(_ context.Context, isrc string) ([]string, error) {
+		if isrc != "USRC17607839" {
+			t.Errorf("isrc = %q", isrc)
+		}
+		return []string{"0VjIjW4GlUZAMYd2vXMi3b", "other"}, nil
+	})
+	writes := fakeWriteGenre(t, nil)
+	tr := download.Track{ID: "B00A3SGXAA", Title: "T"} // Service "" means amazon
+	if _, err := a.fetch(context.Background(), "lucida", tr, "B00A3SGXAA", genreOpts(false), t.TempDir()+"/x", func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if got := asked(); !slices.Equal(got, []string{"0VjIjW4GlUZAMYd2vXMi3b"}) {
+		t.Errorf("chosic asked %q", got)
+	}
+	if w := writes(); len(w) != 1 || w[0].genre != "Rap, Trap" {
+		t.Errorf("writes = %v", w)
+	}
+}
+
+func TestFetchConvertPassesGenre(t *testing.T) {
+	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
+	a.findFFmpeg = func(string) string { return "ff" }
+	a.genres = func(context.Context, download.Track, string) ([]string, error) { return []string{"rap", "trap"}, nil }
+	writes := fakeWriteGenre(t, nil)
+	var gotGenre, gotIn string
+	swap(t, &convertFile, func(_ context.Context, _, in, _, g string) (string, error) {
+		gotIn, gotGenre = in, g
+		return "out.m4a", nil
+	})
+	o := genreOpts(false)
+	o.Format = "m4a-aac-320"
+	p, _, err := fetchGenre(t, a, o)
+	if err != nil || p != "out.m4a" || gotGenre != "Rap, Trap" || !strings.HasSuffix(gotIn, ".flac") || len(writes()) != 0 {
+		t.Errorf("path %q, err %v, genre %q, in %q, writes %v", p, err, gotGenre, gotIn, writes())
 	}
 }

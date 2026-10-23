@@ -16,6 +16,7 @@ import (
 type call struct {
 	site, id, pathNoExt string
 	o                   Options
+	track               Track
 }
 
 // fakeFetch records calls; fn decides the outcome (default: success at pathNoExt+".flac").
@@ -25,9 +26,9 @@ type fakeFetch struct {
 	fn    func(ctx context.Context, id, pathNoExt string) (string, error)
 }
 
-func (f *fakeFetch) fetch(ctx context.Context, site, id string, o Options, pathNoExt string, onStatus func(string)) (string, error) {
+func (f *fakeFetch) fetch(ctx context.Context, site string, t Track, id string, o Options, pathNoExt string, onStatus func(string)) (string, error) {
 	f.mu.Lock()
-	f.calls = append(f.calls, call{site, id, pathNoExt, o})
+	f.calls = append(f.calls, call{site, id, pathNoExt, o, t})
 	f.mu.Unlock()
 	onStatus("working")
 	if f.fn != nil {
@@ -131,7 +132,7 @@ func TestQueueDownloadsAll(t *testing.T) {
 				tr = x
 			}
 		}
-		if c.pathNoExt != PathNoExt(tr, album, o) || c.o != o {
+		if c.pathNoExt != PathNoExt(tr, album, o) || c.o != o || c.track != tr {
 			t.Errorf("call = %+v", c)
 		}
 	}
@@ -456,7 +457,7 @@ func TestQueueSameTargetWaitsForRunningDownload(t *testing.T) {
 
 func TestQueueReportsProgress(t *testing.T) {
 	release := make(chan struct{})
-	q := NewQueue(func(ctx context.Context, _, _ string, _ Options, pathNoExt string, _ func(string)) (string, error) {
+	q := NewQueue(func(ctx context.Context, _ string, _ Track, _ string, _ Options, pathNoExt string, _ func(string)) (string, error) {
 		Report(ctx, 5, 10)
 		select {
 		case <-release:
@@ -929,7 +930,7 @@ func (l *siteLog) String() string {
 
 // siteQ runs fn as the fetch: nil saves pathNoExt+".flac", an error fails the attempt.
 func siteQ(t *testing.T, s Sites, log *siteLog, fn func(ctx context.Context, site, id string) error) *Queue {
-	q := NewQueue(func(ctx context.Context, site, id string, _ Options, p string, _ func(string)) (string, error) {
+	q := NewQueue(func(ctx context.Context, site string, _ Track, id string, _ Options, p string, _ func(string)) (string, error) {
 		log.add(site)
 		if err := fn(ctx, site, id); err != nil {
 			return "", err

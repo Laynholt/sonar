@@ -102,12 +102,27 @@ describe("SettingsPage", () => {
 
         it("is the second tab and shows its settings", async () => {
             await open();
-            expect([...view.container.querySelectorAll("h2")].map((item) => item.textContent)).toEqual(["Saving", "Folders and file names", "Source"]);
+            expect([...view.container.querySelectorAll("h2")].map((item) => item.textContent)).toEqual(["Saving", "Folders and file names", "Tags", "Source"]);
             for (const text of ["Download folder", "Site", "Site status", "Format", "Folder structure", "File name", "Playlist folder"])
                 expect(view.container.textContent).toContain(text);
             expect(view.container.textContent).not.toContain("Preview");
             expect(dirInput()).toBeDefined();
             expect(view.container.textContent).not.toContain("Found automatically");
+        });
+
+        it("the genre switches save embedGenre and useSingleGenre, and the single one shows only while embedding", async () => {
+            await open();
+            for (const text of ["Write genre", "Only one genre"])
+                expect(view.container.textContent).toContain(text);
+            const click = (id: string) => act(async () => (view.container.querySelector(id) as HTMLButtonElement).click());
+            expect(await lastOptions()).toMatchObject({ embed_genre: true, single_genre: false });
+            await click("#single-genre");
+            expect(await lastOptions()).toMatchObject({ embed_genre: true, single_genre: true });
+            await click("#embed-genre");
+            expect(view.container.querySelector("#single-genre")).toBeNull();
+            expect(await lastOptions()).toMatchObject({ embed_genre: false });
+            await click("#embed-genre");
+            expect(view.container.querySelector("#single-genre")).not.toBeNull();
         });
 
         it("Browse puts the chosen folder in the field and marks the page unsaved", async () => {

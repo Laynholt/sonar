@@ -16,6 +16,8 @@ export interface Settings {
     folderTemplate: string;
     filenameTemplate: string;
     playlistFolder: boolean;
+    embedGenre: boolean;
+    useSingleGenre: boolean;
     ffmpegPath: string;
     rateGuard: boolean;
     rateGuardLimit: number;
@@ -36,6 +38,8 @@ export const DEFAULT_SETTINGS: Settings = {
     folderTemplate: "",
     filenameTemplate: "{title} - {artist}",
     playlistFolder: true,
+    embedGenre: true,
+    useSingleGenre: false,
     ffmpegPath: "",
     rateGuard: true,
     rateGuardLimit: 50,
@@ -55,6 +59,8 @@ export function downloadOptions(s: Settings): download.Options {
         ffmpeg_path: s.ffmpegPath,
         guard_limit: s.rateGuard ? s.rateGuardLimit : 0,
         guard_wait: s.rateGuardWait,
+        embed_genre: s.embedGenre,
+        single_genre: s.useSingleGenre,
     };
 }
 

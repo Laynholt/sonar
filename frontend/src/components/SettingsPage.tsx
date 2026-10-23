@@ -189,6 +189,14 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
         <Switch id="playlist-folder" checked={settings.playlistFolder} onCheckedChange={(checked) => set({ playlistFolder: checked })}/>
       </Row>
     </Block>
+    <Block title={t("settings.blockTags")}>
+      <Row id="embed-genre" label={t("settings.embedGenre")} description={t("settings.embedGenreDesc")}>
+        <Switch id="embed-genre" checked={settings.embedGenre} onCheckedChange={(checked) => set({ embedGenre: checked })}/>
+      </Row>
+      {settings.embedGenre && (<Row id="single-genre" label={t("settings.singleGenre")} description={t("settings.singleGenreDesc")}>
+        <Switch id="single-genre" checked={settings.useSingleGenre} onCheckedChange={(checked) => set({ useSingleGenre: checked })}/>
+      </Row>)}
+    </Block>
     <Block title={t("settings.blockSource")}>
       <Row id="download-source" label={t("settings.source")} description={t("settings.sourceDesc")}>
         <Select value={settings.downloadSource} onValueChange={(value: SettingsType["downloadSource"]) => set({ downloadSource: value })}>

@@ -20,6 +20,7 @@ import (
 	"sonar/internal/doubledouble"
 	"sonar/internal/download"
 	"sonar/internal/ffinstall"
+	"sonar/internal/genre"
 	"sonar/internal/history"
 	"sonar/internal/httpx"
 	"sonar/internal/lucida"
@@ -31,16 +32,19 @@ import (
 
 type App struct {
 	ctx     context.Context
-	dataDir string // holds history.db, config.json, queue.json and matches.json
+	dataDir string // holds history.db, config.json, queue.json, matches.json and genres.json
 	hist    *history.DB
 	second  bool // another instance holds history.db, and owns queue.json: this one neither restores nor saves it
 
 	dd            *doubledouble.Client
 	sources       *source.Balancer
 	dl            *download.Queue
-	cache         *resolve.Cache                                       // matches.json, shared with the resolver
-	findFFmpeg    func(custom string) string                           // a field so tests can fake it
-	amazonPreview func(ctx context.Context, id string) (string, error) // a field so tests can fake it
+	cache         *resolve.Cache // matches.json, shared with the resolver
+	genreCache    *genre.Cache   // genres.json
+	genreClient   genre.Client
+	genres        func(ctx context.Context, t download.Track, amazonID string) ([]string, error) // a field so tests can fake it
+	findFFmpeg    func(custom string) string                                                     // a field so tests can fake it
+	amazonPreview func(ctx context.Context, id string) (string, error)                           // a field so tests can fake it
 
 	ffLatest  func(context.Context, *http.Client, string) (ffinstall.Asset, ffinstall.Asset, error) // fields so tests can fake them
 	ffInstall func(context.Context, *http.Client, ffinstall.Asset, ffinstall.Asset, string, func(ffinstall.Progress)) (string, error)

@@ -84,8 +84,8 @@ type Sites interface {
 var ErrSiteDown = errors.New("download site unavailable")
 
 // Fetch downloads one track through site to pathNoExt+extension and returns the file path.
-// amazonID is the entry's AmazonID. onStatus must not be called after Fetch returns.
-type Fetch func(ctx context.Context, site, amazonID string, o Options, pathNoExt string, onStatus func(string)) (string, error)
+// t is the entry's Track and amazonID its AmazonID. onStatus must not be called after Fetch returns.
+type Fetch func(ctx context.Context, site string, t Track, amazonID string, o Options, pathNoExt string, onStatus func(string)) (string, error)
 
 type entry struct {
 	Item
@@ -456,7 +456,7 @@ func (q *Queue) worker(site string) {
 		ctx, cancel := context.WithTimeout(context.Background(), trackTimeout)
 		e.Status, e.cancel, e.Site = Downloading, cancel, site
 		q.busy[e.pathNoExt] = true
-		id := e.AmazonID
+		id, track := e.AmazonID, e.Track
 		q.mu.Unlock()
 		q.notify()
 		ctx = WithProgress(ctx, func(done, total int64) {
@@ -467,7 +467,7 @@ func (q *Queue) worker(site string) {
 			}
 		})
 
-		path, err := q.fetch(ctx, site, id, e.o, e.pathNoExt, func(msg string) {
+		path, err := q.fetch(ctx, site, track, id, e.o, e.pathNoExt, func(msg string) {
 			q.mu.Lock()
 			defer q.mu.Unlock()
 			if e.Status == Downloading {
