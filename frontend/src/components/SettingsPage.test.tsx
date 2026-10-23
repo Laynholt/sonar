@@ -169,12 +169,12 @@ describe("SettingsPage", () => {
             await open();
             await pick(selectWith("mp3-320"), "mp3-320");
             expect(openFFmpegInstall).toHaveBeenCalledTimes(1);
-            await act(async () => vi.mocked(openFFmpegInstall).mock.calls[0][0]!("C:\ff\ffmpeg.exe"));
-            expect(await lastOptions()).toMatchObject({ ffmpeg_path: "C:\ff\ffmpeg.exe", format: "mp3-320" });
+            await act(async () => vi.mocked(openFFmpegInstall).mock.calls[0][0]!("C:\\ff\\ffmpeg.exe"));
+            expect(await lastOptions()).toMatchObject({ ffmpeg_path: "C:\\ff\\ffmpeg.exe", format: "mp3-320" });
         });
 
         it("choosing MP3 with FFmpeg found does not open the install", async () => {
-            vi.mocked(FindFFmpeg).mockResolvedValue("C:\bin\ffmpeg.exe");
+            vi.mocked(FindFFmpeg).mockResolvedValue("C:\\bin\\ffmpeg.exe");
             await open();
             await pick(selectWith("mp3-320"), "mp3-320");
             expect(openFFmpegInstall).not.toHaveBeenCalled();

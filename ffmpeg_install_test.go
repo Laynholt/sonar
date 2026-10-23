@@ -110,14 +110,14 @@ func TestDefaultFFmpegDirFallback(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", local)
 
 	writable = func(string) bool { return false }
-	dir, fb := (&App{}).DefaultFFmpegDir()
-	if want := filepath.Join(local, "Sonar", "ffmpeg"); dir != want || !fb {
-		t.Errorf("unwritable: %q, %v", dir, fb)
+	got := (&App{}).DefaultFFmpegDir()
+	if want := filepath.Join(local, "Sonar", "ffmpeg"); got.Dir != want || !got.Fallback {
+		t.Errorf("unwritable: %+v", got)
 	}
 	writable = func(string) bool { return true }
-	dir, fb = (&App{}).DefaultFFmpegDir()
-	if filepath.Base(dir) != "ffmpeg" || fb || strings.HasPrefix(dir, local) {
-		t.Errorf("writable: %q, %v", dir, fb)
+	got = (&App{}).DefaultFFmpegDir()
+	if filepath.Base(got.Dir) != "ffmpeg" || got.Fallback || strings.HasPrefix(got.Dir, local) {
+		t.Errorf("writable: %+v", got)
 	}
 }
 

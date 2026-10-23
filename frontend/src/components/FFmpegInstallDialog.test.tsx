@@ -38,7 +38,7 @@ beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     setLanguage("en");
-    vi.mocked(DefaultFFmpegDir).mockResolvedValue("C:\\App\\ffmpeg" as never);
+    vi.mocked(DefaultFFmpegDir).mockResolvedValue({ dir: "C:\\App\\ffmpeg", fallback: false });
     vi.mocked(StartFFmpegInstall).mockResolvedValue();
     vi.mocked(CancelFFmpegInstall).mockResolvedValue();
     vi.mocked(updateSettings).mockResolvedValue({} as never);
@@ -60,7 +60,7 @@ describe("FFmpegInstallDialog", () => {
     });
 
     it("tells that the fallback folder is used", async () => {
-        vi.mocked(DefaultFFmpegDir).mockResolvedValue(["C:\\Users\\M\\AppData\\Local\\Sonar\\ffmpeg", true] as never);
+        vi.mocked(DefaultFFmpegDir).mockResolvedValue({ dir: "C:\\Users\\M\\AppData\\Local\\Sonar\\ffmpeg", fallback: true });
         await show();
         expect(folder().value).toBe("C:\\Users\\M\\AppData\\Local\\Sonar\\ffmpeg");
         expect(text()).toContain("Program folder is read-only");
@@ -109,6 +109,17 @@ describe("FFmpegInstallDialog", () => {
         const polls = vi.mocked(GetFFmpegInstall).mock.calls.length;
         await tick(1000);
         expect(vi.mocked(GetFFmpegInstall).mock.calls.length).toBe(polls);
+    });
+
+    it("a Cancel that finds the install already done takes the done path", async () => {
+        await show();
+        await install(status({ done: 1 * MB, total: 82 * MB }));
+        vi.mocked(GetFFmpegInstall).mockResolvedValue(status({ step: "done", path: "C:\\App\\ffmpeg\\ffmpeg.exe" }));
+        await click("Cancel");
+        await tick(1000);
+        expect(updateSettings).toHaveBeenCalledWith({ ffmpegPath: "C:\\App\\ffmpeg\\ffmpeg.exe" });
+        expect(onInstalled).toHaveBeenCalledTimes(1);
+        expect(text()).toContain("FFmpeg installed");
     });
 
     it("an install that ended as cancelled just closes", async () => {

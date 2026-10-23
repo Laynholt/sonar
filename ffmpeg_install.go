@@ -23,6 +23,12 @@ type FFmpegInstall struct {
 	NotEmpty bool   `json:"not_empty"` // the error was ffinstall.ErrNotEmpty
 }
 
+// FFmpegDir is the default install folder; Wails hands JS only one return value, so both ride in a struct.
+type FFmpegDir struct {
+	Dir      string `json:"dir"`
+	Fallback bool   `json:"fallback"` // the program folder is read-only, Dir is under %LOCALAPPDATA%
+}
+
 // writable is a variable so tests can fake it: it tries to create and remove a file in dir.
 var writable = func(dir string) bool {
 	f, err := os.CreateTemp(dir, ".sonar-write-*")
@@ -33,12 +39,12 @@ var writable = func(dir string) bool {
 	return os.Remove(f.Name()) == nil
 }
 
-// DefaultFFmpegDir is <exe dir>\ffmpeg when that folder can be written, else %LOCALAPPDATA%\Sonar\ffmpeg with fallback=true.
-func (a *App) DefaultFFmpegDir() (dir string, fallback bool) {
+// DefaultFFmpegDir is <exe dir>\ffmpeg when that folder can be written, else %LOCALAPPDATA%\Sonar\ffmpeg with Fallback set.
+func (a *App) DefaultFFmpegDir() FFmpegDir {
 	if exe := convert.ExeDir(); exe != "" && writable(exe) {
-		return filepath.Join(exe, "ffmpeg"), false
+		return FFmpegDir{Dir: filepath.Join(exe, "ffmpeg")}
 	}
-	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Sonar", "ffmpeg"), true
+	return FFmpegDir{Dir: filepath.Join(os.Getenv("LOCALAPPDATA"), "Sonar", "ffmpeg"), Fallback: true}
 }
 
 // SelectFFmpegFolder returns the picked folder plus \ffmpeg, "" when the user cancels.

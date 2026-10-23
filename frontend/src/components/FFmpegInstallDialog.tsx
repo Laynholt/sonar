@@ -39,16 +39,15 @@ function Installer({ request }: { request: FFmpegInstallRequest }) {
     // Cleared on unmount: the poll loop stops there, which is how closing the modal stops polling.
     const alive = useRef(true);
     const busy = useRef(false);
+    const finished = useRef(false);
     const running = step === "download" || step === "install";
 
     useEffect(() => {
         alive.current = true;
         DefaultFFmpegDir().then((found) => {
-            // shortcut: Wails hands the JS only the first of Go's two values, so fallback is false until Go returns one struct; the pair is read in case that changes.
-            const [folder, usedFallback] = (Array.isArray(found) ? found : [found, false]) as [string, boolean];
             if (!alive.current) return;
-            setDir((typed) => typed || folder);
-            setFallback(usedFallback);
+            setDir((typed) => typed || found.dir);
+            setFallback(found.fallback);
         }, (err) => logger.error(errorMessage(err, "FFmpeg default folder failed")));
         return () => { alive.current = false; };
     }, []);
@@ -59,9 +58,22 @@ function Installer({ request }: { request: FFmpegInstallRequest }) {
         setStep("error");
     };
 
+    // The one way an install ends well, from the poll loop or from a Cancel that found it already done.
+    async function finish(installed: string) {
+        if (finished.current) return;
+        finished.current = true;
+        try { await updateSettings({ ffmpegPath: installed }); }
+        catch (err) { fail(errorMessage(err, t("recent.unknownError"))); return; }
+        busy.current = false;
+        setPath(installed);
+        setStep("done");
+        request.onInstalled?.(installed);
+    }
+
     async function start() {
         if (busy.current) return;
         busy.current = true;
+        finished.current = false;
         setStep("download");
         setProgress({ done: 0, total: 0 });
         setSpeed(0);
@@ -82,12 +94,7 @@ function Installer({ request }: { request: FFmpegInstallRequest }) {
                 return;
             }
             if (state.step === "done") {
-                try { await updateSettings({ ffmpegPath: state.path }); }
-                catch (err) { fail(errorMessage(err, t("recent.unknownError"))); return; }
-                busy.current = false;
-                setPath(state.path);
-                setStep("done");
-                request.onInstalled?.(state.path);
+                await finish(state.path);
                 return;
             }
             setStep(state.step as Step);
@@ -99,8 +106,14 @@ function Installer({ request }: { request: FFmpegInstallRequest }) {
         }
     }
 
-    const cancel = () => {
-        CancelFFmpegInstall().catch((err) => logger.error(errorMessage(err, "FFmpeg cancel failed")));
+    // An install that finished before the cancel landed stays done, so look once more before closing.
+    const cancel = async () => {
+        try {
+            await CancelFFmpegInstall();
+            const state = await GetFFmpegInstall();
+            if (state.step === "done") { await finish(state.path); return; }
+        }
+        catch (err) { logger.error(errorMessage(err, "FFmpeg cancel failed")); }
         closeFFmpegInstall();
     };
     const browse = async () => {
@@ -126,7 +139,7 @@ function Installer({ request }: { request: FFmpegInstallRequest }) {
       {fallback && <p className="text-xs text-muted-foreground">{t("ffmpeg.fallbackNote")}</p>}
     </div>);
 
-    return (<Dialog open onOpenChange={(open) => { if (!open) (running ? cancel : closeFFmpegInstall)(); }}>
+    return (<Dialog open onOpenChange={(open) => { if (!open) (running ? () => void cancel() : closeFFmpegInstall)(); }}>
       <DialogContent showCloseButton={false} aria-describedby={undefined} className="max-w-[520px]"
           onEscapeKeyDown={(e) => running && e.preventDefault()} onInteractOutside={(e) => running && e.preventDefault()}>
         <DialogHeader className="flex-row items-center gap-3 text-left">
@@ -166,7 +179,7 @@ function Installer({ request }: { request: FFmpegInstallRequest }) {
             <Button variant="outline" onClick={closeFFmpegInstall}>{t("ffmpeg.later")}</Button>
             <Button disabled={!dir.trim()} onClick={() => void start()}>{t("ffmpeg.install")}</Button>
           </>)}
-          {running && <Button variant="outline" onClick={cancel}>{t("common.cancel")}</Button>}
+          {running && <Button variant="outline" onClick={() => void cancel()}>{t("common.cancel")}</Button>}
           {step === "done" && <Button onClick={closeFFmpegInstall}>{t("common.close")}</Button>}
           {step === "error" && (<>
             <Button variant="outline" onClick={closeFFmpegInstall}>{t("common.close")}</Button>

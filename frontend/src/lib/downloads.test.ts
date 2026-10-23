@@ -61,7 +61,7 @@ describe("downloads store", () => {
         expect(toast.error).not.toHaveBeenCalled();
         expect(openFFmpegInstall).toHaveBeenCalledTimes(1);
         expect(api.DownloadTracks).toHaveBeenCalledTimes(1);
-        vi.mocked(openFFmpegInstall).mock.calls[0][0]!("C:\ff\ffmpeg.exe");
+        vi.mocked(openFFmpegInstall).mock.calls[0][0]!("C:\\ff\\ffmpeg.exe");
         await vi.advanceTimersByTimeAsync(0);
         expect(api.DownloadTracks).toHaveBeenCalledTimes(2);
         expect(vi.mocked(api.DownloadTracks).mock.calls[1][0].tracks).toEqual(vi.mocked(api.DownloadTracks).mock.calls[0][0].tracks);
