@@ -11,6 +11,7 @@ vi.mock("../../wailsjs/go/main/App", () => ({
     RetryFailedDownloads: vi.fn(), ClearFinishedDownloads: vi.fn(), GuardWait: vi.fn(), GuardContinue: vi.fn(),
     LoadSettings: vi.fn(), SaveSettings: vi.fn(),
 }));
+vi.mock("@/lib/ffmpeg-install", () => ({ openFFmpegInstall: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
 
 const idle = { name: "", available: true, needs_check: false, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 } as source.Status;
@@ -48,6 +49,22 @@ describe("downloads store", () => {
         expect(req.options).toHaveProperty("source");
         expect(req.tracks[0]).toEqual({ id: "B01", title: "Song 1", artist: "Artist", album: "Album", album_artist: "Album Artist", release_date: "2020", track_number: 5, disc_number: 2, position: 5, service: "amazon", album_id: "", duration_ms: 1000, explicit: false, image: "" });
         expect(req.tracks.map((t) => t.position)).toEqual([5, 6]);
+    });
+
+    it("a missing FFmpeg opens the install instead of a toast, and installing sends the same request again", async () => {
+        const { api, toast, store } = await load();
+        const { openFFmpegInstall } = await import("@/lib/ffmpeg-install");
+        vi.mocked(api.DownloadTracks).mockRejectedValueOnce("NO_FFMPEG: FFmpeg is needed for MP3");
+
+        await store.startDownload({ kind: "album", id: "A1", name: "Album" }, store.toSources("album", [track(1)]));
+
+        expect(toast.error).not.toHaveBeenCalled();
+        expect(openFFmpegInstall).toHaveBeenCalledTimes(1);
+        expect(api.DownloadTracks).toHaveBeenCalledTimes(1);
+        vi.mocked(openFFmpegInstall).mock.calls[0][0]!("C:\ff\ffmpeg.exe");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(api.DownloadTracks).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(api.DownloadTracks).mock.calls[1][0].tracks).toEqual(vi.mocked(api.DownloadTracks).mock.calls[0][0].tracks);
     });
 
     it("numbers playlist and track positions by index + 1", async () => {

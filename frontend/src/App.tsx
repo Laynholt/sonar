@@ -17,6 +17,7 @@ import { DownloadsPage } from "@/components/DownloadsPage";
 import { GuardDialog } from "@/components/GuardDialog";
 import { ResumeDialog } from "@/components/ResumeDialog";
 import { CandidatePicker } from "@/components/CandidatePicker";
+import { FFmpegInstallDialog } from "@/components/FFmpegInstallDialog";
 import { DownloadWidget } from "@/components/DownloadWidget";
 import { SearchBar } from "@/components/SearchBar";
 import { TrackInfo } from "@/components/TrackInfo";
@@ -261,6 +262,7 @@ function App() {
 
             <GuardDialog />
             <ResumeDialog />
+            <FFmpegInstallDialog />
             {pickerId && <CandidatePicker key={pickerId} itemId={pickerId} onClose={closePicker}/>}
             <DownloadWidget hidden={currentPage === "downloads"} onOpen={() => handlePageChange("downloads")}/>
 

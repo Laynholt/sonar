@@ -11,6 +11,7 @@ import { getSettings, saveSettings, applyThemeMode, applyFont, FONT_OPTIONS, typ
 import { themes, applyTheme } from "@/lib/themes";
 import { LOCALES, availableLanguages, setLanguage, t as translate, useI18n, type MessageKey } from "@/lib/i18n";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
+import { openFFmpegInstall } from "@/lib/ffmpeg-install";
 import { FILENAME_PRESETS, FOLDER_PRESETS } from "@/lib/downloadPresets";
 import { SourceStatus } from "@/components/SourceStatus";
 import { DefaultDownloadDir, FindFFmpeg, SelectDownloadFolder, SelectFFmpeg } from "../../wailsjs/go/main/App";
@@ -130,6 +131,11 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
         FindFFmpeg(settings.ffmpegPath).then((path) => { if (!stale) setFfmpegFound(path); }, () => { if (!stale) setFfmpegFound(""); });
         return () => { stale = true; };
     }, [needsFFmpeg, settings.ffmpegPath]);
+    // Choosing MP3 or M4A without FFmpeg is the moment to offer the install.
+    const offerInstall = (format: string) => {
+        if (format === "original") return;
+        FindFFmpeg(settings.ffmpegPath).then((found) => { if (!found) openFFmpegInstall((ffmpegPath) => set({ ffmpegPath })); }, () => {});
+    };
     const browse = async (pick: () => Promise<string>, apply: (path: string) => void) => {
         try {
             const path = await pick();
@@ -146,7 +152,7 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
         </div>
       </Row>
       <Row id="download-format" label={t("settings.format")} description={t("settings.formatDesc")}>
-        <Select value={settings.downloadFormat} onValueChange={(value: SettingsType["downloadFormat"]) => set({ downloadFormat: value })}>
+        <Select value={settings.downloadFormat} onValueChange={(value: SettingsType["downloadFormat"]) => { set({ downloadFormat: value }); offerInstall(value); }}>
           <SelectTrigger id="download-format">
             <SelectValue/>
           </SelectTrigger>

@@ -1,6 +1,7 @@
 import { CancelAllDownloads, CancelDownload, ChooseCandidate, ClearFinishedDownloads, ClearQueue, DownloadTracks, GetDownloadState, GuardContinue, GuardWait, ResumeQueue, RetryDownload, RetryFailedDownloads, SkipReview, UseAmazonLink } from "../../wailsjs/go/main/App";
 import type { download, main, source } from "../../wailsjs/go/models";
 import type { TrackMetadata } from "@/types/api";
+import { openFFmpegInstall } from "./ffmpeg-install";
 import { t } from "./i18n";
 import { logger } from "./logger";
 import { downloadOptions, getSettings } from "./settings";
@@ -124,6 +125,11 @@ export async function startDownload(collection: { kind: CollectionKind; id: stri
     catch (err) {
         if (previous) batches.set(queueId, previous);
         else batches.delete(queueId);
+        // Go refuses an MP3/M4A request when FFmpeg is missing; the install dialog replaces the error, and a finished install sends the request again.
+        if (errorMessage(err, "").startsWith("NO_FFMPEG: ")) {
+            openFFmpegInstall(() => void startDownload(collection, tracks));
+            return;
+        }
         toastWithSound.error(errorMessage(err, t("recent.unknownError")));
         return;
     }

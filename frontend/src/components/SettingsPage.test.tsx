@@ -3,6 +3,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLanguage, setLanguage } from "@/lib/i18n";
 import { downloadOptions, type Settings } from "@/lib/settings";
+import { openFFmpegInstall } from "@/lib/ffmpeg-install";
 import { toastWithSound } from "@/lib/toast-with-sound";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import { SettingsPage } from "./SettingsPage";
@@ -14,6 +15,7 @@ vi.mock("../../wailsjs/go/main/App", () => ({
     LoadSettings: vi.fn(), SaveSettings: vi.fn(), SelectDownloadFolder: vi.fn(), DefaultDownloadDir: vi.fn(),
     GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn(), FindFFmpeg: vi.fn(), SelectFFmpeg: vi.fn(),
 }));
+vi.mock("@/lib/ffmpeg-install", () => ({ openFFmpegInstall: vi.fn() }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
 
@@ -161,6 +163,21 @@ describe("SettingsPage", () => {
             expect(SelectDownloadFolder).not.toHaveBeenCalled();
             expect([...view.container.querySelectorAll("input")].some((input) => input.value === "C:\\ff\\ffmpeg.exe")).toBe(true);
             expect(await lastOptions()).toMatchObject({ ffmpeg_path: "C:\\ff\\ffmpeg.exe", format: "mp3-320" });
+        });
+
+        it("choosing MP3 without FFmpeg offers the install and uses the installed path", async () => {
+            await open();
+            await pick(selectWith("mp3-320"), "mp3-320");
+            expect(openFFmpegInstall).toHaveBeenCalledTimes(1);
+            await act(async () => vi.mocked(openFFmpegInstall).mock.calls[0][0]!("C:\ff\ffmpeg.exe"));
+            expect(await lastOptions()).toMatchObject({ ffmpeg_path: "C:\ff\ffmpeg.exe", format: "mp3-320" });
+        });
+
+        it("choosing MP3 with FFmpeg found does not open the install", async () => {
+            vi.mocked(FindFFmpeg).mockResolvedValue("C:\bin\ffmpeg.exe");
+            await open();
+            await pick(selectWith("mp3-320"), "mp3-320");
+            expect(openFFmpegInstall).not.toHaveBeenCalled();
         });
 
         it("the Download FFmpeg link opens ffmpeg.org", async () => {
