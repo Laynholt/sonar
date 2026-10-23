@@ -412,3 +412,20 @@ func TestInstallChecksumsHostHangs(t *testing.T) {
 		t.Fatal("want error")
 	}
 }
+
+func TestInstallSweepsStaleTemps(t *testing.T) {
+	parent := t.TempDir()
+	os.WriteFile(filepath.Join(parent, "ffmpeg-123.zip.tmp"), []byte("half"), 0o644)
+	os.MkdirAll(filepath.Join(parent, "ffmpeg-456.tmp", "sub"), 0o755)
+	os.WriteFile(filepath.Join(parent, "ffmpeg-456.tmp", "ffmpeg.exe"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(parent, "keep.tmp"), []byte("mine"), 0o644)
+
+	f := newFixture(t, goodZip(t), "")
+	f.zipHandler = func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }
+	if _, err := Install(context.Background(), f.srv.Client(), f.archive, f.sum, filepath.Join(parent, "ffmpeg"), nil); err == nil {
+		t.Fatal("want error")
+	}
+	if left := names(t, parent); !reflect.DeepEqual(left, []string{"keep.tmp"}) {
+		t.Errorf("parent holds %v", left)
+	}
+}

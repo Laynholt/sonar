@@ -93,6 +93,13 @@ func Install(ctx context.Context, c *http.Client, archive, sums Asset, dir strin
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
+	// A previous run killed mid-install (window closed) cannot clean up after itself.
+	for _, pat := range []string{"ffmpeg-*.zip.tmp", "ffmpeg-*.tmp"} {
+		stale, _ := filepath.Glob(filepath.Join(parent, pat))
+		for _, p := range stale {
+			os.RemoveAll(p)
+		}
+	}
 	zf, err := os.CreateTemp(parent, "ffmpeg-*.zip.tmp")
 	if err != nil {
 		return "", err

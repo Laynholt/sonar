@@ -12,6 +12,9 @@ import (
 )
 
 func TestLatestPicksHighestVersion(t *testing.T) {
+	oldPrefix := downloadPrefix
+	downloadPrefix = "http://dl/"
+	defer func() { downloadPrefix = oldPrefix }()
 	serve := func(names ...string) *httptest.Server {
 		type asset struct {
 			Name string `json:"name"`
@@ -68,6 +71,28 @@ func TestLatestPicksHighestVersion(t *testing.T) {
 	defer down.Close()
 	if _, _, err := Latest(context.Background(), down.Client(), down.URL); err == nil {
 		t.Error("HTTP 403: want error")
+	}
+}
+
+func TestLatestRejectsForeignURL(t *testing.T) {
+	for _, foreign := range []string{"archive", "sums"} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			url := func(kind string) string {
+				if kind == foreign {
+					return "https://evil.example/x"
+				}
+				return downloadPrefix + "x"
+			}
+			json.NewEncoder(w).Encode(map[string]any{"assets": []map[string]any{
+				{"name": "ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip", "browser_download_url": url("archive")},
+				{"name": "checksums.sha256", "browser_download_url": url("sums")},
+			}})
+		}))
+		_, _, err := Latest(context.Background(), srv.Client(), srv.URL)
+		srv.Close()
+		if err == nil {
+			t.Errorf("foreign %s URL accepted", foreign)
+		}
 	}
 }
 

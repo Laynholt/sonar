@@ -117,6 +117,7 @@ func (a *App) shutdown(context.Context) {
 			a.saveQueue()
 		}
 		a.stopCheck(5 * time.Second)
+		a.CancelFFmpegInstall()
 		a.dl.Close()
 		if a.hist != nil {
 			a.hist.Close()

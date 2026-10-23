@@ -44,7 +44,7 @@ func (a *App) DefaultFFmpegDir() FFmpegDir {
 	if exe := convert.ExeDir(); exe != "" && writable(exe) {
 		return FFmpegDir{Dir: filepath.Join(exe, "ffmpeg")}
 	}
-	return FFmpegDir{Dir: filepath.Join(os.Getenv("LOCALAPPDATA"), "Sonar", "ffmpeg"), Fallback: true}
+	return FFmpegDir{Dir: convert.FallbackDir(), Fallback: true}
 }
 
 // SelectFFmpegFolder returns the picked folder plus \ffmpeg, "" when the user cancels.
@@ -58,6 +58,9 @@ func (a *App) SelectFFmpegFolder() (string, error) {
 
 // StartFFmpegInstall downloads and installs FFmpeg into dir in the background; poll GetFFmpegInstall.
 func (a *App) StartFFmpegInstall(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return errors.New("the install folder must be an absolute path")
+	}
 	a.ffMu.Lock()
 	defer a.ffMu.Unlock()
 	if a.ffCancel != nil {

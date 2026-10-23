@@ -16,6 +16,9 @@ import (
 
 const ReleaseAPI = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest"
 
+// downloadPrefix is where every asset URL must live; a variable so tests can point it at httptest.
+var downloadPrefix = "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
+
 const sumsName = "checksums.sha256"
 
 // archiveRe matches the GPL shared build only: master builds and lgpl are skipped.
@@ -56,6 +59,10 @@ func Latest(ctx context.Context, c *http.Client, api string) (archive, sums Asse
 
 	var best []int
 	for _, a := range rel.Assets {
+		if (a.Name == sumsName || archiveRe.MatchString(a.Name)) && !strings.HasPrefix(a.URL, downloadPrefix) {
+			err = fmt.Errorf("release lookup: unexpected download URL for %s", a.Name)
+			return
+		}
 		if a.Name == sumsName {
 			sums = Asset{a.Name, a.URL, a.Size}
 		}

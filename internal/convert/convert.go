@@ -38,12 +38,16 @@ var exeDir = func() string {
 // ExeDir is the folder of the running executable, "" if unknown.
 func ExeDir() string { return exeDir() }
 
+// FallbackDir is %LOCALAPPDATA%\Sonar\ffmpeg, where the installer goes when the program folder is read-only.
+func FallbackDir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "Sonar", "ffmpeg") }
+
 func isFile(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.Mode().IsRegular()
 }
 
-// FindFFmpeg returns custom if it is an existing regular file, else <exe dir>/ffmpeg/ffmpeg.exe, else ffmpeg from PATH, else "".
+// FindFFmpeg returns custom if it is an existing regular file, else <exe dir>/ffmpeg/ffmpeg.exe,
+// else FallbackDir()/ffmpeg.exe, else ffmpeg from PATH, else "".
 func FindFFmpeg(custom string) string {
 	if custom != "" && isFile(custom) {
 		return custom
@@ -52,6 +56,9 @@ func FindFFmpeg(custom string) string {
 		if p := filepath.Join(d, "ffmpeg", "ffmpeg.exe"); isFile(p) {
 			return p
 		}
+	}
+	if p := filepath.Join(FallbackDir(), "ffmpeg.exe"); filepath.IsAbs(p) && isFile(p) { // relative when LOCALAPPDATA is unset
+		return p
 	}
 	p, _ := exec.LookPath("ffmpeg")
 	return p

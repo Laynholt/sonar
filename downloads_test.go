@@ -292,6 +292,14 @@ func TestFetchMarksSiteDown(t *testing.T) {
 	}
 }
 
+func TestFetchNoFFmpegErrorHasNoSentinel(t *testing.T) {
+	a := &App{findFFmpeg: func(string) string { return "" }}
+	_, err := a.fetch(context.Background(), "lucida", download.Track{}, "B00A3SGXAA", download.Options{Format: "mp3-320"}, t.TempDir()+"/x", nil)
+	if err == nil || strings.Contains(err.Error(), "NO_FFMPEG") || !strings.HasPrefix(err.Error(), "FFmpeg is needed") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func waitStatus(t *testing.T, a *App, want ...download.Status) {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {

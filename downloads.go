@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"time"
 
@@ -22,8 +23,17 @@ import (
 	"sonar/internal/spotify"
 )
 
-// errNoFFmpeg starts with the NO_FFMPEG: sentinel the frontend matches on.
-var errNoFFmpeg = errors.New("NO_FFMPEG: FFmpeg is needed to convert to MP3 or M4A; set its path in Settings → Downloads")
+// errNoFFmpeg starts with the NO_FFMPEG: sentinel the frontend matches on to offer the Windows-only installer.
+var errNoFFmpeg = errors.New(noFFmpegPrefixFor(goruntime.GOOS) + noFFmpegMsg)
+
+const noFFmpegMsg = "FFmpeg is needed to convert to MP3 or M4A; set its path in Settings → Downloads"
+
+func noFFmpegPrefixFor(goos string) string {
+	if goos == "windows" {
+		return "NO_FFMPEG: "
+	}
+	return ""
+}
 
 const (
 	sourceCooldown = 10 * time.Minute
@@ -171,6 +181,9 @@ func (a *App) fetch(ctx context.Context, site string, t download.Track, id strin
 	}
 	// Checked before the download so a FLAC is never fetched just to be deleted.
 	ff, err := a.ffmpeg(o)
+	if errors.Is(err, errNoFFmpeg) {
+		return "", errors.New(noFFmpegMsg) // the sentinel is for DownloadTracks; a queued item shows plain text
+	}
 	if err != nil {
 		return "", err
 	}

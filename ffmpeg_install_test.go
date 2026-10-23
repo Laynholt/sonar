@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,7 @@ func waitFF(t *testing.T, a *App, step string) FFmpegInstall {
 
 func TestStartFFmpegInstallReportsSteps(t *testing.T) {
 	release, reported := make(chan struct{}), make(chan struct{})
+	dir := filepath.Join(t.TempDir(), "ff")
 	a := &App{ffLatest: fakeLatest}
 	a.ffInstall = func(_ context.Context, _ *http.Client, _, _ ffinstall.Asset, dir string, report func(ffinstall.Progress)) (string, error) {
 		report(ffinstall.Progress{Step: "download", Done: 5, Total: 10})
@@ -38,18 +40,18 @@ func TestStartFFmpegInstallReportsSteps(t *testing.T) {
 		<-release
 		return filepath.Join(dir, "ffmpeg.exe"), nil
 	}
-	if err := a.StartFFmpegInstall("D:/ff"); err != nil {
+	if err := a.StartFFmpegInstall(dir); err != nil {
 		t.Fatal(err)
 	}
 	<-reported
 	if s := a.GetFFmpegInstall(); s.Step != "download" || s.Done != 5 || s.Total != 10 {
 		t.Errorf("state = %+v", s)
 	}
-	if err := a.StartFFmpegInstall("D:/ff"); err == nil {
+	if err := a.StartFFmpegInstall(dir); err == nil {
 		t.Error("second Start while running must fail")
 	}
 	close(release)
-	if s := waitFF(t, a, "done"); s.Path != filepath.Join("D:/ff", "ffmpeg.exe") || s.Error != "" {
+	if s := waitFF(t, a, "done"); s.Path != filepath.Join(dir, "ffmpeg.exe") || s.Error != "" {
 		t.Errorf("state = %+v", s)
 	}
 }
@@ -95,11 +97,22 @@ func TestCancelFFmpegInstall(t *testing.T) {
 	}
 }
 
+func TestStartFFmpegInstallRejectsRelativeDir(t *testing.T) {
+	a := &App{ffLatest: fakeLatest}
+	if err := a.StartFFmpegInstall("ffmpeg"); err == nil {
+		t.Error("relative dir must be rejected")
+	}
+	if s := a.GetFFmpegInstall(); s.Step != "idle" || a.ffCancel != nil {
+		t.Errorf("a rejected start left state %+v", s)
+	}
+}
+
 func TestDownloadTracksNoFFmpegSentinel(t *testing.T) {
 	a := &App{findFFmpeg: func(string) string { return "" }}
-	_, err := a.ffmpeg(download.Options{Format: "mp3-320"})
-	if err == nil || !strings.HasPrefix(err.Error(), "NO_FFMPEG: ") {
-		t.Errorf("err = %v", err)
+	err := a.DownloadTracks(DownloadRequest{Options: download.Options{Format: "mp3-320"}})
+	has := err != nil && strings.HasPrefix(err.Error(), "NO_FFMPEG: ")
+	if err == nil || has != (runtime.GOOS == "windows") {
+		t.Errorf("err = %v on %s", err, runtime.GOOS)
 	}
 }
 

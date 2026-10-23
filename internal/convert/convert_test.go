@@ -62,6 +62,7 @@ func TestFindFFmpeg(t *testing.T) {
 	if got := FindFFmpeg(custom); got != custom {
 		t.Errorf("custom = %q, want %q", got, custom)
 	}
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	want, _ := exec.LookPath("ffmpeg")
 	if got := FindFFmpeg(filepath.Join(t.TempDir(), "missing")); got != want {
 		t.Errorf("missing custom = %q, want %q", got, want)
@@ -265,5 +266,35 @@ func TestFindFFmpegExeDir(t *testing.T) {
 	}
 	if got := FindFFmpeg(custom); got != custom {
 		t.Errorf("custom = %q, want %q", got, custom)
+	}
+}
+
+func TestFindFFmpegFallbackDir(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	if err := os.MkdirAll(FallbackDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inLocal := filepath.Join(FallbackDir(), "ffmpeg.exe")
+	if err := os.WriteFile(inLocal, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	empty := t.TempDir()
+	old := exeDir
+	exeDir = func() string { return empty }
+	defer func() { exeDir = old }()
+	t.Setenv("PATH", "")
+	if got := FindFFmpeg(""); got != inLocal {
+		t.Errorf("fallback = %q, want %q", got, inLocal)
+	}
+	// <exe dir>fmpeg comes before the fallback
+	if err := os.MkdirAll(filepath.Join(empty, "ffmpeg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inExe := filepath.Join(empty, "ffmpeg", "ffmpeg.exe")
+	if err := os.WriteFile(inExe, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindFFmpeg(""); got != inExe {
+		t.Errorf("exe dir = %q, want %q", got, inExe)
 	}
 }
