@@ -1,6 +1,7 @@
 package genre
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,7 @@ import (
 // WriteFLAC sets the GENRE Vorbis comment of the FLAC at path, keeping every other comment.
 // It writes a temp file next to path and renames it over, so a failure leaves path untouched.
 func WriteFLAC(path, genre string) error {
-	f, err := flac.ParseFile(path)
+	f, err := parseFLAC(path)
 	if err != nil {
 		return err
 	}
@@ -65,4 +66,14 @@ func WriteFLAC(path, genre string) error {
 		os.Remove(tmp.Name())
 	}
 	return err
+}
+
+// parseFLAC turns go-flac's panic on truncated input (metadata but no frames) into an error.
+func parseFLAC(path string) (f *flac.File, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			f, err = nil, fmt.Errorf("not a valid FLAC file: %v", r)
+		}
+	}()
+	return flac.ParseFile(path)
 }

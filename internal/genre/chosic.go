@@ -10,19 +10,20 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+
+	"sonar/internal/httpx"
 )
 
 const (
 	chosicBase = "https://www.chosic.com"
 	finderPage = chosicBase + "/music-genre-finder/"
-	userAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 	maxGenres  = 5
 )
 
-// Client talks to chosic's genre-finder API. The zero value uses the real site and http.DefaultClient.
+// Client talks to chosic's genre-finder API. The zero value uses the real site and the shared httpx client.
 type Client struct {
 	Base string       // "" means https://www.chosic.com
-	HTTP *http.Client // nil means http.DefaultClient; never mutated
+	HTTP *http.Client // nil means httpx.Client(); never mutated
 }
 
 // Genres returns up to 5 genres of the track's first artist, trimmed and deduped case-insensitively.
@@ -35,7 +36,7 @@ func (c *Client) Genres(ctx context.Context, spotifyTrackID string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	hc := http.DefaultClient
+	hc := httpx.Client()
 	if c.HTTP != nil {
 		hc = c.HTTP
 	}
@@ -110,7 +111,7 @@ func (s session) do(ctx context.Context, method, path string, out any) error {
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Origin", chosicBase)
 	req.Header.Set("Referer", finderPage)
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", httpx.UserAgent)
 	resp, err := s.hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("chosic %s: %w", path, err)
@@ -120,7 +121,7 @@ func (s session) do(ctx context.Context, method, path string, out any) error {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("chosic %s: HTTP %d (%s)", path, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
 		return fmt.Errorf("chosic %s: decode: %w", path, err)
 	}
 	return nil
