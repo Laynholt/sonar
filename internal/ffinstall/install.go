@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -24,6 +25,9 @@ const (
 )
 
 var ErrNotEmpty = errors.New("folder is not empty")
+
+// staleTemp matches only the names CreateTemp/MkdirTemp give our temps (a run of digits for the *).
+var staleTemp = regexp.MustCompile(`^ffmpeg-\d+(\.zip)?\.tmp$`)
 
 // Progress.Step is "download" (bytes) or "install" (files).
 type Progress struct {
@@ -94,10 +98,11 @@ func Install(ctx context.Context, c *http.Client, archive, sums Asset, dir strin
 		return "", err
 	}
 	// A previous run killed mid-install (window closed) cannot clean up after itself.
-	for _, pat := range []string{"ffmpeg-*.zip.tmp", "ffmpeg-*.tmp"} {
-		stale, _ := filepath.Glob(filepath.Join(parent, pat))
-		for _, p := range stale {
-			os.RemoveAll(p)
+	// ReadDir, not Glob: a picked folder like "Music [2020]" would be read as a pattern.
+	entries, _ := os.ReadDir(parent)
+	for _, e := range entries {
+		if staleTemp.MatchString(e.Name()) {
+			os.RemoveAll(filepath.Join(parent, e.Name()))
 		}
 	}
 	zf, err := os.CreateTemp(parent, "ffmpeg-*.zip.tmp")

@@ -414,7 +414,9 @@ func TestInstallChecksumsHostHangs(t *testing.T) {
 }
 
 func TestInstallSweepsStaleTemps(t *testing.T) {
-	parent := t.TempDir()
+	parent := filepath.Join(t.TempDir(), "Music [2020]") // glob metacharacters must not matter
+	os.MkdirAll(parent, 0o755)
+	os.WriteFile(filepath.Join(parent, "ffmpeg-notes.tmp"), []byte("user's"), 0o644)
 	os.WriteFile(filepath.Join(parent, "ffmpeg-123.zip.tmp"), []byte("half"), 0o644)
 	os.MkdirAll(filepath.Join(parent, "ffmpeg-456.tmp", "sub"), 0o755)
 	os.WriteFile(filepath.Join(parent, "ffmpeg-456.tmp", "ffmpeg.exe"), []byte("x"), 0o644)
@@ -425,7 +427,7 @@ func TestInstallSweepsStaleTemps(t *testing.T) {
 	if _, err := Install(context.Background(), f.srv.Client(), f.archive, f.sum, filepath.Join(parent, "ffmpeg"), nil); err == nil {
 		t.Fatal("want error")
 	}
-	if left := names(t, parent); !reflect.DeepEqual(left, []string{"keep.tmp"}) {
+	if left := names(t, parent); !reflect.DeepEqual(left, []string{"ffmpeg-notes.tmp", "keep.tmp"}) {
 		t.Errorf("parent holds %v", left)
 	}
 }
