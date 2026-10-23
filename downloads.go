@@ -181,7 +181,7 @@ func (a *App) fetch(ctx context.Context, site string, t download.Track, id strin
 		found = make(chan []string, 1)
 		go func() {
 			g, err := a.genres(gctx, t, id)
-			if err != nil {
+			if err != nil && !errors.Is(err, context.Canceled) { // cancelled = fetch already returned
 				log.Printf("genre %s: %v", t.ID, err)
 			}
 			found <- g
