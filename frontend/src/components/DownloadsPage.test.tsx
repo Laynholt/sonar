@@ -216,7 +216,7 @@ describe("DownloadsPage", () => {
 
     it("sums up the queue and shows each download's size", async () => {
         const MB = 1024 * 1024;
-        await show([...all.slice(0, 1), item("d", "downloading", { bytes: 2 * MB, size: 4 * MB }), item("c", "completed", { path: "C:\Music\c.flac", bytes: 30 * MB, size: 30 * MB })]);
+        await show([...all.slice(0, 1), item("d", "downloading", { bytes: 2 * MB, size: 4 * MB }), item("c", "completed", { path: "C:\\Music\\c.flac", bytes: 30 * MB, size: 30 * MB })]);
         expect(view.container.textContent).toContain("Downloading: 1 of 3");
         expect(view.container.textContent).toContain("50%");
         expect(row("d").textContent).toContain("2.0 of 4.0 MB");
@@ -225,7 +225,7 @@ describe("DownloadsPage", () => {
     });
 
     it("shows the tags a finished file carries", async () => {
-        vi.mocked(GetDownloadTags).mockResolvedValue({ path: "C:\Music\c.flac", format: "FLAC", size: 1024 * 1024, fields: [{ key: "title", value: "Song c" }, { key: "track", value: "3/12" }], extra: [{ key: "ISRC", value: "USUG1" }], cover: "" } as never);
+        vi.mocked(GetDownloadTags).mockResolvedValue({ path: "C:\\Music\\c.flac", format: "FLAC", size: 1024 * 1024, fields: [{ key: "title", value: "Song c" }, { key: "track", value: "3/12" }], extra: [{ key: "ISRC", value: "USUG1" }], cover: "" } as never);
         await show(all);
         expect(row("f").querySelector('[aria-label="Tags in the file"]')).toBeNull();
         await press(row("c"), "Tags in the file");

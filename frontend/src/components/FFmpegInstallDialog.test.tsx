@@ -54,7 +54,7 @@ describe("FFmpegInstallDialog", () => {
     it("asks with the default folder", async () => {
         await show();
         expect(text()).toContain("FFmpeg not found");
-        expect(text()).toContain("about 82 MB");
+        expect(text()).toContain("download the official build and install it");
         expect(folder().value).toBe("C:\\App\\ffmpeg");
         expect(text()).not.toContain("Program folder is read-only");
     });

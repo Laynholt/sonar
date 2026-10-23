@@ -226,7 +226,7 @@ export const en = {
     "download.ffmpegMissing": "FFmpeg not found, MP3 and M4A won't work",
     "download.ffmpegGet": "Download FFmpeg",
     "ffmpeg.title": "FFmpeg not found",
-    "ffmpeg.desc": "It is needed to save music as MP3 and M4A. Sonar can download the official build (about 82 MB) and install it for you.",
+    "ffmpeg.desc": "It is needed to save music as MP3 and M4A. Sonar can download the official build and install it for you.",
     "ffmpeg.where": "Install to",
     "ffmpeg.browse": "Browse",
     "ffmpeg.fallbackNote": "Program folder is read-only, so FFmpeg goes to your user folder.",
