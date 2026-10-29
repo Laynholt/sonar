@@ -2,7 +2,7 @@
 
 Desktop app (Wails v2: Go backend, React/Vite frontend) for looking up Spotify and Amazon Music links and search results, with a SpotiDownloader-style UI. No sign-in needed.
 
-Status: stage 3a (downloads of Amazon Music sources through lucida and doubledouble).
+Status: stage 3c (downloads of Spotify and Amazon Music sources, genre tags, built-in FFmpeg installer).
 
 ## Features
 
@@ -10,7 +10,8 @@ Status: stage 3a (downloads of Amazon Music sources through lucida and doubledou
 - Paste an Amazon Music track, album, playlist or artist link (any `music.amazon.*` host) to see the same view.
 - Search Spotify or Amazon Music by text (switch in the search bar).
 - Fetch history (recent fetches and a full history page).
-- Download a track, album, playlist or artist from an Amazon Music source through lucida.to or doubledouble.top: Auto alternates between the two and skips a site that is down, or pick one fixed site. A Downloads page shows the queue.
+- Download a track, album, playlist or artist through lucida.to or doubledouble.top: Auto uses both sites at once (one track per site) and skips a site that is down, or pick one fixed site. A Downloads page shows the queue.
+- Spotify sources download by matching each track to Amazon Music (see below).
 - Themes and soft UI sounds, configurable in Settings.
 
 ## Amazon Music limits
@@ -30,15 +31,19 @@ Settings > Downloads:
 - **Folder** (default: `Music/sonar` in your home folder) and **folder / file name templates**, with a live preview.
 - **Source:** Auto, lucida or doubledouble.
 - **doubledouble check:** doubledouble asks for a Cloudflare check now and then. "Pass check" opens a visible Chrome or Edge window on the site; you pass the check yourself, sonar only reads the resulting token, then closes the window. Needs Chrome or Edge installed.
-- **Format:** both sites always deliver FLAC. MP3 320 or M4A AAC 320 are converted locally with FFmpeg, which must be in PATH or chosen in Settings (sonar does not download it).
-- **Rate guard** (on by default): after 50 tracks in a row from one site, sonar warns that the site may ban you for a while. "OK, I'll wait" pauses all downloads for 30 minutes; "I don't care, continue" goes on. The limit can be changed or the guard switched off.
+- **Format:** both sites always deliver FLAC. MP3 320 or M4A AAC 320 are converted locally with FFmpeg. sonar looks for it in the path chosen in Settings, then in an `ffmpeg` folder next to `sonar.exe`, then in PATH. If it is missing, sonar offers to install it (Windows only): it downloads the latest `BtbN/FFmpeg-Builds` release from GitHub (about 90 MB), checks it against the release checksums and unpacks `ffmpeg.exe` and its DLLs into the chosen folder.
+- **Genres:** on by default. sonar asks chosic.com for up to 5 genres by the Spotify track ID (Amazon tracks are found on Spotify by ISRC) and writes them to the file. "Only one genre" keeps the first. If chosic fails, the file is saved without a genre.
+- **Rate guard** (on by default): each site has its own counter. After 50 tracks from one site, sonar warns that the site may ban you for a while. "Wait" pauses only that site (15 min to 2 h, 30 min by default) while the other keeps going; "Continue anyway" goes on. The limit can be changed or the guard switched off.
+
+Spotify matching: a confident match downloads at once; an exact ISRC match counts as confident. A doubtful or missing match waits for you: click the row to pick one of the Amazon candidates (with previews) or paste an Amazon Music link. An album is matched as a whole, an artist as their full discography plus popular tracks from releases by others.
+
+The unfinished queue is saved: on the next start sonar offers to continue it, and a site pause that has not run out keeps counting down. The download card's X collapses it to a round progress badge while a run is active; click the badge to bring the card back.
 
 Limits:
 
-- Only Amazon Music sources download for now; Spotify needs matching to Amazon (stage 3b).
 - Both sites are unofficial and may break or rate-limit.
-- At most 2 tracks download at once.
-- No genre tags yet (stage 3c).
+- At most 2 tracks download at once (one per site).
+- Matching uses titles and artists; compilations and re-recordings may need your choice.
 
 ## Proxy
 
@@ -56,8 +61,7 @@ Go error texts and Spotify and Amazon data (titles, playlist descriptions) are n
 
 ## Roadmap
 
-- Stage 3b: download Spotify links by matching them to Amazon Music.
-- Stage 3c: genre tags from chosic.
+All three planned stages are done. Deferred: the SpotiDownloader utilities (audio converter, audio analysis, file manager).
 
 ## Requirements
 
@@ -79,6 +83,7 @@ go test ./...
 cd frontend; corepack pnpm test
 $env:SONAR_LIVE=1; $env:HTTPS_PROXY="http://127.0.0.1:10808"; go test -run Live -v ./internal/spotify/   # hits real Spotify; proxy only if you need one
 $env:SONAR_LIVE=1; go test -run Live -v ./internal/lucida/ ./internal/amazon/   # real lucida and Amazon downloads
+$env:SONAR_LIVE=1; go test -run Live -v ./internal/genre/ ./internal/ffinstall/   # real chosic genres and the FFmpeg release on GitHub
 ```
 
 ## Credits
