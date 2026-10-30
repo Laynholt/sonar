@@ -331,3 +331,56 @@ func TestFetchCover(t *testing.T) {
 		t.Error("404 must be an error")
 	}
 }
+
+// Keys Read folds together (lyrics-eng, TSRC) must be replaced by a write of the folded name, not kept beside it.
+func TestFFmpegWriteReplacesFoldedKeys(t *testing.T) {
+	ffmpeg := convert.FindFFmpeg("")
+	if ffmpeg == "" {
+		t.Skip("ffmpeg not found")
+	}
+	p := filepath.Join(t.TempDir(), "a.mp3")
+	out, err := exec.Command(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=d=1", "-metadata", "lyrics-eng=old",
+		"-metadata", "TSRC=US0", "-id3v2_version", "3", p).CombinedOutput()
+	if err != nil {
+		t.Fatalf("ffmpeg: %v\n%s", err, out)
+	}
+	ctx := context.Background()
+	if got, _, _ := Read(ctx, ffmpeg, p); got["lyrics"] != "old" {
+		t.Skipf("this FFmpeg did not write lyrics-eng: %v", got)
+	}
+	if err := Write(ctx, ffmpeg, p, Tags{"lyrics": "new", "isrc": "US1"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := Read(ctx, ffmpeg, p)
+	if err != nil || got["lyrics"] != "new" || got["isrc"] != "US1" {
+		t.Errorf("got %v, err %v", got, err)
+	}
+	raw, _, err := dumpFFmpeg(ctx, ffmpeg, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range raw {
+		if strings.EqualFold(r.key, "lyrics-eng") || r.value == "old" || r.value == "US0" {
+			t.Errorf("old frame survived: %v", raw)
+		}
+	}
+}
+
+func TestCancelledContextKeepsCanceled(t *testing.T) {
+	ffmpeg := convert.FindFFmpeg("")
+	if ffmpeg == "" {
+		t.Skip("ffmpeg not found")
+	}
+	p := makeAudio(t, ffmpeg, ".mp3")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := Write(ctx, ffmpeg, p, Tags{"genre": "Pop"}, nil); !errors.Is(err, context.Canceled) {
+		t.Errorf("write err = %v", err)
+	}
+	if _, _, err := Read(ctx, ffmpeg, p); !errors.Is(err, context.Canceled) {
+		t.Errorf("read err = %v", err)
+	}
+	if es, _ := os.ReadDir(filepath.Dir(p)); len(es) != 1 {
+		t.Errorf("temp file left behind: %v", es)
+	}
+}
