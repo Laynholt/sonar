@@ -3,6 +3,7 @@ package plugins_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -67,13 +68,43 @@ func manifest(t *testing.T, id string) plugin.Manifest {
 }
 
 func TestBuiltinManifests(t *testing.T) {
-	if len(built) != 2 {
-		t.Fatalf("built %v, want spotify and amazon", built)
+	for _, id := range []string{"spotify", "amazon"} {
+		if built[id] == "" {
+			t.Errorf("%s was not built; built: %v", id, built)
+		} else if m := manifest(t, id); m.Kind != plugin.KindSource || m.Source.Service != id {
+			t.Errorf("%s: %+v", id, m)
+		}
 	}
 	for id := range built {
-		m := manifest(t, id)
-		if m.ID != id || m.Kind != plugin.KindSource || m.Source.Service != id || m.Contract != plugin.Contract {
+		if m := manifest(t, id); m.ID != id || m.Contract != plugin.Contract {
 			t.Errorf("%s: %+v", id, m)
+		}
+	}
+}
+
+// Every method a source's manifest lists in can must be registered, and nothing else may be:
+// bad params make a registered method fail before any network, an unknown one answers -32601.
+func TestSourceCanMatchesHandlers(t *testing.T) {
+	for id := range built {
+		m := manifest(t, id)
+		if m.Kind != plugin.KindSource {
+			continue
+		}
+		h := start(t, id)
+		call := func(method string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			return h.Call(ctx, method, json.RawMessage(`"bad"`), nil, nil)
+		}
+		for _, c := range m.Source.Can {
+			var pe *plugin.Error
+			if err := call("source." + c); !errors.As(err, &pe) || pe.Code == -32601 {
+				t.Errorf("%s: can %q: want a registered method, got %v", id, c, err)
+			}
+		}
+		var pe *plugin.Error
+		if err := call("source.nope"); !errors.As(err, &pe) || pe.Code != -32601 {
+			t.Errorf("%s: source.nope: want -32601, got %v", id, err)
 		}
 	}
 }
