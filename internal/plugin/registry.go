@@ -387,6 +387,21 @@ func (r *Registry) SetSettings(id string, values map[string]any) error {
 	return nil
 }
 
+// NotifySettings sends $/settings to every running plugin, e.g. after the proxy changed.
+func (r *Registry) NotifySettings() {
+	r.mu.Lock()
+	hosts := map[string]*Host{}
+	for id, rec := range r.hosts {
+		hosts[id] = rec.h
+	}
+	r.mu.Unlock()
+	for id, h := range hosts {
+		if err := h.Notify(MSettingsChanged, r.initParams(id)); err != nil {
+			r.logf("%s: settings note: %v", id, err)
+		}
+	}
+}
+
 func (r *Registry) State() State {
 	r.mu.Lock()
 	defer r.mu.Unlock()

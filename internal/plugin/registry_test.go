@@ -411,3 +411,30 @@ func TestRegistryOnStatus(t *testing.T) {
 		t.Fatal("no status")
 	}
 }
+
+// NotifySettings reaches a running plugin, and one not started yet stays unstarted.
+func TestRegistryNotifySettings(t *testing.T) {
+	e := newEnv(t)
+	e.bless(t, "fake1", putFake(t, e.builtin, "fake1", "1.0.0"))
+	e.bless(t, "fake2", putFake(t, e.builtin, "fake2", "1.0.0"))
+	r := e.open(t)
+	h, err := r.Host("fake1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Call(context.Background(), "echo", 1, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Host("fake2"); err != nil {
+		t.Fatal(err)
+	}
+	r.NotifySettings()
+	e.l.wait(t, "fake1: got settings")
+	e.l.mu.Lock()
+	defer e.l.mu.Unlock()
+	for _, l := range e.l.lines {
+		if strings.HasPrefix(l, "fake2:") {
+			t.Fatalf("fake2 was started: %q", l)
+		}
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +27,12 @@ func main() {
 		mu       sync.Mutex
 		settings map[string]any
 	)
+	// cfg is the plugin's settings. The App tests drive the fake through its manifest's setting defaults.
+	cfg := func() map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		return settings
+	}
 	s := &sdk.Server{}
 	s.Init = func(p plugin.InitParams) error {
 		if d, err := time.ParseDuration(os.Getenv("FAKE_INIT_SLEEP")); err == nil {
@@ -64,12 +72,17 @@ func main() {
 		"unavailable": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
 			return nil, sdk.Fail(plugin.CodeUnavailable, "down", nil)
 		},
-		// download picks its outcome by pathNoExt: "unavailable", "needs" or "boom" fail with that code, "crash" exits; anything else
-		// reports progress and saves to pathNoExt-<title>-<amazon id>.flac.
-		plugin.MDownload: func(_ context.Context, raw json.RawMessage, c *sdk.Call) (any, error) {
+		// download picks its outcome by pathNoExt, or by the "fail" setting: "unavailable", "needs" or "boom" fail with that code,
+		// "crash" exits; anything else reports progress and saves to pathNoExt-<title>-<amazon id>.flac, or, with the
+		// "copyFrom" setting, copies that file to pathNoExt plus its extension. The "downloadSleep" setting delays it.
+		plugin.MDownload: func(ctx context.Context, raw json.RawMessage, c *sdk.Call) (any, error) {
 			var p plugin.DownloadParams
 			json.Unmarshal(raw, &p)
-			switch p.PathNoExt {
+			mode := p.PathNoExt
+			if f, _ := cfg()["fail"].(string); f != "" {
+				mode = f
+			}
+			switch mode {
 			case "unavailable":
 				return nil, sdk.Fail(plugin.CodeUnavailable, "fake: down", nil)
 			case "needs":
@@ -80,7 +93,25 @@ func main() {
 				os.Exit(3)
 			}
 			c.Progress(1, 3, "Ripping")
+			if d, err := time.ParseDuration(fmt.Sprint(cfg()["downloadSleep"])); err == nil {
+				select {
+				case <-time.After(d):
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
 			c.Progress(3, 3, "")
+			if from, _ := cfg()["copyFrom"].(string); from != "" {
+				b, err := os.ReadFile(from)
+				if err != nil {
+					return nil, err
+				}
+				out := p.PathNoExt + filepath.Ext(from)
+				if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+					return nil, err
+				}
+				return plugin.DownloadResult{Path: out}, os.WriteFile(out, b, 0o644)
+			}
 			return plugin.DownloadResult{Path: p.PathNoExt + "-" + p.Track.Title + "-" + p.IDs["amazon"] + ".flac"}, nil
 		},
 		"junk": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
@@ -125,6 +156,9 @@ func main() {
 			return []model.SearchResult{{ID: fmt.Sprint(a.Offset), Name: a.Query, Type: a.Type, Duration: a.Limit}}, nil
 		},
 		plugin.MSourceFind: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			if found, ok := cfg()["find"]; ok {
+				return found, nil
+			}
 			var a struct{ Query string }
 			json.Unmarshal(p, &a)
 			return []match.Item{{Kind: "track", ID: "m1", Title: a.Query, Score: 0.9}}, nil
@@ -156,12 +190,51 @@ func main() {
 		plugin.MSourceParseLink: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
 			var a struct{ URL string }
 			json.Unmarshal(p, &a)
+			if strings.Contains(a.URL, "/album/") {
+				return plugin.Link{Kind: "album", ID: a.URL}, nil
+			}
 			return plugin.Link{Kind: "track", ID: a.URL}, nil
 		},
-		plugin.MTag: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+		// tag echoes its params, or, with the "tagFields" setting, answers those fields plus id_<service> for each id
+		// it got, after the "tagSleep" setting's duration.
+		plugin.MTag: func(ctx context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
 			var a plugin.TagParams
 			json.Unmarshal(p, &a)
+			if fields, ok := cfg()["tagFields"].(map[string]any); ok {
+				if d, err := time.ParseDuration(fmt.Sprint(cfg()["tagSleep"])); err == nil {
+					select {
+					case <-time.After(d):
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}
+				out := map[string]string{}
+				for k, v := range fields {
+					out[k] = fmt.Sprint(v)
+				}
+				for svc, id := range a.IDs {
+					out["id_"+svc] = id
+				}
+				return plugin.TagResult{Fields: out}, nil
+			}
 			return plugin.TagResult{Fields: map[string]string{"title": a.Track.Title, "isrc": a.Track.ISRC, "id": a.IDs["x"]}}, nil
+		},
+		// action "check" reports the plugin available, "lock" reports it needing the check, "wait" blocks until cancelled.
+		plugin.MAction: func(ctx context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct{ Name string }
+			json.Unmarshal(p, &a)
+			switch a.Name {
+			case "check":
+				s.Status(plugin.PluginStatus{Available: true})
+			case "lock":
+				s.Status(plugin.PluginStatus{NeedsAction: &plugin.NeedsAction{Message: "Log in", Action: "check"}})
+			case "wait":
+				<-ctx.Done()
+				return nil, ctx.Err()
+			default:
+				return nil, sdk.Fail(plugin.CodeOther, "unknown action", nil)
+			}
+			return struct{}{}, nil
 		},
 		"initSettings": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
 			mu.Lock()
