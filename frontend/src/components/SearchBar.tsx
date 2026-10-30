@@ -5,7 +5,7 @@ import { XCircle, Link, Search, X, ChevronDown, ArrowLeft } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { FetchHistory } from "@/components/FetchHistory";
-import { SearchAmazon, SearchSpotify, SearchSpotifyByType } from "../../wailsjs/go/main/App";
+import { Search as SearchService, SearchByType } from "../../wailsjs/go/main/App";
 import type { history } from "../../wailsjs/go/models";
 import { model } from "../../wailsjs/go/models";
 import { cn, errorMessage } from "@/lib/utils";
@@ -181,7 +181,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             if (generation !== searchGeneration.current) return;
             setSearchStatus("loading");
             try {
-                const raw = searchService === "amazon" ? await SearchAmazon({ query }) : await SearchSpotify({ query, limit: SEARCH_LIMIT });
+                const raw = await SearchService(searchService, query, SEARCH_LIMIT);
                 if (generation !== searchGeneration.current) return;
                 rawOffset.current = { tracks: raw.tracks.length, albums: raw.albums.length, artists: raw.artists.length, playlists: raw.playlists.length };
                 const results = new model.SearchResponse({
@@ -238,12 +238,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         setIsLoadingMore(true);
         setLoadMoreError("");
         try {
-            const moreResults = await SearchSpotifyByType({
-                query: lastSearchedQuery,
-                search_type: typeMap[activeTab],
-                limit: SEARCH_LIMIT,
-                offset: rawOffset.current[tab],
-            });
+            const moreResults = await SearchByType("spotify", lastSearchedQuery, typeMap[activeTab], SEARCH_LIMIT, rawOffset.current[tab]);
             if (!isCurrent()) return;
             rawOffset.current[tab] += moreResults.length;
             if (moreResults.length > 0) {

@@ -47,7 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
     recentLimit: 20,
 };
 
-/** The backend's download options; a guard_limit of 0 means the rate guard is off. */
+/** The backend's download options; the guard and genre options are plugin settings now. */
 export function downloadOptions(s: Settings): download.Options {
     return {
         dir: s.downloadPath,
@@ -57,10 +57,6 @@ export function downloadOptions(s: Settings): download.Options {
         filename_template: s.filenameTemplate,
         playlist_folder: s.playlistFolder,
         ffmpeg_path: s.ffmpegPath,
-        guard_limit: s.rateGuard ? s.rateGuardLimit : 0,
-        guard_wait: s.rateGuardWait,
-        embed_genre: s.embedGenre,
-        single_genre: s.useSingleGenre,
     };
 }
 

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useDownloads } from "@/hooks/useDownloads";
 import { useI18n } from "@/lib/i18n";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
-import { GetSourceStatus, PassDoubleDoubleCheck } from "../../wailsjs/go/main/App";
+import { GetSourceStatus, RunPluginAction } from "../../wailsjs/go/main/App";
 import type { source } from "../../wailsjs/go/models";
 
 /** One line per download site; compact packs them side by side. */
@@ -22,7 +22,7 @@ export function SourceStatus({ compact }: { compact?: boolean }) {
     const passCheck = async () => {
         setChecking(true);
         try {
-            await PassDoubleDoubleCheck();
+            await RunPluginAction("doubledouble", "check");
             toast.success(t("download.checkPassed"));
         }
         catch (error) { toast.error(String(error)); }

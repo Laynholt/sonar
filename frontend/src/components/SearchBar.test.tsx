@@ -3,12 +3,12 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SearchBar } from "./SearchBar";
 import { TooltipProvider } from "./ui/tooltip";
-import { SearchAmazon, SearchSpotify, SearchSpotifyByType } from "../../wailsjs/go/main/App";
+import { Search, SearchByType } from "../../wailsjs/go/main/App";
 import { model } from "../../wailsjs/go/models";
 import type { history } from "../../wailsjs/go/models";
 import { mount, change, button, deferred } from "../test/render";
 
-vi.mock("../../wailsjs/go/main/App", () => ({ SearchAmazon: vi.fn(), SearchSpotify: vi.fn(), SearchSpotifyByType: vi.fn() }));
+vi.mock("../../wailsjs/go/main/App", () => ({ Search: vi.fn(), SearchByType: vi.fn() }));
 vi.mock("@/hooks/useTypingEffect", () => ({ useTypingEffect: (texts: string[]) => texts[0] }));
 
 function result(name: string) {
@@ -39,7 +39,7 @@ async function start(value: string) {
 
 describe("search request lifecycle", () => {
     it("shows waiting during debounce and empty only after a successful empty response", async () => {
-        vi.mocked(SearchSpotify).mockResolvedValue(response("", 0));
+        vi.mocked(Search).mockResolvedValue(response("", 0));
         await query("empty");
         expect(view.container.textContent).not.toContain("No results found");
         expect(view.container.textContent).toContain("Waiting");
@@ -49,7 +49,7 @@ describe("search request lifecycle", () => {
 
     it.each(["resolve", "reject"])("ignores an old %s as soon as the query changes, before the next debounce", async (outcome) => {
         const old = deferred<model.SearchResponse>();
-        vi.mocked(SearchSpotify).mockReturnValueOnce(old.promise).mockResolvedValueOnce(response("Fresh"));
+        vi.mocked(Search).mockReturnValueOnce(old.promise).mockResolvedValueOnce(response("Fresh"));
         await start("old");
         await act(async () => {
             change(view.container.querySelector<HTMLInputElement>("#spotify-search")!, "new");
@@ -67,7 +67,7 @@ describe("search request lifecycle", () => {
 
     it.each(["clear", "mode"])("ignores a response after %s", async (action) => {
         const old = deferred<model.SearchResponse>();
-        vi.mocked(SearchSpotify).mockReturnValue(old.promise);
+        vi.mocked(Search).mockReturnValue(old.promise);
         await start("old");
         if (action === "clear") await query("");
         else await view.render(<TooltipProvider><SearchBar {...props} searchMode={false}/></TooltipProvider>);
@@ -78,7 +78,7 @@ describe("search request lifecycle", () => {
     });
 
     it("shows a service error separately from empty results and retries through the button", async () => {
-        vi.mocked(SearchSpotify).mockRejectedValueOnce(new Error("service offline")).mockResolvedValueOnce(response("Recovered"));
+        vi.mocked(Search).mockRejectedValueOnce(new Error("service offline")).mockResolvedValueOnce(response("Recovered"));
         await start("retry");
         expect(view.container.textContent).toContain("service offline");
         expect(view.container.textContent).not.toContain("No results found");
@@ -89,7 +89,7 @@ describe("search request lifecycle", () => {
 
     it.each(["resolve", "reject"])("preserves a newer successful search when the older request later %ss", async (outcome) => {
         const old = deferred<model.SearchResponse>();
-        vi.mocked(SearchSpotify).mockReturnValueOnce(old.promise).mockResolvedValueOnce(response("Latest"));
+        vi.mocked(Search).mockReturnValueOnce(old.promise).mockResolvedValueOnce(response("Latest"));
         await start("old");
         await start("new");
         await act(async () => {
@@ -102,8 +102,8 @@ describe("search request lifecycle", () => {
     });
 
     it("retains results on pagination error and retries the same page through the button", async () => {
-        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50));
-        vi.mocked(SearchSpotifyByType).mockRejectedValueOnce(new Error("page offline")).mockResolvedValueOnce([result("Recovered page")]);
+        vi.mocked(Search).mockResolvedValue(response("Initial", 50));
+        vi.mocked(SearchByType).mockRejectedValueOnce(new Error("page offline")).mockResolvedValueOnce([result("Recovered page")]);
         await start("first");
         await act(async () => button(view.container, "Load More").click());
         expect(view.container.textContent).toContain("Initial");
@@ -111,13 +111,13 @@ describe("search request lifecycle", () => {
         await act(async () => button(view.container, "Retry loading more").click());
         expect(view.container.textContent).toContain("Recovered page");
         expect(view.container.textContent).not.toContain("page offline");
-        expect(SearchSpotifyByType).toHaveBeenLastCalledWith({ query: "first", search_type: "track", limit: 50, offset: 50 });
+        expect(SearchByType).toHaveBeenLastCalledWith("spotify", "first", "track", 50, 50);
     });
 
     it("ignores a pagination rejection from the previous tab", async () => {
         const page = deferred<model.SearchResult[]>();
-        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50, true));
-        vi.mocked(SearchSpotifyByType).mockReturnValue(page.promise);
+        vi.mocked(Search).mockResolvedValue(response("Initial", 50, true));
+        vi.mocked(SearchByType).mockReturnValue(page.promise);
         await start("first");
         await act(async () => button(view.container, "Load More").click());
         await act(async () => button(view.container, "Albums (1)").click());
@@ -130,12 +130,12 @@ describe("search request lifecycle", () => {
 
     it.each(["query", "tab"])("discards pagination after a %s change", async (action) => {
         const page = deferred<model.SearchResult[]>();
-        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50, true));
-        vi.mocked(SearchSpotifyByType).mockReturnValue(page.promise);
+        vi.mocked(Search).mockResolvedValue(response("Initial", 50, true));
+        vi.mocked(SearchByType).mockReturnValue(page.promise);
         await start("first");
         await act(async () => button(view.container, "Load More").click());
         if (action === "query") {
-            vi.mocked(SearchSpotify).mockResolvedValue(response("Replacement"));
+            vi.mocked(Search).mockResolvedValue(response("Replacement"));
             await start("second");
         } else await act(async () => button(view.container, "Albums (1)").click());
         await act(async () => page.resolve([result("Stale page")]));
@@ -152,7 +152,7 @@ describe("search rows", () => {
     it("hides a zero duration instead of showing 0:00", async () => {
         const hit = result("Hit");
         hit.duration_ms = 0;
-        vi.mocked(SearchSpotify).mockResolvedValue(new model.SearchResponse({ tracks: [hit], albums: [], artists: [], playlists: [] }));
+        vi.mocked(Search).mockResolvedValue(new model.SearchResponse({ tracks: [hit], albums: [], artists: [], playlists: [] }));
         await start("hit");
         expect(view.container.textContent).toContain("Hit");
         expect(view.container.textContent).not.toContain("0:00");
@@ -201,13 +201,13 @@ describe("modes and recent fetches", () => {
     });
 
     it("shows the message of a string rejection, as Wails delivers it", async () => {
-        vi.mocked(SearchSpotify).mockRejectedValueOnce("spotify is down");
+        vi.mocked(Search).mockRejectedValueOnce("spotify is down");
         await start("boom");
         expect(view.container.textContent).toContain("Search failed: spotify is down");
     });
 
     it("opens a clicked result by its link and leaves search mode", async () => {
-        vi.mocked(SearchSpotify).mockResolvedValue(response("Hit"));
+        vi.mocked(Search).mockResolvedValue(response("Hit"));
         await start("hit");
         await act(async () => view.container.querySelector<HTMLElement>("button.bg-card")!.click());
         expect(props.onSearchModeChange).toHaveBeenCalledWith(false);
@@ -215,10 +215,10 @@ describe("modes and recent fetches", () => {
     });
 
     it("appends only new items when the next page overlaps the previous one", async () => {
-        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50));
+        vi.mocked(Search).mockResolvedValue(response("Initial", 50));
         const errors = vi.spyOn(console, "error").mockImplementation(() => {});
         // Page 2 repeats two items from page 1 and repeats a new item within itself.
-        vi.mocked(SearchSpotifyByType).mockResolvedValue([result("Initial 48"), result("Initial 49"), result("Fresh"), result("Fresh")]);
+        vi.mocked(SearchByType).mockResolvedValue([result("Initial 48"), result("Initial 49"), result("Fresh"), result("Fresh")]);
         await start("first");
         await act(async () => button(view.container, "Load More").click());
         const rows = [...view.container.querySelectorAll("button.bg-card")].map((row) => row.querySelector("p")!.textContent);
@@ -232,7 +232,7 @@ describe("modes and recent fetches", () => {
 
     it("renders a duplicated id in the first page once", async () => {
         const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-        vi.mocked(SearchSpotify).mockResolvedValue(new model.SearchResponse({ tracks: [result("Dup"), result("Dup"), result("Other")], albums: [], artists: [], playlists: [] }));
+        vi.mocked(Search).mockResolvedValue(new model.SearchResponse({ tracks: [result("Dup"), result("Dup"), result("Other")], albums: [], artists: [], playlists: [] }));
         await start("first");
         const rows = [...view.container.querySelectorAll("button.bg-card")].map((row) => row.querySelector("p")!.textContent);
         expect(rows).toEqual(["Dup", "Other"]);
@@ -241,17 +241,17 @@ describe("modes and recent fetches", () => {
     });
 
     it("advances Load More by the raw API offset after an all-duplicate page", async () => {
-        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50));
-        vi.mocked(SearchSpotifyByType).mockResolvedValue(Array.from({ length: 50 }, (_, index) => result(`Initial ${index}`)));
+        vi.mocked(Search).mockResolvedValue(response("Initial", 50));
+        vi.mocked(SearchByType).mockResolvedValue(Array.from({ length: 50 }, (_, index) => result(`Initial ${index}`)));
         await start("first");
         await act(async () => button(view.container, "Load More").click());
         await act(async () => button(view.container, "Load More").click());
-        expect(vi.mocked(SearchSpotifyByType).mock.calls.map(([request]) => request.offset)).toEqual([50, 100]);
+        expect(vi.mocked(SearchByType).mock.calls.map((call) => call[4])).toEqual([50, 100]);
     });
 
     it("keeps Load More when a full page was all duplicates", async () => {
-        vi.mocked(SearchSpotify).mockResolvedValue(response("Initial", 50));
-        vi.mocked(SearchSpotifyByType).mockResolvedValue(Array.from({ length: 50 }, (_, index) => result(`Initial ${index}`)));
+        vi.mocked(Search).mockResolvedValue(response("Initial", 50));
+        vi.mocked(SearchByType).mockResolvedValue(Array.from({ length: 50 }, (_, index) => result(`Initial ${index}`)));
         await start("first");
         await act(async () => button(view.container, "Load More").click());
         expect(view.container.textContent).toContain("Tracks (50)");
@@ -262,12 +262,12 @@ describe("modes and recent fetches", () => {
 describe("search service switch", () => {
     const pick = (label: string) => act(async () => button(view.container, label).click());
 
-    it("searches Amazon Music through SearchAmazon, without load more", async () => {
-        vi.mocked(SearchAmazon).mockResolvedValue(response("Amazon hit", 50));
+    it("searches Amazon Music through Search with amazon, without load more", async () => {
+        vi.mocked(Search).mockResolvedValue(response("Amazon hit", 50));
         await pick("Amazon Music");
         await start("olivia");
-        expect(SearchAmazon).toHaveBeenCalledWith({ query: "olivia" });
-        expect(SearchSpotify).not.toHaveBeenCalled();
+        expect(Search).toHaveBeenCalledWith("amazon", "olivia", 50);
+        expect(vi.mocked(Search).mock.calls.some(([service]) => service === "spotify")).toBe(false);
         expect(view.container.textContent).toContain("Amazon hit 0");
         expect(view.container.textContent).not.toContain("Load More");
         expect(view.container.querySelector("#spotify-search")!.getAttribute("aria-label")).toBe("Search Amazon Music");
@@ -284,8 +284,7 @@ describe("search service switch", () => {
 
     it("keeps Amazon results when a late Spotify response arrives after switching", async () => {
         const late = deferred<model.SearchResponse>();
-        vi.mocked(SearchSpotify).mockReturnValue(late.promise);
-        vi.mocked(SearchAmazon).mockResolvedValue(response("Amazon"));
+        vi.mocked(Search).mockImplementation((service) => service === "spotify" ? late.promise : Promise.resolve(response("Amazon")));
         await start("olivia");
         await pick("Amazon Music");
         await act(async () => vi.advanceTimersByTimeAsync(400));

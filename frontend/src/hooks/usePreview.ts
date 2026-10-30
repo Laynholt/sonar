@@ -41,7 +41,7 @@ async function playPreview(trackId: string, trackName: string) {
     const request = requestId;
     try {
         setState({ loadingPreview: trackId });
-        const previewURL = await GetPreviewURL(trackId);
+        const previewURL = await GetPreviewURL(/^[A-Za-z0-9]{22}$/.test(trackId) ? "spotify" : "amazon", trackId);
         if (request !== requestId) return;
         if (!previewURL) {
             toast.error(t("preview.unavailable"), {

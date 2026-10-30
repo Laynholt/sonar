@@ -8,12 +8,12 @@ import { toastWithSound } from "@/lib/toast-with-sound";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import { SettingsPage } from "./SettingsPage";
 import { mount, button, change, deferred } from "../test/render";
-import { GetSourceStatus, PassDoubleDoubleCheck, SaveSettings, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
+import { GetSourceStatus, RunPluginAction, SaveSettings, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
 
 vi.mock("@/components/ui/select", () => import("../test/nativeSelect"));
 vi.mock("../../wailsjs/go/main/App", () => ({
     LoadSettings: vi.fn(), SaveSettings: vi.fn(), SelectDownloadFolder: vi.fn(), DefaultDownloadDir: vi.fn(),
-    GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn(), FindFFmpeg: vi.fn(), SelectFFmpeg: vi.fn(),
+    GetSourceStatus: vi.fn(), RunPluginAction: vi.fn(), FindFFmpeg: vi.fn(), SelectFFmpeg: vi.fn(),
 }));
 vi.mock("@/lib/ffmpeg-install", () => ({ openFFmpegInstall: vi.fn() }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn() }));
@@ -99,6 +99,11 @@ describe("SettingsPage", () => {
             await act(async () => button(view.container, "Save Changes").click());
             return downloadOptions(vi.mocked(SaveSettings).mock.lastCall![0] as unknown as Settings);
         };
+        // The guard and genre options are plugin settings now; these still live in the saved settings until the plugin UI lands.
+        const lastSaved = async () => {
+            await act(async () => button(view.container, "Save Changes").click());
+            return vi.mocked(SaveSettings).mock.lastCall![0] as unknown as Settings;
+        };
 
         it("is the second tab and shows its settings", async () => {
             await open();
@@ -110,17 +115,17 @@ describe("SettingsPage", () => {
             expect(view.container.textContent).not.toContain("Found automatically");
         });
 
-        it("the genre switches save embedGenre and useSingleGenre, and the single one shows only while embedding", async () => {
+        it("the genre switches save embedGenre and useSingleGenre to the settings, and the single one shows only while embedding", async () => {
             await open();
             for (const text of ["Write genre", "Only one genre"])
                 expect(view.container.textContent).toContain(text);
             const click = (id: string) => act(async () => (view.container.querySelector(id) as HTMLButtonElement).click());
-            expect(await lastOptions()).toMatchObject({ embed_genre: true, single_genre: false });
+            expect(await lastSaved()).toMatchObject({ embedGenre: true, useSingleGenre: false });
             await click("#single-genre");
-            expect(await lastOptions()).toMatchObject({ embed_genre: true, single_genre: true });
+            expect(await lastSaved()).toMatchObject({ embedGenre: true, useSingleGenre: true });
             await click("#embed-genre");
             expect(view.container.querySelector("#single-genre")).toBeNull();
-            expect(await lastOptions()).toMatchObject({ embed_genre: false });
+            expect(await lastSaved()).toMatchObject({ embedGenre: false });
             await click("#embed-genre");
             expect(view.container.querySelector("#single-genre")).not.toBeNull();
         });
@@ -144,12 +149,12 @@ describe("SettingsPage", () => {
 
         it("doubledouble that needs the check offers the button", async () => {
             const check = deferred<void>();
-            vi.mocked(PassDoubleDoubleCheck).mockReturnValue(check.promise);
+            vi.mocked(RunPluginAction).mockReturnValue(check.promise);
             await open();
             expect(view.container.textContent).toContain("needs the check");
             const calls = vi.mocked(GetSourceStatus).mock.calls.length;
             await act(async () => button(view.container, "Pass check").click());
-            expect(PassDoubleDoubleCheck).toHaveBeenCalled();
+            expect(RunPluginAction).toHaveBeenCalledWith("doubledouble", "check");
             expect(button(view.container, "Pass the check in the browser window…").disabled).toBe(true);
             expect(view.container.textContent).toContain("untick “Upload to”, tick “Hide my download”");
             await act(async () => check.resolve());
@@ -159,7 +164,7 @@ describe("SettingsPage", () => {
         });
 
         it("a failed check shows the error and re-enables the button", async () => {
-            vi.mocked(PassDoubleDoubleCheck).mockRejectedValue(new Error("timed out"));
+            vi.mocked(RunPluginAction).mockRejectedValue(new Error("timed out"));
             await open();
             const calls = vi.mocked(GetSourceStatus).mock.calls.length;
             await act(async () => button(view.container, "Pass check").click());
@@ -239,9 +244,9 @@ describe("SettingsPage", () => {
             expect([...wait.options].map((option) => option.value)).toEqual(["15", "30", "60", "120"]);
             expect([...wait.options].map((option) => option.textContent)).toEqual(["15 min", "30 min", "60 min", "120 min"]);
             expect(wait.value).toBe("30");
-            expect(await lastOptions()).toMatchObject({ guard_wait: 30 });
+            expect(await lastSaved()).toMatchObject({ rateGuardWait: 30 });
             await pick(selectWith("120"), "120");
-            expect(await lastOptions()).toMatchObject({ guard_wait: 120 });
+            expect(await lastSaved()).toMatchObject({ rateGuardWait: 120 });
         });
 
         it("the guard wait shows only while the rate guard is on", async () => {
@@ -252,21 +257,21 @@ describe("SettingsPage", () => {
             expect(view.container.querySelector('option[value="120"]')).not.toBeNull();
         });
 
-        it("the rate guard limit goes into the options", async () => {
+        it("the rate guard limit is saved to the settings", async () => {
             await open();
             const limit = view.container.querySelector('input[type="number"]') as HTMLInputElement;
             expect(limit.min).toBe("1");
             await act(async () => change(limit, "30"));
-            expect(await lastOptions()).toMatchObject({ guard_limit: 30 });
+            expect(await lastSaved()).toMatchObject({ rateGuardLimit: 30 });
             await act(async () => change(limit, ""));
-            expect(await lastOptions()).toMatchObject({ guard_limit: 30 });
+            expect(await lastSaved()).toMatchObject({ rateGuardLimit: 30 });
             await act(async () => limit.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
             expect(limit.value).toBe("30");
             await act(async () => change(limit, "99999999999999999999"));
-            expect(await lastOptions()).toMatchObject({ guard_limit: 30 });
+            expect(await lastSaved()).toMatchObject({ rateGuardLimit: 30 });
             await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
             expect(view.container.querySelector('input[type="number"]')).toBeNull();
-            expect(await lastOptions()).toMatchObject({ guard_limit: 0 });
+            expect(await lastSaved()).toMatchObject({ rateGuard: false });
         });
     });
 });

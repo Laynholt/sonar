@@ -6,7 +6,7 @@ import type { DownloadItem } from "./downloads";
 
 vi.mock("../../wailsjs/go/main/App", () => ({
     DownloadTracks: vi.fn(), GetDownloadState: vi.fn(),
-    ChooseCandidate: vi.fn(), UseAmazonLink: vi.fn(), SkipReview: vi.fn(), ResumeQueue: vi.fn(), ClearQueue: vi.fn(),
+    ChooseCandidate: vi.fn(), UseLink: vi.fn(), SkipReview: vi.fn(), ResumeQueue: vi.fn(), ClearQueue: vi.fn(),
     CancelDownload: vi.fn(), CancelAllDownloads: vi.fn(), RetryDownload: vi.fn(),
     RetryFailedDownloads: vi.fn(), ClearFinishedDownloads: vi.fn(), GuardWait: vi.fn(), GuardContinue: vi.fn(),
     LoadSettings: vi.fn(), SaveSettings: vi.fn(),
@@ -252,7 +252,7 @@ describe("downloads store with Spotify tracks and review", () => {
 
     it("calls the new actions and refreshes after each", async () => {
         const { api, store } = await load();
-        for (const f of [api.ChooseCandidate, api.UseAmazonLink, api.SkipReview, api.ResumeQueue, api.ClearQueue, api.GuardWait, api.GuardContinue]) vi.mocked(f).mockResolvedValue();
+        for (const f of [api.ChooseCandidate, api.UseLink, api.SkipReview, api.ResumeQueue, api.ClearQueue, api.GuardWait, api.GuardContinue]) vi.mocked(f).mockResolvedValue();
 
         await store.chooseCandidate("S1", "B0X");
         await store.useAmazonLink("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
@@ -263,17 +263,11 @@ describe("downloads store with Spotify tracks and review", () => {
         await store.guardContinue("lucida");
 
         expect(api.ChooseCandidate).toHaveBeenCalledWith("S1", "B0X");
-        expect(api.UseAmazonLink).toHaveBeenCalledWith("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
+        expect(api.UseLink).toHaveBeenCalledWith("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
         expect(api.SkipReview).toHaveBeenCalledWith("S1");
         expect(api.GuardWait).toHaveBeenCalledWith("lucida", 60);
         expect(api.GuardContinue).toHaveBeenCalledWith("lucida");
         expect(vi.mocked(api.GetDownloadState)).toHaveBeenCalledTimes(7);
-    });
-
-    it("sends the guard wait from the settings", async () => {
-        const { settings } = await load();
-        expect(settings.downloadOptions({ ...settings.DEFAULT_SETTINGS, rateGuardWait: 60 }).guard_wait).toBe(60);
-        expect(settings.downloadOptions(settings.DEFAULT_SETTINGS).guard_wait).toBe(30);
     });
 
     it("sends the discography, then top tracks that are not on a listed album", () => {

@@ -251,7 +251,7 @@ describe("TrackList preview", () => {
         const cover = () => view.container.querySelector("tbody button[aria-label$=\" preview\"]") as HTMLButtonElement;
 
         await act(async () => cover().click());
-        expect(GetPreviewURL).toHaveBeenCalledWith("track-1");
+        expect(GetPreviewURL).toHaveBeenCalledWith("amazon", "track-1");
         await act(async () => listeners.loadeddata());
         expect(cover().getAttribute("aria-label")).toBe("Stop preview");
 

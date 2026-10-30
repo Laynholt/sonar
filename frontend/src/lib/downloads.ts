@@ -1,4 +1,4 @@
-import { CancelAllDownloads, CancelDownload, ChooseCandidate, ClearFinishedDownloads, ClearQueue, DownloadTracks, GetDownloadState, GuardContinue, GuardWait, ResumeQueue, RetryDownload, RetryFailedDownloads, SkipReview, UseAmazonLink } from "../../wailsjs/go/main/App";
+import { CancelAllDownloads, CancelDownload, ChooseCandidate, ClearFinishedDownloads, ClearQueue, DownloadTracks, GetDownloadState, GuardContinue, GuardWait, ResumeQueue, RetryDownload, RetryFailedDownloads, SkipReview, UseLink } from "../../wailsjs/go/main/App";
 import type { download, main, source } from "../../wailsjs/go/models";
 import type { TrackMetadata } from "@/types/api";
 import { openFFmpegInstall } from "./ffmpeg-install";
@@ -144,7 +144,7 @@ export const retryDownload = (id: string) => then(RetryDownload(id));
 export const retryFailedDownloads = () => then(RetryFailedDownloads());
 export const clearFinishedDownloads = () => then(ClearFinishedDownloads());
 export const chooseCandidate = (id: string, amazonId: string) => then(ChooseCandidate(id, amazonId));
-export const useAmazonLink = (id: string, link: string) => then(UseAmazonLink(id, link));
+export const useAmazonLink = (id: string, link: string) => then(UseLink(id, link));
 export const skipReview = (id: string) => then(SkipReview(id));
 export const resumeQueue = () => then(ResumeQueue());
 export const clearQueue = () => then(ClearQueue());
