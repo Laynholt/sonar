@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"sonar/cmd/plugins/internal/dl"
 	"sonar/internal/lucida"
 	"sonar/internal/plugin"
 	"sonar/internal/plugin/sdk"
@@ -17,7 +18,7 @@ func main() {
 	}
 	s := &sdk.Server{
 		Methods: map[string]sdk.Handler{
-			plugin.MDownload: sdk.DownloadHandler(func() (sdk.Downloader, error) { return c, nil }),
+			plugin.MDownload: dl.Handler(func() (dl.Downloader, error) { return c, nil }),
 		},
 	}
 	s.FollowProxy("lucida")

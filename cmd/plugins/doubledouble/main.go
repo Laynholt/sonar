@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"sonar/cmd/plugins/internal/dl"
 	"sonar/internal/doubledouble"
 	"sonar/internal/plugin"
 	"sonar/internal/plugin/sdk"
@@ -44,7 +45,7 @@ func main() {
 		return nil
 	}
 	s.Methods = map[string]sdk.Handler{
-		plugin.MDownload: sdk.DownloadHandler(func() (sdk.Downloader, error) { return client() }),
+		plugin.MDownload: dl.Handler(func() (dl.Downloader, error) { return client() }),
 		plugin.MAction: sdk.Typed(func(ctx context.Context, p struct{ Name string }) (any, error) {
 			if p.Name != "check" {
 				return nil, sdk.Fail(plugin.CodeOther, "unknown action", nil)

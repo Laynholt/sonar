@@ -1,4 +1,6 @@
-package sdk
+// Package dl is the download handler shared by the built-in downloader plugins. It stays out of
+// internal/plugin/sdk so third-party plugins do not import amazon, source and download through it.
+package dl
 
 import (
 	"context"
@@ -9,6 +11,7 @@ import (
 	"sonar/internal/amazon"
 	"sonar/internal/download"
 	"sonar/internal/plugin"
+	"sonar/internal/plugin/sdk"
 	"sonar/internal/source"
 )
 
@@ -17,11 +20,11 @@ type Downloader interface {
 	Download(ctx context.Context, trackURL, pathNoExt string, onStatus func(string)) (string, error)
 }
 
-// DownloadHandler serves plugin.MDownload for a downloader that accepts "amazon". get runs per request,
+// Handler serves plugin.MDownload for a downloader that accepts "amazon". get runs per request,
 // so a plugin can build its client in Init. Byte progress reaches $/progress through download.WithProgress
 // on the ctx; the site's status texts go out as $/progress status. Site errors become the contract's codes.
-func DownloadHandler(get func() (Downloader, error)) Handler {
-	return func(ctx context.Context, raw json.RawMessage, c *Call) (any, error) {
+func Handler(get func() (Downloader, error)) sdk.Handler {
+	return func(ctx context.Context, raw json.RawMessage, c *sdk.Call) (any, error) {
 		var p plugin.DownloadParams
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, fmt.Errorf("bad params: %w", err)
@@ -42,9 +45,9 @@ func DownloadHandler(get func() (Downloader, error)) Handler {
 		path, err := d.Download(ctx, u, p.PathNoExt, func(status string) { c.Progress(done, total, status) })
 		switch {
 		case errors.Is(err, source.ErrUnavailable):
-			return nil, Fail(plugin.CodeUnavailable, err.Error(), nil)
+			return nil, sdk.Fail(plugin.CodeUnavailable, err.Error(), nil)
 		case errors.Is(err, source.ErrNeedsCheck):
-			return nil, Fail(plugin.CodeNeedsAction, err.Error(), plugin.NeedsAction{Message: "Needs the browser check", Action: "check"})
+			return nil, sdk.Fail(plugin.CodeNeedsAction, err.Error(), plugin.NeedsAction{Message: "Needs the browser check", Action: "check"})
 		case err != nil:
 			return nil, err
 		}
