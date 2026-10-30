@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -106,6 +107,10 @@ type Sites interface {
 // ErrSiteDown marks a Fetch error that is the site's fault, not the track's: in auto mode the track waits for another site.
 // Sites must stop reporting that site Ready before Fetch returns it, or the site retakes the track at once.
 var ErrSiteDown = errors.New("download site unavailable")
+
+// ErrSiteOff marks a Fetch cut short because the user switched its site off. It wraps ErrSiteDown, but never fails
+// the track nor counts as a try, even for a fixed source: the track is placed again, and may wait Queued.
+var ErrSiteOff = fmt.Errorf("site switched off: %w", ErrSiteDown)
 
 // Fetch downloads one track through site to pathNoExt+extension and returns the file path.
 // t is the entry's Track and ids its IDs, which Fetch must not modify. onStatus must not be called after Fetch returns.
@@ -596,6 +601,9 @@ func (q *Queue) worker(site string) {
 			e.Status, e.Path = Completed, path
 		case canceled:
 			e.Status = Cancelled
+		case errors.Is(err, ErrSiteOff): // the user's switch, not the track's fault: no try, no failure
+			e.Message, e.Bytes, e.Size = "", 0, 0
+			q.placeLocked(e, q.sites.Names(), site)
 		case !e.auto():
 			e.Status, e.Error = Failed, err.Error()
 		default:

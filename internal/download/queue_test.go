@@ -1121,30 +1121,73 @@ func TestSiteDownRequeuesInAuto(t *testing.T) {
 	}
 }
 
-// a is switched off while it downloads: as Balancer.SetEnabled does, it stops being ready and usable, its
-// download ends with a site-down error and OnChange wakes the queue. The track goes back to Queued, not
-// Failed, and b takes it.
-func TestDisableRequeuesRunning(t *testing.T) {
-	s := newSites("a", "b")
-	s.set("b", false) // so a takes it first
+// switchOff enqueues track "1" with o and switches site a off during its first fetch, as Balancer.SetEnabled
+// does: a stops being ready and usable, and the fetch returns ErrSiteOff. It returns the item once the worker
+// has placed it again; later fetches succeed.
+func switchOff(t *testing.T, s *fakeSites, log *siteLog, o Options) (*Queue, Item) {
+	t.Helper()
 	started, off := make(chan struct{}), make(chan struct{})
-	log := &siteLog{}
-	q := siteQ(t, s, log, func(ctx context.Context, site, _ string) error {
-		if site == "a" {
+	var first atomic.Bool
+	q := siteQ(t, s, log, func(_ context.Context, site, _ string) error {
+		if site == "a" && first.CompareAndSwap(false, true) {
 			close(started)
 			<-off
-			return fmt.Errorf("a: switched off: %w", ErrSiteDown)
+			return fmt.Errorf("a: %w", ErrSiteOff)
 		}
 		return nil
 	})
-	q.Enqueue(album, testOpts(t), tracks("1"))
+	q.Enqueue(album, o, tracks("1"))
 	<-started
-	s.needCheck("a") // neither ready nor usable, like a site switched off
+	s.needCheck("a")
 	close(off)
-	waitFor(t, q, allIn(Queued, "1"))
+	// Downloading ends in one step under the queue lock, so the first other status is where the worker put it.
+	return q, find(waitFor(t, q, func(s []Item) bool { return find(s, "1").Status != Downloading }), "1")
+}
+
+// A switched-off site in auto mode: the track goes back to Queued, not Failed, and b takes it.
+func TestDisableRequeuesRunning(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("b", false) // so a takes it first
+	log := &siteLog{}
+	q, it := switchOff(t, s, log, testOpts(t))
+	if it.Status != Queued || it.Error != "" {
+		t.Fatalf("after the switch-off: %+v", it)
+	}
 	s.set("b", true)
 	q.Wake()
 	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Site != "b" || it.Error != "" || log.String() != "a b" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+}
+
+// The only site is switched off: the track waits Queued, and a is no try, so a takes it again once back on.
+func TestDisableOnlySiteWaits(t *testing.T) {
+	s := newSites("a")
+	log := &siteLog{}
+	q, it := switchOff(t, s, log, testOpts(t))
+	if it.Status != Queued || it.Error != "" {
+		t.Fatalf("after the switch-off: %+v", it)
+	}
+	s.fix("a")
+	q.Wake()
+	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Site != "a" || it.Error != "" || log.String() != "a a" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+}
+
+// The track's fixed source is switched off: it waits Queued for that site, not for b.
+func TestDisableFixedSourceWaits(t *testing.T) {
+	s := newSites("a", "b")
+	log := &siteLog{}
+	o := testOpts(t)
+	o.Source = "a"
+	q, it := switchOff(t, s, log, o)
+	if it.Status != Queued || it.Error != "" {
+		t.Fatalf("after the switch-off: %+v", it)
+	}
+	s.fix("a")
+	q.Wake()
+	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Site != "a" || it.Error != "" || log.String() != "a a" {
 		t.Errorf("item = %+v, fetches on %q", it, log)
 	}
 }

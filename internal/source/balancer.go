@@ -99,7 +99,7 @@ func (b *Balancer) Add(s Source, accepts string, g Guard) {
 }
 
 // SetEnabled switches a site on or off. Off, it is neither Ready nor Usable, Status leaves it out,
-// and its running downloads are cancelled with an error that wraps download.ErrSiteDown.
+// and its running downloads are cancelled with an error that wraps download.ErrSiteOff.
 func (b *Balancer) SetEnabled(name string, on bool) {
 	b.mu.Lock()
 	s := b.sites[name]
@@ -163,7 +163,7 @@ func (b *Balancer) Fetch(ctx context.Context, name string, r Request) (string, e
 	if s == nil {
 		return "", fmt.Errorf("unknown source %q", name)
 	}
-	switchedOff := func() error { return fmt.Errorf("%s: switched off: %w", name, download.ErrSiteDown) }
+	switchedOff := func() error { return fmt.Errorf("%s: %w", name, download.ErrSiteOff) }
 	if on.Err() != nil {
 		return "", switchedOff()
 	}

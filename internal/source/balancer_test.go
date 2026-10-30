@@ -371,7 +371,7 @@ func (s *blockSrc) Download(ctx context.Context, _ Request) (string, error) {
 	return "", ctx.Err()
 }
 
-// Switching a site off cancels its running download with an error the queue requeues on (download.ErrSiteDown),
+// Switching a site off cancels its running download with an error the queue requeues on (download.ErrSiteOff),
 // without punishing the site. While off it is neither Ready nor Usable, is left out of Status and downloads nothing.
 func TestDisableRequeuesRunning(t *testing.T) {
 	a := &blockSrc{fake: fake{name: "a"}, started: make(chan struct{})}
@@ -391,7 +391,7 @@ func TestDisableRequeuesRunning(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Fetch not cancelled")
 	}
-	if !errors.Is(err, download.ErrSiteDown) || !strings.HasPrefix(err.Error(), "a: ") {
+	if !errors.Is(err, download.ErrSiteOff) || !errors.Is(err, download.ErrSiteDown) || !strings.HasPrefix(err.Error(), "a: ") {
 		t.Fatalf("err = %v", err)
 	}
 	if bal.Ready("a") || bal.Usable("a") || !bal.Ready("b") {
@@ -402,7 +402,7 @@ func TestDisableRequeuesRunning(t *testing.T) {
 	}
 	bal.SetEnabled("a", false) // already off
 	noChange(t, ch)
-	if _, err := fetch(bal, "a"); !errors.Is(err, download.ErrSiteDown) || a.calls != 1 {
+	if _, err := fetch(bal, "a"); !errors.Is(err, download.ErrSiteOff) || a.calls != 1 {
 		t.Fatalf("fetch while off: err = %v, calls %d", err, a.calls)
 	}
 
