@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,6 +86,11 @@ func TestBuiltinManifests(t *testing.T) {
 			t.Errorf("%s: %+v", id, m)
 		}
 	}
+	if built["chosic"] == "" {
+		t.Errorf("chosic was not built; built: %v", built)
+	} else if m := manifest(t, "chosic"); m.Kind != plugin.KindTagger || len(m.Tagger.Fields) != 1 || m.Tagger.Fields[0] != "genre" || m.Tagger.Needs != "spotify" {
+		t.Errorf("chosic: %+v", m)
+	}
 	for id := range built {
 		if m := manifest(t, id); m.ID != id || m.Contract != plugin.Contract {
 			t.Errorf("%s: %+v", id, m)
@@ -122,9 +128,14 @@ func TestSourceCanMatchesHandlers(t *testing.T) {
 // start runs the built plugin through a Host, the way sonar will.
 func start(t *testing.T, id string) *plugin.Host {
 	t.Helper()
-	dir := t.TempDir()
+	return startWith(t, id, t.TempDir(), map[string]any{})
+}
+
+// startWith is start with a chosen data dir and settings.
+func startWith(t *testing.T, id, dir string, settings map[string]any) *plugin.Host {
+	t.Helper()
 	h := plugin.NewHost(plugin.Found{M: manifest(t, id), Dir: built[id]}, func() plugin.InitParams {
-		return plugin.InitParams{Contract: plugin.Contract, Lang: "en", Settings: map[string]any{}, DataDir: dir}
+		return plugin.InitParams{Contract: plugin.Contract, Lang: "en", Settings: settings, DataDir: dir}
 	}, t.Logf)
 	t.Cleanup(h.Close)
 	return h
@@ -370,4 +381,88 @@ func TestDoubleDoubleUnknownAction(t *testing.T) {
 	if !errors.As(err, &pe) || pe.Code != plugin.CodeOther || pe.Message != "unknown action" {
 		t.Fatalf("got %v", err)
 	}
+}
+
+// fakeChosic serves chosic's genre-finder API for track t1 (artist a1) and counts the requests for the artist.
+func fakeChosic(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	var artistHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tools/handshake/":
+			w.Write([]byte(`{"success":true}`))
+		case "/api/tools/tracks/t1":
+			w.Write([]byte(`{"artists":[{"id":"a1"}]}`))
+		case "/api/tools/artists/a1":
+			artistHits.Add(1)
+			w.Write([]byte(`{"genres":["russian hip hop","pop","rap","trap","drill","grime"]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("SONAR_CHOSIC_BASE", srv.URL)
+	return &artistHits
+}
+
+func tag(h *plugin.Host, ids map[string]string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var res plugin.TagResult
+	err := h.Call(ctx, plugin.MTag, plugin.TagParams{IDs: ids}, &res, nil)
+	return res.Fields, err
+}
+
+func TestChosicPluginTag(t *testing.T) {
+	hits := fakeChosic(t)
+	dir := t.TempDir()
+	ids := map[string]string{"spotify": "t1"}
+	h := startWith(t, "chosic", dir, map[string]any{})
+	for i := 0; i < 2; i++ { // the second answer comes from the cache
+		if got, err := tag(h, ids); err != nil || len(got) != 1 || got["genre"] != "Russian Hip Hop, Pop, Rap, Trap, Drill" {
+			t.Fatalf("call %d: %v, %v", i, got, err)
+		}
+	}
+	if n := hits.Load(); n != 1 {
+		t.Errorf("chosic asked %d times, want 1", n)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "genres.json")); err != nil {
+		t.Errorf("cache file: %v", err)
+	}
+
+	// singleGenre at start, and a $/settings note flips it without a restart (the genres are cached, so no new hit).
+	one := startWith(t, "chosic", t.TempDir(), map[string]any{"singleGenre": true})
+	if got, err := tag(one, ids); err != nil || got["genre"] != "Russian Hip Hop" {
+		t.Fatalf("single: %v, %v", got, err)
+	}
+	if err := one.Notify(plugin.MSettingsChanged, plugin.InitParams{Settings: map[string]any{"singleGenre": false}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := tag(one, ids); err != nil || got["genre"] != "Russian Hip Hop, Pop, Rap, Trap, Drill" {
+		t.Fatalf("after the settings note: %v, %v", got, err)
+	}
+}
+
+func TestChosicPluginNoID(t *testing.T) {
+	hits := fakeChosic(t)
+	for _, ids := range []map[string]string{nil, {"amazon": "B00A3SGXAA"}} {
+		if got, err := tag(start(t, "chosic"), ids); err != nil || len(got) != 0 {
+			t.Errorf("ids %v: got %v, %v; want no fields and no error", ids, got, err)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("chosic asked %d times without an id", n)
+	}
+}
+
+// TestLiveChosicPlugin asks the real chosic.com for the genres of one Spotify track.
+func TestLiveChosicPlugin(t *testing.T) {
+	if os.Getenv("SONAR_LIVE") != "1" {
+		t.Skip("set SONAR_LIVE=1 to hit chosic.com")
+	}
+	got, err := tag(start(t, "chosic"), map[string]string{"spotify": "0VjIjW4GlUZAMYd2vXMi3b"})
+	if err != nil || got["genre"] == "" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	t.Logf("genre: %q", got["genre"])
 }

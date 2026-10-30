@@ -1,0 +1,19 @@
+{
+  "id": "chosic",
+  "name": "Chosic genres",
+  "version": "1.0.0",
+  "author": "sonar",
+  "description": "Looks up the artist's genres on chosic.com and writes them into the file's genre tag.",
+  "kind": "tagger",
+  "run": ["chosic"],
+  "contract": 1,
+  "settings": [
+    {
+      "key": "singleGenre",
+      "type": "switch",
+      "default": false,
+      "label": { "en": "Only one genre", "ru": "Только один жанр" }
+    }
+  ],
+  "tagger": { "fields": ["genre"], "needs": "spotify" }
+}
