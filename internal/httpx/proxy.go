@@ -120,3 +120,15 @@ func cachedOSProxy(req *http.Request) (*url.URL, error) {
 	c.m[key] = osProxyResult{u, err}
 	return u, err
 }
+
+// ProxyFor returns the proxy URL the client would use for rawURL, or "" for direct.
+func ProxyFor(rawURL string) string {
+	req, err := http.NewRequest("GET", rawURL, nil)
+	if err != nil {
+		return ""
+	}
+	if u, err := proxyFor(req); err == nil && u != nil {
+		return u.String()
+	}
+	return ""
+}

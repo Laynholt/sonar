@@ -149,3 +149,19 @@ func TestNoProxyMatchIsDirectNotOS(t *testing.T) {
 		t.Fatalf("NO_PROXY match: want direct, got %v, %v", u, err)
 	}
 }
+
+func TestProxyFor(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("HTTPS_PROXY", "http://env:1")
+	if got := ProxyFor("https://example.com"); got != "http://env:1" {
+		t.Fatalf("env: got %q", got)
+	}
+	SetManualProxy("manual:2")
+	defer SetManualProxy("")
+	if got := ProxyFor("https://example.com"); got != "http://manual:2" {
+		t.Fatalf("manual: got %q", got)
+	}
+	if got := ProxyFor("http://127.0.0.1:5/"); got != "" {
+		t.Fatalf("loopback: got %q", got)
+	}
+}
