@@ -13,8 +13,8 @@ import (
 
 // State is what the user decided; it lives in plugins.json.
 type State struct {
-	Enabled  map[string]bool           `json:"enabled"`  // missing → built-in on, third-party off
-	Order    []string                  `json:"order"`    // ids; unknown ids are appended in Discover order
+	Enabled  map[string]bool           `json:"enabled"` // missing → built-in on, third-party off
+	Order    []string                  `json:"order"`   // ids; unknown ids are appended in Discover order
 	Settings map[string]map[string]any `json:"settings"`
 	Trusted  map[string]string         `json:"trusted"` // id → Checksum the user confirmed
 	Migrated bool                      `json:"migrated"`
