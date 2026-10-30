@@ -128,9 +128,10 @@ type Manifest struct {
 }
 
 var (
-	idRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
-	versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-	fieldType = map[string]bool{"text": true, "number": true, "switch": true, "select": true, "button": true, "note": true}
+	idRe       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
+	reservedRe = regexp.MustCompile(`^(con|prn|aux|nul|com[1-9]|lpt[1-9])$`) // Windows cannot make a folder with these names, and userDir/<id> would be one
+	versionRe  = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	fieldType  = map[string]bool{"text": true, "number": true, "switch": true, "select": true, "button": true, "note": true}
 )
 
 // ParseManifest decodes and validates plugin.json. Errors name the offending field.
@@ -141,6 +142,9 @@ func ParseManifest(raw []byte) (Manifest, error) {
 	}
 	if !idRe.MatchString(m.ID) {
 		return m, fmt.Errorf("id %q: want lowercase letters, digits and dashes, 1-40 characters", m.ID)
+	}
+	if reservedRe.MatchString(m.ID) {
+		return m, fmt.Errorf("id %q: a reserved Windows device name", m.ID)
 	}
 	if !versionRe.MatchString(m.Version) {
 		return m, fmt.Errorf("version %q: want X.Y.Z", m.Version)

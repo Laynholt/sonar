@@ -71,6 +71,7 @@ type Registry struct {
 	logf                         func(format string, args ...any)
 
 	refreshMu sync.Mutex // serialises Refresh
+	installMu sync.Mutex // held while install, import or remove work in userDir; Refresh sweeps stale temps only when free
 	mu        sync.Mutex
 	st        State
 	found     []Found // Discover order, every Sum filled
@@ -126,6 +127,10 @@ func (r *Registry) discover() []Found {
 
 // Refresh rediscovers plugins and stops hosts whose plugin is gone, replaced, edited or no longer trusted.
 func (r *Registry) Refresh() {
+	if r.installMu.TryLock() { // else an install is running and its temp folders are live
+		r.sweepStale()
+		r.installMu.Unlock()
+	}
 	r.refreshMu.Lock() // so a slow older scan cannot overwrite a newer one; r.mu is not held while scanning
 	found := r.discover()
 	r.mu.Lock()

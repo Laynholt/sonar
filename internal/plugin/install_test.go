@@ -444,3 +444,126 @@ func TestImportRejects(t *testing.T) {
 		t.Fatalf("left behind: %v", left)
 	}
 }
+
+func TestImportSkipKeepsState(t *testing.T) {
+	src := newEnv(t)
+	putSettings(t, src.user, "a", "2.0.0", `[]`)
+	putSettings(t, src.user, "b", "1.0.0", `[]`)
+	s := src.open(t)
+	for _, id := range []string{"a", "b"} {
+		if err := s.SetEnabled(id, true, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetSettings(id, map[string]any{"k": id + "-imported"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetOrder([]string{"b", "a"}); err != nil {
+		t.Fatal(err)
+	}
+	zp := filepath.Join(t.TempDir(), "x.zip")
+	if err := s.Export(zp); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := newEnv(t)
+	putSettings(t, dst.user, "a", "1.0.0", `[]`)
+	d := dst.open(t)
+	if err := d.SetEnabled("a", true, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetEnabled("a", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetSettings("a", map[string]any{"k": "mine"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.Import(zp, "skip"); err != nil {
+		t.Fatal(err)
+	}
+	st := d.State()
+	if st.Enabled["a"] || !reflect.DeepEqual(st.Settings["a"], map[string]any{"k": "mine"}) {
+		t.Fatalf("skipped plugin's state was overwritten: %+v", st)
+	}
+	if !st.Enabled["b"] || st.Settings["b"]["k"] != "b-imported" {
+		t.Fatalf("the installed plugin's state was not applied: %+v", st)
+	}
+	if got := names(d.List()); got != "b,a" {
+		t.Fatalf("order: %s", got)
+	}
+}
+
+// Folder names don't matter: a folder whose manifest says foo is the installed foo.
+func TestInstallFindsCopyByManifestID(t *testing.T) {
+	e := newEnv(t)
+	for _, dir := range []string{"foo-old", "foo-bak"} {
+		writeFile(t, filepath.Join(e.user, dir, "plugin.json"), manifestJSON("foo", "1.0.0"))
+		writeFile(t, filepath.Join(e.user, dir, "a.exe"), "old")
+	}
+	r := e.open(t)
+	v2 := mkZip(t, "plugin.json", manifestJSON("foo", "2.0.0"), "a.exe", "new")
+	if _, err := r.InstallZip(v2, false); err != ErrExists {
+		t.Fatalf("got %v", err)
+	}
+	if _, _, err := r.Import(mkZip(t, "plugins/foo/plugin.json", manifestJSON("foo", "2.0.0")), ""); err == nil {
+		t.Fatal("import did not see the clash")
+	} else if c := new(Conflict); !errors.As(err, &c) || !reflect.DeepEqual(c.IDs, []string{"foo"}) {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := r.InstallZip(v2, true); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := os.ReadDir(e.user)
+	if len(left) != 1 {
+		t.Fatalf("user dir holds %v", left)
+	}
+	if got := readFile(t, filepath.Join(e.user, left[0].Name(), "a.exe")); got != "new" {
+		t.Fatalf("%s holds %q", left[0].Name(), got)
+	}
+	if g, _ := r.Get("foo"); g.M.Version != "2.0.0" {
+		t.Fatalf("registry sees %s", g.M.Version)
+	}
+}
+
+func TestRefreshSweepsStaleTemps(t *testing.T) {
+	e := newEnv(t)
+	putSettings(t, e.user, "keep", "1.0.0", `[]`)
+	for _, d := range []string{".install-123", ".old-keep", ".mine"} {
+		writeFile(t, filepath.Join(e.user, d, "f"), "x")
+	}
+	r := e.open(t)
+	r.Refresh()
+	var got []string
+	entries, _ := os.ReadDir(e.user)
+	for _, en := range entries {
+		got = append(got, en.Name())
+	}
+	if !reflect.DeepEqual(got, []string{".mine", "keep"}) {
+		t.Fatalf("user dir holds %v", got)
+	}
+	if names(r.List()) != "keep" {
+		t.Fatalf("list: %s", names(r.List()))
+	}
+}
+
+// A hand-made export can't grant trust or touch ids that aren't there.
+func TestImportStateGrantsNothing(t *testing.T) {
+	e := newEnv(t)
+	d := e.open(t)
+	state := `{"enabled":{"mine":true,"ghost":true},"order":["ghost","mine"],"settings":{"ghost":{"a":1},"mine":{"k":"v"}},
+		"trusted":{"mine":"deadbeef","ghost":"x"},"migrated":true}`
+	installed, needTrust, err := d.Import(mkZip(t, "plugins/mine/plugin.json", manifestJSON("mine", "1.0.0"), "state.json", state), "")
+	if err != nil || !reflect.DeepEqual(installed, []string{"mine"}) || !reflect.DeepEqual(needTrust, []string{"mine"}) {
+		t.Fatalf("%v, %v, %v", installed, needTrust, err)
+	}
+	st := d.State()
+	if len(st.Trusted) != 0 || st.Migrated {
+		t.Fatalf("trust or migration came in: %+v", st)
+	}
+	if _, ok := st.Enabled["ghost"]; ok || st.Settings["ghost"] != nil || slices.Contains(st.Order, "ghost") {
+		t.Fatalf("unknown id came in: %+v", st)
+	}
+	if m, _ := d.Get("mine"); m.Enabled || m.Trusted || m.Values["k"] != "v" {
+		t.Fatalf("mine: %+v", m)
+	}
+}

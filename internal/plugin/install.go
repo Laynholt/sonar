@@ -139,7 +139,10 @@ func (r *Registry) InstallZip(zipPath string, replace bool) (id string, err erro
 		return "", err
 	}
 	budget := maxInstallSize
-	if err := r.install(p, replace, &budget); err != nil {
+	r.installMu.Lock()
+	err = r.install(p, replace, &budget)
+	r.installMu.Unlock()
+	if err != nil {
 		return "", err
 	}
 	r.Refresh()
@@ -148,14 +151,14 @@ func (r *Registry) InstallZip(zipPath string, replace bool) (id string, err erro
 
 // install unpacks p next to its final place, then swaps it in. budget is what the zip may still unpack.
 func (r *Registry) install(p pkg, replace bool, budget *int64) error {
-	dest := filepath.Join(r.userDir, p.m.ID)
-	_, err := os.Lstat(dest)
-	exists := err == nil
-	if exists && !replace {
+	copies := r.userCopies(p.m.ID)
+	if len(copies) > 0 && !replace {
 		return ErrExists
 	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+	dest := filepath.Join(r.userDir, p.m.ID)
+	exists := len(copies) > 0
+	if exists && !slices.Contains(copies, dest) {
+		dest = copies[0] // a folder named otherwise holds this id: replace that one
 	}
 	if err := os.MkdirAll(r.userDir, 0o755); err != nil {
 		return err
@@ -184,7 +187,48 @@ func (r *Registry) install(p pkg, replace bool, budget *int64) error {
 	if err := os.RemoveAll(old); err != nil {
 		r.logf("%s: %v", old, err)
 	}
+	for _, c := range copies { // more copies of the id would only fight over the tie
+		if c != dest {
+			if err := r.discard(c); err != nil {
+				r.logf("%s: %v", c, err)
+			}
+		}
+	}
 	return nil
+}
+
+// userCopies lists the userDir folders whose manifest id is id; folder names don't matter (Discover goes by id).
+func (r *Registry) userCopies(id string) (dirs []string) {
+	entries, _ := os.ReadDir(r.userDir)
+	for _, e := range entries {
+		if d := filepath.Join(r.userDir, e.Name()); e.IsDir() && !strings.HasPrefix(e.Name(), ".") && load(d, e.Name(), false, nil).M.ID == id {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
+}
+
+// discard moves dir aside and deletes it. If only the delete fails the plugin is gone anyway and the next sweep retries.
+func (r *Registry) discard(dir string) error {
+	old, err := r.moveAside(dir)
+	if err == nil {
+		if rerr := os.RemoveAll(old); rerr != nil {
+			r.logf("%s: %v", old, rerr)
+		}
+	}
+	return err
+}
+
+// sweepStale deletes what a killed install left in userDir. Call with installMu held.
+func (r *Registry) sweepStale() {
+	entries, _ := os.ReadDir(r.userDir)
+	for _, e := range entries {
+		if n := e.Name(); e.IsDir() && (strings.HasPrefix(n, ".install-") || strings.HasPrefix(n, ".old-")) {
+			if err := os.RemoveAll(filepath.Join(r.userDir, n)); err != nil {
+				r.logf("%s: %v", n, err)
+			}
+		}
+	}
 }
 
 // moveAside renames dir to a hidden sibling, so a delete that fails half-way can't leave a broken plugin.
@@ -231,13 +275,7 @@ func extract(f *zip.File, to string, budget *int64) error {
 
 // Remove deletes the userDir copy of a plugin. A built-in one can only be disabled.
 func (r *Registry) Remove(id string) error {
-	var dirs []string
-	entries, _ := os.ReadDir(r.userDir)
-	for _, e := range entries {
-		if d := filepath.Join(r.userDir, e.Name()); e.IsDir() && !strings.HasPrefix(e.Name(), ".") && load(d, e.Name(), false, nil).M.ID == id {
-			dirs = append(dirs, d)
-		}
-	}
+	dirs := r.userCopies(id)
 	if len(dirs) == 0 {
 		r.mu.Lock()
 		f, ok := r.find(id)
@@ -248,15 +286,11 @@ func (r *Registry) Remove(id string) error {
 		return fmt.Errorf("plugin %q: not installed in the user folder", id)
 	}
 	var err error
+	r.installMu.Lock()
 	for _, d := range dirs {
-		old, merr := r.moveAside(d)
-		if merr == nil {
-			if rerr := os.RemoveAll(old); rerr != nil {
-				r.logf("%s: %v", old, rerr) // gone from the list; the next move-aside retries
-			}
-		}
-		err = errors.Join(err, merr)
+		err = errors.Join(err, r.discard(d))
 	}
+	r.installMu.Unlock()
 	r.Refresh()
 	return err
 }
@@ -409,7 +443,7 @@ func (r *Registry) Import(zipPath, choice string) (installed, needTrust []string
 
 	var clash []string
 	for _, p := range pkgs {
-		if _, err := os.Lstat(filepath.Join(r.userDir, p.m.ID)); err == nil {
+		if len(r.userCopies(p.m.ID)) > 0 {
 			clash = append(clash, p.m.ID)
 		}
 	}
@@ -419,6 +453,7 @@ func (r *Registry) Import(zipPath, choice string) (installed, needTrust []string
 
 	installed = []string{}
 	budget := maxInstallSize
+	r.installMu.Lock()
 	for _, p := range pkgs {
 		if choice == "skip" && slices.Contains(clash, p.m.ID) {
 			continue
@@ -429,6 +464,7 @@ func (r *Registry) Import(zipPath, choice string) (installed, needTrust []string
 		}
 		installed = append(installed, p.m.ID)
 	}
+	r.installMu.Unlock()
 	r.Refresh()
 	if err != nil {
 		return installed, nil, err
@@ -439,6 +475,13 @@ func (r *Registry) Import(zipPath, choice string) (installed, needTrust []string
 		present[e.M.ID] = true
 	}
 	if in != nil {
+		if choice == "skip" { // the old copy stays, so the user's settings and on/off for it stay too
+			for _, id := range clash {
+				delete(in.Enabled, id)
+				delete(in.Settings, id)
+				in.Order = slices.DeleteFunc(in.Order, func(o string) bool { return o == id })
+			}
+		}
 		err = r.change(func(st *State) error {
 			for id, on := range in.Enabled {
 				if present[id] {
