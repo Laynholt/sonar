@@ -7,11 +7,15 @@ import (
 
 // TracksByISRC returns the Spotify track IDs whose ISRC matches, via the "isrc:" search filter.
 func TracksByISRC(ctx context.Context, isrc string) ([]string, error) {
+	return new(Session).TracksByISRC(ctx, isrc)
+}
+
+func (s *Session) TracksByISRC(ctx context.Context, isrc string) ([]string, error) {
 	isrc = strings.TrimSpace(isrc)
 	if isrc == "" {
 		return nil, nil
 	}
-	res, err := Search(ctx, "isrc:"+isrc, 10)
+	res, err := s.Search(ctx, "isrc:"+isrc, 10)
 	if err != nil {
 		return nil, err
 	}

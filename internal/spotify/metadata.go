@@ -21,21 +21,40 @@ import (
 
 var errInvalidSpotifyURL = errors.New("invalid or unsupported Spotify URL")
 
+// sessionTTL is how long a Session keeps its tokens; Spotify's anonymous ones last about an hour.
+const sessionTTL = 30 * time.Minute
+
 // metadataClient lazily opens one Spotify session and reuses it for every
 // request of a single lookup.
 type metadataClient struct {
+	mu sync.Mutex // a Session is shared by concurrent calls
 	sp *client
+	at time.Time
 }
 
 func (c *metadataClient) session(ctx context.Context) (*client, error) {
-	if c.sp == nil {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sp == nil || time.Since(c.at) > sessionTTL {
 		sp := newClient()
 		if err := sp.initialize(ctx); err != nil {
 			return nil, fmt.Errorf("failed to initialize spotify client: %w", err)
 		}
-		c.sp = sp
+		c.sp, c.at = sp, time.Now()
 	}
 	return c.sp, nil
+}
+
+// Session keeps one Spotify login for many calls (the package functions open a fresh one per call).
+type Session struct{ c metadataClient }
+
+// ParseLink returns the kind (track, album, playlist or artist) and the id of a Spotify link or URI.
+func ParseLink(raw string) (kind, id string, err error) {
+	p, err := parseSpotifyURI(strings.TrimSpace(raw))
+	if err != nil {
+		return "", "", err
+	}
+	return strings.TrimSuffix(p.Type, "_discography"), p.ID, nil
 }
 
 type spotifyURI struct {
@@ -205,11 +224,16 @@ func IsLink(raw string) bool {
 // *model.AlbumResponsePayload, *model.PlaylistResponsePayload or
 // *model.ArtistDiscographyPayload.
 func GetMetadata(ctx context.Context, rawURL string) (any, error) {
+	return new(Session).GetMetadata(ctx, rawURL)
+}
+
+// GetMetadata is the package function over the session's login.
+func (s *Session) GetMetadata(ctx context.Context, rawURL string) (any, error) {
 	parsed, err := parseSpotifyURI(strings.TrimSpace(rawURL))
 	if err != nil {
 		return nil, err
 	}
-	c := &metadataClient{}
+	c := &s.c
 	switch parsed.Type {
 	case "track":
 		raw, err := c.fetchTrack(ctx, parsed.ID)
@@ -1365,8 +1389,11 @@ func (c *metadataClient) search(ctx context.Context, query string, limit int) (*
 
 // Search runs a combined search over tracks, albums, artists and playlists.
 func Search(ctx context.Context, query string, limit int) (*model.SearchResponse, error) {
-	client := &metadataClient{}
-	return client.search(ctx, query, limit)
+	return new(Session).Search(ctx, query, limit)
+}
+
+func (s *Session) Search(ctx context.Context, query string, limit int) (*model.SearchResponse, error) {
+	return s.c.search(ctx, query, limit)
 }
 
 func (c *metadataClient) searchByType(ctx context.Context, query string, searchType string, limit int, offset int) ([]model.SearchResult, error) {
@@ -1483,8 +1510,11 @@ func (c *metadataClient) searchByType(ctx context.Context, query string, searchT
 
 // SearchByType searches one kind: "track", "album", "artist" or "playlist".
 func SearchByType(ctx context.Context, query string, searchType string, limit int, offset int) ([]model.SearchResult, error) {
-	client := &metadataClient{}
-	return client.searchByType(ctx, query, searchType, limit, offset)
+	return new(Session).SearchByType(ctx, query, searchType, limit, offset)
+}
+
+func (s *Session) SearchByType(ctx context.Context, query string, searchType string, limit int, offset int) ([]model.SearchResult, error) {
+	return s.c.searchByType(ctx, query, searchType, limit, offset)
 }
 
 var previewRe = regexp.MustCompile(`https://p\.scdn\.co/mp3-preview/[a-zA-Z0-9]+`)

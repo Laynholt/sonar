@@ -1,0 +1,20 @@
+{
+  "id": "spotify",
+  "name": "Spotify",
+  "version": "1.0.0",
+  "author": "sonar",
+  "description": "Spotify links, search and metadata.",
+  "kind": "source",
+  "run": ["spotify"],
+  "contract": 1,
+  "source": {
+    "service": "spotify",
+    "label": "Spotify",
+    "icon": "",
+    "links": [
+      "\\s*spotify:(?:album|track|playlist|artist):[A-Za-z0-9]{22}\\s*",
+      "\\s*(?:[A-Za-z][A-Za-z0-9+.-]*:)?//(?:open|play)\\.spotify\\.com/+(?:embed/+)?(?:intl-[^/?#]*/+)?(?:(?:album|track|playlist)/+[A-Za-z0-9]{22}/*|artist/+[A-Za-z0-9]{22}(?:/[^?#]*)?)(?:[?#].*)?\\s*"
+    ],
+    "can": ["metadata", "search", "searchByType", "isrc", "preview", "parseLink"]
+  }
+}

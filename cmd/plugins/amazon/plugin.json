@@ -1,0 +1,19 @@
+{
+  "id": "amazon",
+  "name": "Amazon Music",
+  "version": "1.0.0",
+  "author": "sonar",
+  "description": "Amazon Music links, search and metadata.",
+  "kind": "source",
+  "run": ["amazon"],
+  "contract": 1,
+  "source": {
+    "service": "amazon",
+    "label": "Amazon Music",
+    "icon": "",
+    "links": [
+      "\\s*(?:[A-Za-z][A-Za-z0-9+.-]*://)?(?i:(?:www\\.)?music\\.amazon\\.[a-z.]+)(?::[0-9]*)?(?:[/?#].*)?\\s*"
+    ],
+    "can": ["metadata", "search", "find", "tracks", "album", "preview", "parseLink"]
+  }
+}
