@@ -99,9 +99,9 @@ func (a *App) init() {
 	a.findFFmpeg = convert.FindFFmpeg
 	a.ffLatest, a.ffInstall = ffinstall.Latest, ffinstall.Install
 	a.amazonPreview = amazon.PreviewURL
-	sources := source.NewBalancer(sourceCooldown, lucida.New(), a.dd)
+	sources := legacyBalancer(sourceCooldown, lucida.New(), a.dd)
 	if a.dd.Token() == "" { // first run: say so before any track fails
-		sources.NeedCheck("doubledouble")
+		sources.NeedAction("doubledouble", "doubledouble: "+source.ErrNeedsCheck.Error(), "check")
 	}
 	a.startQueue(amazonFetch(a.fetch), sources, resolve.Live()) // shim until Task 13
 }

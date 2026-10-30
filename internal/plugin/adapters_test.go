@@ -5,13 +5,96 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"sonar/internal/download"
 	"sonar/internal/match"
 	"sonar/internal/model"
+	"sonar/internal/source"
 )
+
+func putDownloader(t *testing.T, e *regEnv, id string) {
+	t.Helper()
+	e.bless(t, id, putFakeManifest(t, e.builtin, id, `{"id":"`+id+`","name":"Fake `+id+`","version":"1.0.0","kind":"downloader","run":["fake"],`+
+		`"downloader":{"accepts":"amazon","parallel":2,"guard":{"limit":50,"waits":[15,30],"wait":30}}}`))
+}
+
+// Downloaders lists valid downloaders in Order, switched off or not; each one is a source.Source.
+func TestDownloaders(t *testing.T) {
+	e := newEnv(t)
+	putDownloader(t, e, "dl1")
+	putDownloader(t, e, "dl2")
+	putSource(t, e, "src", "svc", `[]`, `[]`)
+	r := e.open(t)
+	if err := r.SetOrder([]string{"dl2", "dl1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetEnabled("dl1", false, false); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, d := range r.Downloaders() {
+		got = append(got, d.ID)
+	}
+	if !slices.Equal(got, []string{"dl2", "dl1"}) {
+		t.Fatalf("Downloaders = %v", got)
+	}
+	var s source.Source = r.Downloaders()[0]
+	d := s.(*Downloader)
+	if d.Name() != "dl2" || d.Label() != "Fake dl2" || d.Info.Accepts != "amazon" || d.Info.Parallel != 2 || d.Info.Guard.Limit != 50 {
+		t.Fatalf("downloader %+v, label %q", d, d.Label())
+	}
+}
+
+func TestDownloaderAdapterProgress(t *testing.T) {
+	e := newEnv(t)
+	putDownloader(t, e, "dl")
+	d := e.open(t).Downloaders()[0]
+	var got [][2]int64
+	var statuses []string
+	ctx := download.WithProgress(context.Background(), func(done, total int64) { got = append(got, [2]int64{done, total}) })
+	path, err := d.Download(ctx, source.Request{Track: download.Track{Title: "T"}, IDs: map[string]string{"amazon": "B1"}, PathNoExt: "p",
+		OnStatus: func(s string) { statuses = append(statuses, s) }})
+	if err != nil || path != "p-T-B1.flac" {
+		t.Fatalf("path %q, err %v", path, err)
+	}
+	if !reflect.DeepEqual(got, [][2]int64{{1, 3}, {3, 3}}) || !slices.Equal(statuses, []string{"Ripping"}) {
+		t.Fatalf("progress %v, statuses %q", got, statuses)
+	}
+}
+
+// The contract's codes become the source errors the Balancer acts on, keeping the plugin's text;
+// through a Balancer, a needs-action error shows the plugin's action.
+func TestDownloaderAdapterErrors(t *testing.T) {
+	e := newEnv(t)
+	putDownloader(t, e, "dl")
+	d := e.open(t).Downloaders()[0]
+	ctx := context.Background()
+	for _, tc := range []struct {
+		path, msg   string
+		unavailable bool
+		needs       bool
+	}{{"unavailable", "fake: down", true, false}, {"needs", "fake: log in", false, true}, {"boom", "fake: boom", false, false}} {
+		_, err := d.Download(ctx, source.Request{PathNoExt: tc.path})
+		var pe *Error
+		if err == nil || err.Error() != tc.msg || errors.Is(err, source.ErrUnavailable) != tc.unavailable ||
+			errors.Is(err, source.ErrNeedsCheck) != tc.needs || !errors.As(err, &pe) {
+			t.Errorf("%s: err = %v", tc.path, err)
+		}
+	}
+
+	b := source.NewBalancer(time.Minute)
+	b.Add(d, d.Info.Accepts, source.Guard{})
+	if _, err := b.Fetch(ctx, "dl", source.Request{PathNoExt: "needs"}); err == nil || err.Error() != "dl: fake: log in" {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if st := b.Status(); len(st) != 1 || !st[0].NeedsAction || st[0].Action != "login" || st[0].Label != "Fake dl" || st[0].Accepts != "amazon" {
+		t.Fatalf("Status = %+v", st)
+	}
+}
 
 const allCan = `["metadata","search","searchByType","find","tracks","album","isrc","preview","parseLink"]`
 

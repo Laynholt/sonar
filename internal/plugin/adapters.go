@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"sonar/internal/download"
 	"sonar/internal/match"
 	"sonar/internal/model"
+	"sonar/internal/source"
 )
 
 // ErrCannot is what a source method answers when the manifest's source.can lacks it.
@@ -217,3 +219,75 @@ func (t *TaggerClient) Tag(ctx context.Context, p TagParams) (map[string]string,
 	}
 	return out.Fields, nil
 }
+
+// Downloader is a downloader plugin as a source.Source. Like SourceClient it looks the Host up per call.
+// Its $/status notes reach Registry.OnStatus under its ID.
+type Downloader struct {
+	ID   string
+	Info DownloaderInfo
+	r    *Registry
+}
+
+// Downloaders lists the valid downloaders, switched on or not, in Order.
+func (r *Registry) Downloaders() []*Downloader {
+	var out []*Downloader
+	for _, e := range r.List() {
+		if e.Err == "" && e.M.Kind == KindDownloader && e.M.Downloader != nil {
+			out = append(out, &Downloader{ID: e.M.ID, Info: *e.M.Downloader, r: r})
+		}
+	}
+	return out
+}
+
+func (d *Downloader) Name() string { return d.ID }
+
+// Label is the plugin's name, which source.Balancer shows in its Status.
+func (d *Downloader) Label() string {
+	e, _ := d.r.Get(d.ID)
+	return e.M.Name
+}
+
+// Download runs the plugin's download. Byte progress reaches download.Report on ctx, status texts r.OnStatus,
+// and the unavailable and needs-action codes become source.ErrUnavailable and source.ErrNeedsCheck.
+func (d *Downloader) Download(ctx context.Context, r source.Request) (string, error) {
+	h, err := d.r.Host(d.ID)
+	if err != nil {
+		return "", err
+	}
+	var out DownloadResult
+	err = h.Call(ctx, MDownload, DownloadParams{Track: r.Track, IDs: r.IDs, PathNoExt: r.PathNoExt}, &out, func(p Progress) {
+		if p.Bytes > 0 || p.Size > 0 { // a status-only note must not reset the bar
+			download.Report(ctx, p.Bytes, p.Size)
+		}
+		if p.Status != "" && r.OnStatus != nil {
+			r.OnStatus(p.Status)
+		}
+	})
+	var pe *Error
+	if errors.As(err, &pe) {
+		switch pe.Code {
+		case CodeUnavailable:
+			return "", &siteError{pe: pe, is: source.ErrUnavailable}
+		case CodeNeedsAction:
+			var na NeedsAction
+			json.Unmarshal(pe.Data, &na) // no or bad data: no action button
+			return "", &siteError{pe: pe, is: source.ErrNeedsCheck, action: na.Action}
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	return out.Path, nil
+}
+
+// siteError keeps a plugin's message while matching the source error its code stands for.
+// Action is the settings action a needs-action error names, read by source.Balancer.
+type siteError struct {
+	pe     *Error
+	is     error
+	action string
+}
+
+func (e *siteError) Error() string   { return e.pe.Message }
+func (e *siteError) Unwrap() []error { return []error{e.is, e.pe} }
+func (e *siteError) Action() string  { return e.action }

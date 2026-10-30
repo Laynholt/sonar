@@ -34,12 +34,12 @@ export function SourceStatus({ compact }: { compact?: boolean }) {
     return (<ul className={compact ? "flex flex-wrap gap-x-4 gap-y-1 text-xs" : "space-y-1 text-xs"}>
       {statuses.map((status) => (<li key={status.name} className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{status.name}</span>
-        {status.needs_check
+        {status.needs_action
             ? <span className="text-muted-foreground">{t("download.siteNeedsCheck")}</span>
             : status.available
                 ? <span className="text-muted-foreground">{t("download.siteAvailable")}</span>
                 : <span className="text-muted-foreground" title={status.reason}>{t("download.sitePaused")}</span>}
-        {status.name === "doubledouble" && status.needs_check && (<Button type="button" variant="outline" size="sm" disabled={checking} onClick={passCheck}>
+        {status.name === "doubledouble" && status.needs_action && (<Button type="button" variant="outline" size="sm" disabled={checking} onClick={passCheck}>
           {checking ? t("download.checkWaiting") : t("download.passCheck")}
         </Button>)}
         {status.name === "doubledouble" && checking && (<p className="basis-full text-muted-foreground">{t("download.checkHint")}</p>)}

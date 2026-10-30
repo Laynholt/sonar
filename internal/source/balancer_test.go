@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"sonar/internal/download"
 )
 
 type fake struct {
@@ -18,7 +20,7 @@ type fake struct {
 }
 
 func (f *fake) Name() string { return f.name }
-func (f *fake) Download(ctx context.Context, trackURL, pathNoExt string, onStatus func(string)) (string, error) {
+func (f *fake) Download(ctx context.Context, r Request) (string, error) {
 	f.calls++
 	if f.onCall != nil {
 		f.onCall()
@@ -38,14 +40,24 @@ type clock struct{ t time.Time }
 func (c *clock) now() time.Time { return c.t }
 
 func newTest(srcs ...Source) (*Balancer, *clock) {
-	b := NewBalancer(5*time.Minute, srcs...)
+	b := NewBalancer(5 * time.Minute)
+	for _, s := range srcs {
+		b.Add(s, "amazon", Guard{})
+	}
 	c := &clock{t: time.Unix(1000, 0)}
 	b.now = c.now
 	return b, c
 }
 
 func fetch(b *Balancer, name string) (string, error) {
-	return b.Fetch(context.Background(), name, "u", "p", nil)
+	return b.Fetch(context.Background(), name, Request{PathNoExt: "p"})
+}
+
+// guardAll gives every site the same limit, as the one global guard did.
+func guardAll(b *Balancer, limit int) {
+	for _, n := range b.Names() {
+		b.SetGuard(n, Guard{Limit: limit})
+	}
 }
 
 func mustFetch(t *testing.T, b *Balancer, name string) {
@@ -93,8 +105,40 @@ func TestNames(t *testing.T) {
 	if got := b.Names(); !slices.Equal(got, []string{"a", "b"}) {
 		t.Fatalf("Names = %v", got)
 	}
-	if !b.Has("a") || b.Has("zzz") || b.Ready("zzz") {
-		t.Fatal("Has/Ready on an unknown site")
+	if !b.Has("a") || b.Has("zzz") || b.Ready("zzz") || b.Accepts("zzz") != "" {
+		t.Fatal("Has/Ready/Accepts on an unknown site")
+	}
+	b.Add(&fake{name: "c"}, "any", Guard{})
+	if got := b.Names(); !slices.Equal(got, []string{"a", "b", "c"}) || b.Accepts("a") != "amazon" || b.Accepts("c") != "any" {
+		t.Fatalf("Names = %v, accepts %q %q", got, b.Accepts("a"), b.Accepts("c"))
+	}
+}
+
+// Add on a known name swaps its Source, accepts and guard, but keeps its place and its count.
+func TestAddReplacesKeepsCounters(t *testing.T) {
+	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
+	mustFetch(t, bal, "a")
+	ch := changes(bal)
+	repl := &fake{name: "a"}
+	bal.Add(repl, "any", Guard{Limit: 2})
+	waitChange(t, ch)
+	mustFetch(t, bal, "a")
+	if st := status(bal, "a"); repl.calls != 1 || st.Count != 2 || !st.Asking || st.Accepts != "any" || st.Label != "a" {
+		t.Fatalf("calls %d, status %+v", repl.calls, st)
+	}
+	if got := bal.Names(); !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("Names = %v", got)
+	}
+}
+
+type labeled struct{ fake }
+
+func (l *labeled) Label() string { return "Site A" }
+
+func TestStatusLabel(t *testing.T) {
+	bal, _ := newTest(&labeled{fake{name: "a"}})
+	if st := status(bal, "a"); st.Label != "Site A" || st.Accepts != "amazon" {
+		t.Fatalf("status %+v", st)
 	}
 }
 
@@ -121,7 +165,7 @@ func TestNeedsCheckUntilReset(t *testing.T) {
 	ch := changes(bal)
 	fetch(bal, "a")
 	clk.t = clk.t.Add(time.Hour)
-	if st := status(bal, "a"); bal.Ready("a") || !st.NeedsCheck || st.Available {
+	if st := status(bal, "a"); bal.Ready("a") || !st.NeedsAction || st.Available {
 		t.Fatalf("status %+v", st)
 	}
 	noChange(t, ch)
@@ -138,20 +182,45 @@ func TestCooldownDoesNotLiftCheck(t *testing.T) {
 	fetch(bal, "a")
 	fetch(bal, "a") // the caller ignored Ready: the cooldown must not replace the check
 	clk.t = clk.t.Add(10 * time.Minute)
-	if st := status(bal, "a"); !st.NeedsCheck || bal.Ready("a") {
+	if st := status(bal, "a"); !st.NeedsAction || bal.Ready("a") {
 		t.Fatalf("status %+v", st)
 	}
 }
 
-func TestNeedCheck(t *testing.T) {
+func TestNeedAction(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"})
-	bal.NeedCheck("a")
-	if st := status(bal, "a"); !st.NeedsCheck || st.Available || bal.Ready("a") || !strings.Contains(st.Reason, "Settings") {
+	ch := changes(bal)
+	bal.NeedAction("a", "a: log in first", "login")
+	waitChange(t, ch)
+	if st := status(bal, "a"); !st.NeedsAction || st.Available || bal.Ready("a") || bal.Usable("a") || st.Reason != "a: log in first" || st.Action != "login" {
 		t.Fatalf("status %+v", st)
 	}
+	bal.NeedAction("a", "a: still not logged in", "login") // a newer reason replaces the old
+	waitChange(t, ch)
+	if st := status(bal, "a"); st.Reason != "a: still not logged in" {
+		t.Fatalf("status %+v", st)
+	}
+	bal.NeedAction("zzz", "x", "y") // unknown: ignored
 	bal.Reset("a")
-	if !bal.Ready("a") {
-		t.Error("Reset did not lift NeedCheck")
+	if st := status(bal, "a"); !bal.Ready("a") || st.Action != "" {
+		t.Errorf("Reset did not lift NeedAction: %+v", st)
+	}
+}
+
+// actionErr is a needs-action error naming its settings action, as the plugin adapter returns.
+type actionErr struct{}
+
+func (actionErr) Error() string  { return "a: expired" }
+func (actionErr) Unwrap() error  { return ErrNeedsCheck }
+func (actionErr) Action() string { return "check" }
+
+func TestFetchNeedsActionKeepsAction(t *testing.T) {
+	bal, _ := newTest(&fake{name: "a", results: []error{actionErr{}}})
+	if _, err := fetch(bal, "a"); err == nil || err.Error() != "a: expired" {
+		t.Fatalf("err = %v", err)
+	}
+	if st := status(bal, "a"); !st.NeedsAction || st.Action != "check" || st.Reason != "a: expired" {
+		t.Fatalf("status %+v", st)
 	}
 }
 
@@ -159,12 +228,12 @@ func TestNeedCheck(t *testing.T) {
 func TestUsable(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a", results: []error{fmt.Errorf("%w: down", ErrUnavailable)}}, &fake{name: "b"})
 	fetch(bal, "a")
-	bal.SetGuard(1)
+	guardAll(bal, 1)
 	mustFetch(t, bal, "b")
 	if bal.Ready("a") || bal.Ready("b") || !bal.Usable("a") || !bal.Usable("b") {
 		t.Fatal("a cooling down and b asking must stay usable")
 	}
-	bal.NeedCheck("a")
+	bal.NeedAction("a", "a: check", "check")
 	if bal.Usable("a") || bal.Usable("nope") {
 		t.Fatal("a waiting for a check, or an unknown site, is usable")
 	}
@@ -206,22 +275,22 @@ func TestFetchErrors(t *testing.T) {
 func TestFetchCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	bal, _ := newTest(&fake{name: "a", results: []error{fmt.Errorf("%w: x", ErrUnavailable)}, onCall: cancel})
-	if _, err := bal.Fetch(ctx, "a", "u", "p", nil); !errors.Is(err, context.Canceled) || !bal.Ready("a") {
+	if _, err := bal.Fetch(ctx, "a", Request{}); !errors.Is(err, context.Canceled) || !bal.Ready("a") {
 		t.Fatalf("err=%v ready=%v", err, bal.Ready("a"))
 	}
 }
 
 type statusSrc struct{ fake }
 
-func (s *statusSrc) Download(ctx context.Context, u, p string, onStatus func(string)) (string, error) {
-	onStatus("Ripping")
+func (s *statusSrc) Download(ctx context.Context, r Request) (string, error) {
+	r.OnStatus("Ripping")
 	return "x", nil
 }
 
 func TestFetchPrefixesStatus(t *testing.T) {
 	bal, _ := newTest(&statusSrc{fake{name: "a"}})
 	var got string
-	if _, err := bal.Fetch(context.Background(), "a", "u", "p", func(s string) { got = s }); err != nil || got != "a: Ripping" {
+	if _, err := bal.Fetch(context.Background(), "a", Request{OnStatus: func(s string) { got = s }}); err != nil || got != "a: Ripping" {
 		t.Fatalf("%q %v", got, err)
 	}
 }
@@ -240,7 +309,7 @@ func TestFetchCountsPerSite(t *testing.T) {
 func TestLimitAsksOnlyThatSite(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
-	bal.SetGuard(2)
+	guardAll(bal, 2)
 	mustFetch(t, bal, "a")
 	mustFetch(t, bal, "b")
 	noChange(t, ch)
@@ -256,9 +325,104 @@ func TestLimitAsksOnlyThatSite(t *testing.T) {
 	noChange(t, ch)
 }
 
+// Each site has its own guard: a at limit 2 asks, b with the guard off never does.
+func TestGuardPerSite(t *testing.T) {
+	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
+	bal.SetGuard("a", Guard{Limit: 2})
+	bal.SetGuard("b", Guard{Limit: 0})
+	bal.SetGuard("zzz", Guard{Limit: 1}) // unknown: ignored
+	for range 2 {
+		mustFetch(t, bal, "a")
+	}
+	for range 5 {
+		mustFetch(t, bal, "b")
+	}
+	if st := status(bal, "a"); !st.Asking || bal.Ready("a") || st.Limit != 2 {
+		t.Fatalf("a: %+v", st)
+	}
+	if st := status(bal, "b"); st.Asking || !bal.Ready("b") || st.Limit != 0 || st.Count != 5 {
+		t.Fatalf("b: %+v", st)
+	}
+}
+
+func TestStatusWaits(t *testing.T) {
+	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
+	waits := []int{15, 30, 60}
+	bal.SetGuard("a", Guard{Limit: 50, Waits: waits, Wait: 30})
+	waits[0] = 99 // the balancer keeps its own copy
+	if st := status(bal, "a"); !slices.Equal(st.Waits, []int{15, 30, 60}) || st.Wait != 30 || st.Limit != 50 {
+		t.Fatalf("a: %+v", st)
+	}
+	if st := status(bal, "b"); st.Waits != nil || st.Wait != 0 {
+		t.Fatalf("b: %+v", st)
+	}
+}
+
+// blockSrc closes started in Download, then blocks until its ctx ends.
+type blockSrc struct {
+	fake
+	started chan struct{}
+}
+
+func (s *blockSrc) Download(ctx context.Context, _ Request) (string, error) {
+	s.calls++
+	close(s.started)
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+// Switching a site off cancels its running download with an error the queue requeues on (download.ErrSiteDown),
+// without punishing the site. While off it is neither Ready nor Usable, is left out of Status and downloads nothing.
+func TestDisableRequeuesRunning(t *testing.T) {
+	a := &blockSrc{fake: fake{name: "a"}, started: make(chan struct{})}
+	bal, _ := newTest(a, &fake{name: "b"})
+	ch := changes(bal)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := fetch(bal, "a")
+		errc <- err
+	}()
+	<-a.started
+	bal.SetEnabled("a", false)
+	waitChange(t, ch)
+	var err error
+	select {
+	case err = <-errc:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Fetch not cancelled")
+	}
+	if !errors.Is(err, download.ErrSiteDown) || !strings.HasPrefix(err.Error(), "a: ") {
+		t.Fatalf("err = %v", err)
+	}
+	if bal.Ready("a") || bal.Usable("a") || !bal.Ready("b") {
+		t.Fatal("a must be neither ready nor usable while off, b untouched")
+	}
+	if st := bal.Status(); len(st) != 1 || st[0].Name != "b" {
+		t.Fatalf("Status = %+v", st)
+	}
+	bal.SetEnabled("a", false) // already off
+	noChange(t, ch)
+	if _, err := fetch(bal, "a"); !errors.Is(err, download.ErrSiteDown) || a.calls != 1 {
+		t.Fatalf("fetch while off: err = %v, calls %d", err, a.calls)
+	}
+
+	bal.SetEnabled("a", true)
+	waitChange(t, ch)
+	if st := status(bal, "a"); !bal.Ready("a") || !bal.Usable("a") || st.Reason != "" || !st.Available {
+		t.Fatalf("a back on: %+v", st)
+	}
+	a.started = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-a.started; cancel() }()
+	// cancelled by its caller after the site is back on: the plain cancel, not a site-down
+	if _, err := bal.Fetch(ctx, "a", Request{}); !errors.Is(err, context.Canceled) || errors.Is(err, download.ErrSiteDown) {
+		t.Fatalf("a cancelled by its caller: err = %v", err)
+	}
+}
+
 func TestGuardRestResetsCount(t *testing.T) {
 	bal, clk := newTest(&fake{name: "a"})
-	bal.SetGuard(3)
+	guardAll(bal, 3)
 	for range 3 { // the site rests between successes, so it never builds up
 		mustFetch(t, bal, "a")
 		clk.t = clk.t.Add(GuardRest)
@@ -271,20 +435,20 @@ func TestGuardRestResetsCount(t *testing.T) {
 func TestGuardOff(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"})
 	ch := changes(bal)
-	bal.SetGuard(0)
+	guardAll(bal, 0)
 	for range 5 {
 		mustFetch(t, bal, "a")
 	}
 	if !bal.Ready("a") {
 		t.Fatal("asked with the guard off")
 	}
-	bal.SetGuard(3) // switched on past the current count
+	guardAll(bal, 3) // switched on past the current count
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
 	if !status(bal, "a").Asking {
 		t.Fatal("not asking past the limit")
 	}
-	bal.SetGuard(-1) // switched off while asking
+	guardAll(bal, -1) // switched off while asking
 	waitChange(t, ch)
 	if !bal.Ready("a") {
 		t.Fatal("still asking with the guard off")
@@ -294,16 +458,16 @@ func TestGuardOff(t *testing.T) {
 func TestRaisingLimitClearsAsking(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
-	bal.SetGuard(2)
+	guardAll(bal, 2)
 	mustFetch(t, bal, "a")
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
-	bal.SetGuard(2) // same limit: still asking
+	guardAll(bal, 2) // same limit: still asking
 	noChange(t, ch)
 	if !status(bal, "a").Asking {
 		t.Fatal("stopped asking at the same limit")
 	}
-	bal.SetGuard(3)
+	guardAll(bal, 3)
 	waitChange(t, ch)
 	noChange(t, ch)
 	if st := status(bal, "a"); !bal.Ready("a") || st.Asking || st.Count != 2 {
@@ -319,7 +483,7 @@ func TestRaisingLimitClearsAsking(t *testing.T) {
 func TestGuardWaitPausesThenResumes(t *testing.T) {
 	bal, clk := newTest(&fake{name: "a"}, &fake{name: "b"})
 	ch := changes(bal)
-	bal.SetGuard(1)
+	guardAll(bal, 1)
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
 	bal.GuardWait("b", 200*time.Millisecond) // not asking: no-op
@@ -345,7 +509,7 @@ func TestGuardWaitPausesThenResumes(t *testing.T) {
 func TestGuardContinueResetsCount(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"})
 	ch := changes(bal)
-	bal.SetGuard(2)
+	guardAll(bal, 2)
 	mustFetch(t, bal, "a")
 	mustFetch(t, bal, "a")
 	waitChange(t, ch)
@@ -371,7 +535,8 @@ func TestGuardContinueResetsCount(t *testing.T) {
 
 func TestCooldownEndsCallsOnChange(t *testing.T) {
 	a := &fake{name: "a", results: []error{fmt.Errorf("%w: down", ErrUnavailable)}}
-	bal := NewBalancer(200*time.Millisecond, a) // the real clock, so the cooldown really ends
+	bal := NewBalancer(200 * time.Millisecond) // the real clock, so the cooldown really ends
+	bal.Add(a, "amazon", Guard{})
 	ch := changes(bal)
 	fetch(bal, "a")
 	if bal.Ready("a") {
@@ -388,7 +553,7 @@ func TestResetStopsTimers(t *testing.T) {
 	bal, _ := newTest(a)
 	bal.cooldown = 200 * time.Millisecond
 	ch := changes(bal)
-	bal.SetGuard(1)
+	guardAll(bal, 1)
 	fetch(bal, "a")
 	bal.Reset("a")
 	waitChange(t, ch)

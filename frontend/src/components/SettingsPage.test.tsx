@@ -26,7 +26,7 @@ beforeEach(async () => {
     vi.resetAllMocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.mocked(DefaultDownloadDir).mockResolvedValue("C:\\Music\\sonar");
-    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "lucida", available: true, needs_check: false, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 }, { name: "doubledouble", available: false, needs_check: true, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 }]);
+    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "lucida", label: "lucida", accepts: "amazon", available: true, needs_action: false, action: "", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }, { name: "doubledouble", label: "doubledouble", accepts: "amazon", available: false, needs_action: true, action: "check", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }]);
     vi.mocked(FindFFmpeg).mockResolvedValue("");
     vi.mocked(SelectFFmpeg).mockResolvedValue("C:\\ff\\ffmpeg.exe");
     Object.defineProperty(window, "matchMedia", { configurable: true, value: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }) });

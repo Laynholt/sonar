@@ -44,14 +44,14 @@ func (nopFinder) SpotifyIDsByISRC(context.Context, string) ([]string, error)    
 
 // newQueueApp wires an App on dir the way init does, with fake sites and a finder that finds nothing.
 // A nil fetch uses the App's real fetch.
-func newQueueApp(t *testing.T, dir string, fetch download.Fetch, sites ...source.Source) *App {
+func newQueueApp(t *testing.T, dir string, fetch download.Fetch, sites ...legacySite) *App {
 	t.Helper()
 	a := &App{dataDir: dir, findFFmpeg: func(string) string { return "" }}
 	a.dd = doubledouble.New(filepath.Join(dir, "doubledouble-token"))
 	if fetch == nil {
 		fetch = amazonFetch(a.fetch) // shim until Task 13
 	}
-	a.startQueue(fetch, source.NewBalancer(time.Minute, sites...), nopFinder{})
+	a.startQueue(fetch, legacyBalancer(time.Minute, sites...), nopFinder{})
 	t.Cleanup(func() { a.shutdown(nil) })
 	return a
 }
@@ -284,7 +284,7 @@ func TestFetchMarksSiteDown(t *testing.T) {
 		down bool
 	}{{source.ErrUnavailable, true}, {source.ErrNeedsCheck, true}, {errors.New("no stream"), false}} {
 		a := &App{findFFmpeg: func(string) string { return "" }}
-		a.sources = source.NewBalancer(time.Minute, downSource{fmt.Errorf("x: %w", tc.err)})
+		a.sources = legacyBalancer(time.Minute, downSource{fmt.Errorf("x: %w", tc.err)})
 		_, err := a.fetch(context.Background(), "lucida", download.Track{}, "B00A3SGXAA", download.Options{Format: "original"}, t.TempDir()+"/x", nil)
 		if errors.Is(err, download.ErrSiteDown) != tc.down || !errors.Is(err, tc.err) {
 			t.Errorf("%v: err = %v", tc.err, err)
@@ -687,7 +687,7 @@ func TestInitMarksDoubleDoubleNeedsCheckWithoutToken(t *testing.T) {
 				dd = s
 			}
 		}
-		if dd.NeedsCheck == withToken || dd.Available != withToken {
+		if dd.NeedsAction == withToken || dd.Available != withToken {
 			t.Errorf("token=%v: status %+v", withToken, dd)
 		}
 	}

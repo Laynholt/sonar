@@ -86,7 +86,7 @@ func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder 
 		log.Printf("queue %s: %v; starting empty", a.queuePath(), err)
 	}
 	if n := len(st.Items); n > 0 { // the restored tracks keep the guard limit they were queued with
-		a.sources.SetGuard(st.Items[n-1].Options.GuardLimit)
+		a.setGuard(st.Items[n-1].Options.GuardLimit)
 	}
 	a.dl.Restore(st.Items)
 	pauses := map[string]time.Time{}
@@ -95,6 +95,46 @@ func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder 
 	}
 	a.sources.RestoreGuardPauses(pauses)
 	go a.saver()
+}
+
+// legacySite is an in-process site client, which still downloads by Amazon track URL.
+type legacySite interface {
+	Name() string
+	Download(ctx context.Context, trackURL, pathNoExt string, onStatus func(string)) (string, error)
+}
+
+// amazonSite adapts a legacySite to source.Source, building the track URL from the Amazon id. shim until Task 13
+type amazonSite struct{ c legacySite }
+
+func (s amazonSite) Name() string { return s.c.Name() }
+
+func (s amazonSite) Download(ctx context.Context, r source.Request) (string, error) {
+	url, err := amazon.TrackURL(r.IDs["amazon"])
+	if err != nil {
+		return "", err
+	}
+	return s.c.Download(ctx, url, r.PathNoExt, r.OnStatus)
+}
+
+// legacyBalancer puts the in-process sites behind a Balancer, each taking Amazon ids, guard off. shim until Task 13
+func legacyBalancer(cooldown time.Duration, sites ...legacySite) *source.Balancer {
+	b := source.NewBalancer(cooldown)
+	for _, s := range sites {
+		b.Add(amazonSite{s}, "amazon", legacyGuard(0))
+	}
+	return b
+}
+
+// legacyGuard is the old global guard as one site's guard. shim until Task 13
+func legacyGuard(limit int) source.Guard {
+	return source.Guard{Limit: limit, Waits: []int{15, 30, 60, 120}, Wait: 30}
+}
+
+// setGuard applies the old global guard limit to every site. shim until Task 13
+func (a *App) setGuard(limit int) {
+	for _, name := range a.sources.Names() {
+		a.sources.SetGuard(name, legacyGuard(limit))
+	}
 }
 
 // amazonFetch adapts a fetch by Amazon ID to download.Fetch. shim until Task 13
@@ -200,8 +240,7 @@ func (a *App) lookupGenres(ctx context.Context, t download.Track, amazonID strin
 // fetch is the queue's worker for one site: the site delivers FLAC, FFmpeg converts it when asked,
 // and the genre, looked up while the site works, goes into the file. A genre that cannot be had never fails the track.
 func (a *App) fetch(ctx context.Context, site string, t download.Track, id string, o download.Options, pathNoExt string, onStatus func(string)) (string, error) {
-	url, err := amazon.TrackURL(id)
-	if err != nil {
+	if _, err := amazon.TrackURL(id); err != nil {
 		return "", err
 	}
 	// Checked before the download so a FLAC is never fetched just to be deleted.
@@ -225,7 +264,7 @@ func (a *App) fetch(ctx context.Context, site string, t download.Track, id strin
 			found <- g
 		}()
 	}
-	f, err := a.sources.Fetch(ctx, site, url, pathNoExt, onStatus)
+	f, err := a.sources.Fetch(ctx, site, source.Request{Track: t, IDs: map[string]string{"amazon": id}, PathNoExt: pathNoExt, OnStatus: onStatus})
 	if errors.Is(err, source.ErrUnavailable) || errors.Is(err, source.ErrNeedsCheck) {
 		return "", fmt.Errorf("%w: %w", download.ErrSiteDown, err)
 	}
@@ -317,7 +356,7 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 	if len(tracks) == 0 && skipped != nil {
 		return skipped
 	}
-	a.sources.SetGuard(o.GuardLimit)
+	a.setGuard(o.GuardLimit)
 	a.dl.Enqueue(req.Collection, o, tracks)
 	return nil
 }

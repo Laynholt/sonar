@@ -1121,6 +1121,34 @@ func TestSiteDownRequeuesInAuto(t *testing.T) {
 	}
 }
 
+// a is switched off while it downloads: as Balancer.SetEnabled does, it stops being ready and usable, its
+// download ends with a site-down error and OnChange wakes the queue. The track goes back to Queued, not
+// Failed, and b takes it.
+func TestDisableRequeuesRunning(t *testing.T) {
+	s := newSites("a", "b")
+	s.set("b", false) // so a takes it first
+	started, off := make(chan struct{}), make(chan struct{})
+	log := &siteLog{}
+	q := siteQ(t, s, log, func(ctx context.Context, site, _ string) error {
+		if site == "a" {
+			close(started)
+			<-off
+			return fmt.Errorf("a: switched off: %w", ErrSiteDown)
+		}
+		return nil
+	})
+	q.Enqueue(album, testOpts(t), tracks("1"))
+	<-started
+	s.needCheck("a") // neither ready nor usable, like a site switched off
+	close(off)
+	waitFor(t, q, allIn(Queued, "1"))
+	s.set("b", true)
+	q.Wake()
+	if it := find(waitFor(t, q, allIn(Completed, "1")), "1"); it.Site != "b" || it.Error != "" || log.String() != "a b" {
+		t.Errorf("item = %+v, fetches on %q", it, log)
+	}
+}
+
 func TestSiteDownFailsInFixed(t *testing.T) {
 	log := &siteLog{}
 	q := siteQ(t, newSites("a", "b"), log, func(_ context.Context, site, _ string) error { return siteDown(site) })

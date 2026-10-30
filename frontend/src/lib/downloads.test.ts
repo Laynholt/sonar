@@ -14,7 +14,7 @@ vi.mock("../../wailsjs/go/main/App", () => ({
 vi.mock("@/lib/ffmpeg-install", () => ({ openFFmpegInstall: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
 
-const idle = { name: "", available: true, needs_check: false, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 } as source.Status;
+const idle = { name: "", available: true, needs_action: false, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 } as source.Status;
 const track = (n: number): TrackMetadata => ({
     service: "amazon", id: `B0${n}`, name: `Song ${n}`, artists: "Artist", album_name: "Album", album_artist: "Album Artist",
     duration_ms: 1000, images: "", release_date: "2020", track_number: n + 4, disc_number: 2, external_urls: "",

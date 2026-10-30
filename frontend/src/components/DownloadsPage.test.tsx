@@ -47,7 +47,7 @@ beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.mocked(getSettings).mockReturnValue({ downloadSource: "auto" } as ReturnType<typeof getSettings>);
     vi.mocked(OpenFolder).mockResolvedValue(undefined);
-    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "doubledouble", available: false, needs_check: true, reason: "", count: 0, limit: 0, asking: false, paused_until: 0 }]);
+    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "doubledouble", label: "doubledouble", accepts: "amazon", available: false, needs_action: true, action: "check", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }]);
     for (const action of [cancelDownload, cancelAllDownloads, retryDownload, retryFailedDownloads, clearFinishedDownloads, resumeQueue]) vi.mocked(action).mockResolvedValue(undefined);
 });
 afterEach(async () => { await view.unmount(); vi.unstubAllGlobals(); });
@@ -208,7 +208,7 @@ describe("DownloadsPage", () => {
 
     it("shows a paused site's countdown here too, since the widget is hidden on this page", async () => {
         const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
-        await show(all, [{ name: "lucida", available: true, count: 50, limit: 50, asking: false, paused_until: 1_000_000 + 24 * 60_000 + 13_000 }]);
+        await show(all, [{ name: "lucida", label: "lucida", accepts: "amazon", available: true, count: 50, limit: 50, asking: false, paused_until: 1_000_000 + 24 * 60_000 + 13_000 }]);
         expect(view.container.textContent).toContain("Lucida");
         expect(view.container.textContent).toContain("paused · 24:13");
         now.mockRestore();

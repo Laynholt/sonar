@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"sonar/internal/download"
 )
 
 var (
@@ -19,19 +21,40 @@ var (
 // Auto lets the Balancer choose the site.
 const Auto = "auto"
 
+// Request is one track for a Source: its ids per service and where to save it. OnStatus may be nil.
+type Request struct {
+	Track     download.Track
+	IDs       map[string]string
+	PathNoExt string
+	OnStatus  func(string)
+}
+
 type Source interface {
 	Name() string
-	// Download saves the track next to pathNoExt and returns the final path. onStatus may be nil.
-	Download(ctx context.Context, trackURL, pathNoExt string, onStatus func(string)) (string, error)
+	// Download saves the track next to r.PathNoExt and returns the final path.
+	Download(ctx context.Context, r Request) (string, error)
+}
+
+// Guard is a site's rate guard: it asks after Limit successes (0 = off); Waits are the pause choices
+// in minutes, and Wait the default one.
+type Guard struct {
+	Limit int
+	Waits []int
+	Wait  int
 }
 
 type Status struct {
 	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Accepts     string `json:"accepts"`
 	Available   bool   `json:"available"`
-	NeedsCheck  bool   `json:"needs_check"`
+	NeedsAction bool   `json:"needs_action"`
+	Action      string `json:"action"` // the settings action that lifts NeedsAction, "" for none
 	Reason      string `json:"reason"`
 	Count       int    `json:"count"`
 	Limit       int    `json:"limit"`
+	Waits       []int  `json:"waits"`
+	Wait        int    `json:"wait"`
 	Asking      bool   `json:"asking"`
 	PausedUntil int64  `json:"paused_until"` // unix ms of a guard pause, 0 for none
 }
