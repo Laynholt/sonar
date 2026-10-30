@@ -44,10 +44,6 @@ type Options struct {
 	FilenameTemplate string `json:"filename_template"`
 	FFmpegPath       string `json:"ffmpeg_path"`
 	PlaylistFolder   bool   `json:"playlist_folder"`
-	GuardLimit       int    `json:"guard_limit"`
-	GuardWait        int    `json:"guard_wait"` // minutes a site waits after "Wait": 15, 30, 60 or 120
-	EmbedGenre       bool   `json:"embed_genre"`
-	SingleGenre      bool   `json:"single_genre"`
 }
 
 // PathNoExt is the target path of a track without its extension.

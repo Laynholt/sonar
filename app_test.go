@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -9,48 +8,29 @@ import (
 	"sonar/internal/httpx"
 )
 
-func TestGetMetadataRejectsCommunityPlaylist(t *testing.T) {
-	_, err := (&App{}).GetMetadata("https://music.amazon.com/user-playlists/f02fa03d3e404c428e53d4cfb58ce93bc2a0")
-	if err == nil || !strings.Contains(err.Error(), "need an account") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
 func TestGetMetadataUnsupported(t *testing.T) {
-	_, err := (&App{}).GetMetadata("https://example.com/x")
-	if err == nil || err.Error() != "Unsupported link. Paste a Spotify or Amazon Music link." {
-		t.Fatalf("err = %v", err)
+	a := newPluginApp(t, t.TempDir(), nil, stdPlugs("")...)
+	for _, link := range []string{"https://example.com/x", "hello"} {
+		if _, err := a.GetMetadata(link); err == nil || err.Error() != "Unsupported link. Paste a link from Amazon Music or Spotify." {
+			t.Fatalf("%s: err = %v", link, err)
+		}
+	}
+	a = newPluginApp(t, t.TempDir(), nil)
+	if _, err := a.GetMetadata("https://spotify/x"); err == nil || err.Error() != "Unsupported link: no source plugin is turned on." {
+		t.Fatalf("no sources: err = %v", err)
 	}
 }
 
-func TestGetPreviewURLAmazonID(t *testing.T) {
-	var asked []string
-	a := &App{amazonPreview: func(_ context.Context, id string) (string, error) {
-		asked = append(asked, id)
-		return "https://music.amazon.com/getSampleTrack/x", nil
-	}}
-	if u, err := a.GetPreviewURL("B00A3SGXAA"); u != "https://music.amazon.com/getSampleTrack/x" || err != nil {
-		t.Fatalf("got %q, %v", u, err)
+func TestSearchValidates(t *testing.T) {
+	a := &App{}
+	if _, err := a.Search("spotify", "", 0); err == nil || err.Error() != "search query is required" {
+		t.Fatalf("Search: err = %v", err)
 	}
-	if u, err := a.GetPreviewURL("nope"); u != "" || err != nil {
-		t.Fatalf("unknown ID: got %q, %v; want empty, nil", u, err)
+	if _, err := a.SearchByType("spotify", "", "album", 0, 0); err == nil || err.Error() != "search query is required" {
+		t.Fatalf("SearchByType: err = %v", err)
 	}
-	if len(asked) != 1 || asked[0] != "B00A3SGXAA" {
-		t.Fatalf("previewer asked for %q", asked)
-	}
-}
-
-func TestSearchAmazonEmptyQuery(t *testing.T) {
-	_, err := (&App{}).SearchAmazon(AmazonSearchRequest{})
-	if err == nil || err.Error() != "search query is required" {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestGetMetadataRejectsGarbage(t *testing.T) {
-	_, err := (&App{}).GetMetadata("hello")
-	if err == nil || !strings.Contains(err.Error(), "Unsupported link") {
-		t.Fatalf("err = %v", err)
+	if _, err := a.SearchByType("spotify", "q", "", 0, 0); err == nil || err.Error() != "search type is required" {
+		t.Fatalf("SearchByType: err = %v", err)
 	}
 }
 
@@ -87,9 +67,11 @@ func TestLoadSettingsEmptyIsNotNil(t *testing.T) {
 }
 
 func TestInitOpensHistoryAndAppliesSavedProxy(t *testing.T) {
+	user := t.TempDir()
+	t.Setenv("LOCALAPPDATA", user)
 	dir := t.TempDir()
 	t.Cleanup(func() { httpx.SetManualProxy("") })
-	if err := (&App{dataDir: dir}).SaveSettings(map[string]any{"proxy": "http://saved:9"}); err != nil {
+	if err := (&App{dataDir: dir}).SaveSettings(map[string]any{"proxy": "http://saved:9", "language": "ru"}); err != nil {
 		t.Fatal(err)
 	}
 	httpx.SetManualProxy("")
@@ -102,6 +84,12 @@ func TestInitOpensHistoryAndAppliesSavedProxy(t *testing.T) {
 	if got := httpx.ManualProxy(); got != "http://saved:9" {
 		t.Fatalf("manual proxy = %q", got)
 	}
+	if a.pluginsDir != user+`\Sonar\plugins` && a.pluginsDir != user+"/Sonar/plugins" {
+		t.Fatalf("plugins dir = %q", a.pluginsDir)
+	}
+	if p := a.pluginInit("x"); p.Lang != "ru" || p.Proxy != "http://saved:9" || p.EffectiveProxy != "http://saved:9" {
+		t.Fatalf("init params = %+v", p)
+	}
 	if err := a.AddFetchHistory(history.FetchItem{Type: "track", URL: "u", Data: "{}"}); err != nil {
 		t.Fatal(err)
 	}
@@ -113,5 +101,12 @@ func TestInitOpensHistoryAndAppliesSavedProxy(t *testing.T) {
 	}
 	if _, err := a.GetFetchHistoryData("track|nope"); err == nil {
 		t.Fatal("want error for unknown id")
+	}
+}
+
+func TestUserPluginsDir(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "")
+	if got := userPluginsDir("D"); !strings.HasSuffix(got, "plugins") || !strings.HasPrefix(got, "D") {
+		t.Fatalf("got %q", got)
 	}
 }
