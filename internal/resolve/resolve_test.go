@@ -89,7 +89,7 @@ func TestResolveConfidentTitle(t *testing.T) {
 	if got[0].ID != "A1" || got[0].Via != "title" || got[0].Err != nil {
 		t.Fatalf("got %+v", got[0])
 	}
-	if id, via, ok := c.Get("spotify", "amazon", "sp1"); !ok || id != "A1" || via != "title" {
+	if id, via, _, ok := c.Get("spotify", "amazon", "sp1"); !ok || id != "A1" || via != "title" {
 		t.Errorf("cache = %q %q %v", id, via, ok)
 	}
 }
@@ -108,7 +108,7 @@ func TestResolveLiveVersionNeedsReview(t *testing.T) {
 	if cd := got.Candidates[0]; cd.ID != "L1" || cd.Album != "The Eras Tour" || cd.DurationMS != 193000 {
 		t.Errorf("candidate not filled from Amazon: %+v", cd)
 	}
-	if _, _, ok := c.Get("spotify", "amazon", "sp1"); ok {
+	if _, _, _, ok := c.Get("spotify", "amazon", "sp1"); ok {
 		t.Error("a review must not be cached")
 	}
 }
@@ -124,7 +124,7 @@ func isrcFinder() *fakeFinder {
 func TestResolveISRCConfirms(t *testing.T) {
 	f := isrcFinder()
 	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
-	if got.ID != "I1" || got.Via != "isrc" {
+	if got.ID != "I1" || got.Via != "isrc" || got.ISRC != "X" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -198,7 +198,7 @@ func TestResolveAlbumAligns(t *testing.T) {
 	if f.count("Search") != 1 || f.count("LookupAlbum") != 1 || f.count("LookupTracks") != 0 {
 		t.Errorf("calls = %v", f.calls)
 	}
-	if _, via, ok := c.Get("spotify", "amazon", "s3"); !ok || via != "album" {
+	if _, via, _, ok := c.Get("spotify", "amazon", "s3"); !ok || via != "album" {
 		t.Errorf("album match not cached: %q %v", via, ok)
 	}
 }
@@ -222,7 +222,7 @@ func TestResolveAlbumUnalignedFallsBack(t *testing.T) {
 func TestResolveCacheHit(t *testing.T) {
 	f := &fakeFinder{}
 	c := newCache(t)
-	c.Put("spotify", "amazon", "sp1", "A9", "title")
+	c.Put("spotify", "amazon", "sp1", "A9", "title", "")
 	got := New(fin(f), c).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "A9" || got.Via != "cache" || len(f.calls) != 0 {
 		t.Fatalf("got %+v, calls %v", got, f.calls)
@@ -233,7 +233,7 @@ func TestResolveAlbumAllCachedNoCalls(t *testing.T) {
 	f := loverFinder()
 	c := newCache(t)
 	for _, tr := range loverGroup() {
-		c.Put("spotify", "amazon", tr.ID, "X"+tr.ID, "album")
+		c.Put("spotify", "amazon", tr.ID, "X"+tr.ID, "album", "")
 	}
 	got := New(fin(f), c).Resolve(context.Background(), "amazon", loverGroup())
 	if got[2].Via != "cache" || len(f.calls) != 0 {
@@ -350,9 +350,18 @@ func TestResolveSetsISRC(t *testing.T) {
 		search: map[string][]match.Item{"Taylor Swift Cruel Summer": {trackItem("A1", "Cruel Summer", "Taylor Swift")}},
 		tracks: map[string]model.TrackInfo{"A1": {ID: "A1", Title: "Cruel Summer", Artist: "Taylor Swift", Album: "Lover", DurationMS: 180000, ISRC: "USUG11901473"}},
 	}
-	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
+	c := newCache(t)
+	got := New(fin(f), c).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "A1" || got.ISRC != "USUG11901473" {
 		t.Fatalf("got %+v", got)
+	}
+	if _, _, isrc, ok := c.Get("spotify", "amazon", "sp1"); !ok || isrc != "USUG11901473" {
+		t.Errorf("cached isrc = %q %v", isrc, ok)
+	}
+	f.calls = nil
+	got = New(fin(f), c).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
+	if got.Via != "cache" || got.ID != "A1" || got.ISRC != "USUG11901473" || len(f.calls) != 0 {
+		t.Fatalf("second resolve = %+v, calls %v", got, f.calls)
 	}
 }
 
@@ -369,12 +378,12 @@ func TestResolvePairKeyedCache(t *testing.T) {
 	var pair [2]string
 	f := func(from, to string) (Finder, error) { pair = [2]string{from, to}; return &fakeFinder{}, nil }
 	c := newCache(t)
-	c.Put("deezer", "amazon", "d1", "A1", "title")
+	c.Put("deezer", "amazon", "d1", "A1", "title", "")
 	got := New(f, c).Resolve(context.Background(), "amazon", []download.Track{{ID: "d1", Service: "deezer"}})[0]
 	if got.ID != "A1" || got.Via != "cache" || pair != [2]string{} {
 		t.Fatalf("got %+v, finders asked %v", got, pair)
 	}
-	if _, _, ok := c.Get("spotify", "amazon", "d1"); ok {
+	if _, _, _, ok := c.Get("spotify", "amazon", "d1"); ok {
 		t.Error("the key leaks across pairs")
 	}
 	New(f, c).Resolve(context.Background(), "tidal", []download.Track{{ID: "d1", Service: "deezer"}})

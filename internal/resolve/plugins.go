@@ -41,14 +41,17 @@ func PluginFinders(reg *plugin.Registry) Finders {
 		if err != nil {
 			return nil, err
 		}
-		for _, need := range []struct {
-			s   *plugin.SourceClient
-			can string
-		}{{target, "find"}, {target, "tracks"}, {target, "album"}, {origin, "isrc"}} {
-			if !slices.Contains(need.s.Can, need.can) {
-				return nil, fmt.Errorf("source for service %q cannot %s", need.s.Service, need.can)
-			}
-		}
-		return pluginFinder{origin, target}, nil
+		return pair(origin, target)
 	}
+}
+
+// pair needs the target to find and look tracks up. Albums (target) and ISRCs (origin) are optional:
+// without them the Finder answers plugin.ErrCannot, which the matcher skips quietly.
+func pair(origin, target *plugin.SourceClient) (Finder, error) {
+	for _, can := range []string{"find", "tracks"} {
+		if !slices.Contains(target.Can, can) {
+			return nil, fmt.Errorf("source for service %q cannot %s", target.Service, can)
+		}
+	}
+	return pluginFinder{origin, target}, nil
 }

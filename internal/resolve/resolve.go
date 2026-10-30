@@ -4,12 +4,14 @@ package resolve
 import (
 	"cmp"
 	"context"
+	"errors"
 	"log"
 	"slices"
 
 	"sonar/internal/download"
 	"sonar/internal/match"
 	"sonar/internal/model"
+	"sonar/internal/plugin"
 )
 
 // MaxCandidates is how many target tracks a review offers.
@@ -45,8 +47,8 @@ func (r *Resolver) Resolve(ctx context.Context, to string, tracks []download.Tra
 	from := download.ServiceOf(tracks[0])
 	var todo []int
 	for i, t := range tracks {
-		if id, _, ok := r.c.Get(from, to, t.ID); ok {
-			out[i] = download.Resolution{ID: id, Via: "cache"}
+		if id, _, isrc, ok := r.c.Get(from, to, t.ID); ok {
+			out[i] = download.Resolution{ID: id, Via: "cache", ISRC: isrc}
 		} else {
 			todo = append(todo, i)
 		}
@@ -68,7 +70,7 @@ func (r *Resolver) Resolve(ctx context.Context, to string, tracks []download.Tra
 	}
 	for i, res := range out {
 		if res.ID != "" && res.Via != "cache" {
-			r.c.Put(from, to, tracks[i].ID, res.ID, res.Via)
+			r.c.Put(from, to, tracks[i].ID, res.ID, res.Via, res.ISRC)
 		}
 	}
 	return out
@@ -103,7 +105,9 @@ func (r *Resolver) album(ctx context.Context, f Finder, tracks []download.Track,
 	}
 	al, err := f.LookupAlbum(ctx, best[0].ID)
 	if err != nil {
-		log.Printf("resolve: album %s: %v; matching track by track", best[0].ID, err)
+		if !errors.Is(err, plugin.ErrCannot) { // a source without albums is not news
+			log.Printf("resolve: album %s: %v; matching track by track", best[0].ID, err)
+		}
 		return todo
 	}
 	var left []int
@@ -200,7 +204,9 @@ func (r *Resolver) track(ctx context.Context, f Finder, t download.Track) downlo
 		}
 		origin, err := f.OriginIDsByISRC(ctx, c.isrc)
 		if err != nil {
-			log.Printf("resolve: ISRC %s: %v", c.isrc, err)
+			if !errors.Is(err, plugin.ErrCannot) {
+				log.Printf("resolve: ISRC %s: %v", c.isrc, err)
+			}
 			continue
 		}
 		if slices.Contains(origin, t.ID) {

@@ -13,6 +13,7 @@ import (
 type cached struct {
 	TargetID string `json:"amazon_id"` // the name matches.json has always had
 	Via      string `json:"via"`
+	ISRC     string `json:"isrc,omitempty"` // the target track's, when the match knew it
 }
 
 // key is the map key of a track: its bare id for spotify to amazon, as matches.json always had it,
@@ -48,18 +49,18 @@ func OpenCache(path string) *Cache {
 	return &Cache{path: path, m: m}
 }
 
-func (c *Cache) Get(from, to, id string) (targetID, via string, ok bool) {
+func (c *Cache) Get(from, to, id string) (targetID, via, isrc string, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.m[key(from, to, id)]
-	return e.TargetID, e.Via, ok
+	return e.TargetID, e.Via, e.ISRC, ok
 }
 
 // Put remembers a match and rewrites the file; a failed write is logged, the entry stays in memory.
-func (c *Cache) Put(from, to, id, targetID, via string) {
+func (c *Cache) Put(from, to, id, targetID, via, isrc string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.m[key(from, to, id)] = cached{targetID, via}
+	c.m[key(from, to, id)] = cached{targetID, via, isrc}
 	if err := c.save(); err != nil {
 		log.Printf("match cache %s: %v", c.path, err)
 	}

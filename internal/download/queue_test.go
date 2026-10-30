@@ -660,6 +660,22 @@ func TestGroupResolvedTogether(t *testing.T) {
 	}
 }
 
+// A resolve call holds one origin service: the same group on two services is two calls.
+func TestGroupSplitsByService(t *testing.T) {
+	r := &fakeResolve{}
+	q := newMQ(t, &fakeFetch{}, r)
+	ts := spotify("g1", "g2", "g3")
+	ts[1].Service = "deezer"
+	for i := range ts {
+		ts[i].Group = "album:X"
+	}
+	q.Enqueue(album, testOpts(t), ts)
+	waitFor(t, q, allIn(Completed, "g1", "g2", "g3"))
+	if c := fmt.Sprint(r.callLog()); c != "[[g1 g3] [g2]]" {
+		t.Errorf("resolve calls = %s", c)
+	}
+}
+
 // A group may fall back to matching track by track, so its deadline grows with its size.
 func TestMatchTimeoutScalesWithGroup(t *testing.T) {
 	left := map[int]time.Duration{}

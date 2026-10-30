@@ -388,7 +388,7 @@ func (a *App) ChooseCandidate(id, amazonID string) error {
 	if err := a.dl.Choose(id, amazonID); err != nil {
 		return err
 	}
-	a.cache.Put("spotify", "amazon", id, amazonID, "manual") // shim until Task 13
+	a.cache.Put("spotify", "amazon", id, amazonID, "manual", "") // shim until Task 13
 	return nil
 }
 

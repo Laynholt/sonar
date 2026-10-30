@@ -552,7 +552,8 @@ func (q *Queue) matcher() {
 func (q *Queue) matchJobLocked() []*entry {
 	var job []*entry
 	for _, e := range q.order {
-		if e.Status == Matching && (job == nil || job[0].Track.Group != "" && e.Track.Group == job[0].Track.Group && e.target == job[0].target) {
+		if e.Status == Matching && (job == nil || job[0].Track.Group != "" && e.Track.Group == job[0].Track.Group && e.target == job[0].target &&
+			ServiceOf(e.Track) == ServiceOf(job[0].Track)) {
 			job = append(job, e)
 		}
 	}

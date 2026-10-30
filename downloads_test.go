@@ -460,19 +460,19 @@ func TestChooseCandidateCachesOnlyAfterChoose(t *testing.T) {
 	if err := a.ChooseCandidate("4uLU6hMCjMI75M1A2tKUQC", "B00A3SGXAA"); err == nil {
 		t.Fatal("chose for a track that is not in review")
 	}
-	if _, _, ok := a.cache.Get("spotify", "amazon", "4uLU6hMCjMI75M1A2tKUQC"); ok {
+	if _, _, _, ok := a.cache.Get("spotify", "amazon", "4uLU6hMCjMI75M1A2tKUQC"); ok {
 		t.Fatal("a failed choice was cached")
 	}
 	if err := a.ChooseCandidate(id, "not-an-asin"); err == nil {
 		t.Fatal("a bad Amazon ID was accepted")
 	}
-	if _, _, ok := a.cache.Get("spotify", "amazon", id); ok {
+	if _, _, _, ok := a.cache.Get("spotify", "amazon", id); ok {
 		t.Fatal("a bad Amazon ID was cached")
 	}
 	if err := a.ChooseCandidate(id, "B00A3SGXAA"); err != nil {
 		t.Fatal(err)
 	}
-	if amz, via, _ := a.cache.Get("spotify", "amazon", id); amz != "B00A3SGXAA" || via != "manual" {
+	if amz, via, _, _ := a.cache.Get("spotify", "amazon", id); amz != "B00A3SGXAA" || via != "manual" {
 		t.Fatalf("cache = %q, %q", amz, via)
 	}
 	waitStatus(t, a, download.Completed)
@@ -490,7 +490,7 @@ func TestUseAmazonLinkRejectsAlbum(t *testing.T) {
 	if err := a.UseAmazonLink(id, "https://music.amazon.com/albums/B00A3SGWYC?trackAsin=B00A3SGXAB"); err != nil {
 		t.Fatal(err)
 	}
-	if amz, via, _ := a.cache.Get("spotify", "amazon", id); amz != "B00A3SGXAB" || via != "manual" {
+	if amz, via, _, _ := a.cache.Get("spotify", "amazon", id); amz != "B00A3SGXAB" || via != "manual" {
 		t.Fatalf("cache = %q, %q", amz, via)
 	}
 }
