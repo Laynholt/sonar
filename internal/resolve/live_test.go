@@ -18,7 +18,7 @@ func TestLiveResolveCruelSummer(t *testing.T) {
 	defer cancel()
 	tr := download.Track{ID: "1BxfuPKGuaTgP7aM0Bbdwr", Title: "Cruel Summer", Artist: "Taylor Swift", Album: "Lover",
 		AlbumArtist: "Taylor Swift", DurationMS: 178426, Service: "spotify"}
-	got := New(Live(), OpenCache(filepath.Join(t.TempDir(), "matches.json"))).Resolve(ctx, []download.Track{tr})[0]
+	got := New(Live(), OpenCache(filepath.Join(t.TempDir(), "matches.json"))).Resolve(ctx, "amazon", []download.Track{tr})[0]
 	t.Logf("AmazonID=%q Via=%q Err=%v", got.ID, got.Via, got.Err)
 	for _, c := range got.Candidates {
 		t.Logf("candidate %+v", c)

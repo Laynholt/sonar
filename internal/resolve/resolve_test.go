@@ -51,7 +51,7 @@ func (f *fakeFinder) LookupAlbum(_ context.Context, id string) (*model.AlbumInfo
 	return nil, errors.New("no album " + id)
 }
 
-func (f *fakeFinder) SpotifyIDsByISRC(_ context.Context, isrc string) ([]string, error) {
+func (f *fakeFinder) OriginIDsByISRC(_ context.Context, isrc string) ([]string, error) {
 	f.calls = append(f.calls, "ISRC "+isrc)
 	return f.isrc[isrc], f.isrcErr
 }
@@ -65,6 +65,9 @@ func (f *fakeFinder) count(prefix string) int {
 	}
 	return n
 }
+
+// fin makes f the Finder of every pair.
+func fin(f Finder) Finders { return func(string, string) (Finder, error) { return f, nil } }
 
 func newCache(t *testing.T) *Cache {
 	return OpenCache(filepath.Join(t.TempDir(), "matches.json"))
@@ -82,11 +85,11 @@ func TestResolveConfidentTitle(t *testing.T) {
 		tracks: map[string]model.TrackInfo{"A1": {ID: "A1", Title: "Cruel Summer", Artist: "Taylor Swift", Album: "Lover", DurationMS: 180000}},
 	}
 	c := newCache(t)
-	got := New(f, c).Resolve(context.Background(), []download.Track{cruel})
+	got := New(fin(f), c).Resolve(context.Background(), "amazon", []download.Track{cruel})
 	if got[0].ID != "A1" || got[0].Via != "title" || got[0].Err != nil {
 		t.Fatalf("got %+v", got[0])
 	}
-	if id, via, ok := c.Get("sp1"); !ok || id != "A1" || via != "title" {
+	if id, via, ok := c.Get("spotify", "amazon", "sp1"); !ok || id != "A1" || via != "title" {
 		t.Errorf("cache = %q %q %v", id, via, ok)
 	}
 }
@@ -98,14 +101,14 @@ func TestResolveLiveVersionNeedsReview(t *testing.T) {
 		tracks: map[string]model.TrackInfo{"L1": {ID: "L1", Title: live, Artist: "Taylor Swift", Album: "The Eras Tour", DurationMS: 193000}},
 	}
 	c := newCache(t)
-	got := New(f, c).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(f), c).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "" || got.Err != nil || len(got.Candidates) != 1 || !got.Candidates[0].Recommended {
 		t.Fatalf("got %+v", got)
 	}
 	if cd := got.Candidates[0]; cd.ID != "L1" || cd.Album != "The Eras Tour" || cd.DurationMS != 193000 {
 		t.Errorf("candidate not filled from Amazon: %+v", cd)
 	}
-	if _, _, ok := c.Get("sp1"); ok {
+	if _, _, ok := c.Get("spotify", "amazon", "sp1"); ok {
 		t.Error("a review must not be cached")
 	}
 }
@@ -120,7 +123,7 @@ func isrcFinder() *fakeFinder {
 
 func TestResolveISRCConfirms(t *testing.T) {
 	f := isrcFinder()
-	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "I1" || got.Via != "isrc" {
 		t.Fatalf("got %+v", got)
 	}
@@ -129,14 +132,14 @@ func TestResolveISRCConfirms(t *testing.T) {
 func TestResolveISRCErrorFallsBackToReview(t *testing.T) {
 	f := isrcFinder()
 	f.isrcErr = errors.New("spotify down")
-	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "" || got.Err != nil || len(got.Candidates) != 1 || got.Candidates[0].ID != "I1" {
 		t.Fatalf("got %+v", got)
 	}
 }
 
 func TestResolveNotFound(t *testing.T) {
-	got := New(&fakeFinder{}, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(&fakeFinder{}), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "" || got.Candidates != nil || got.Err != nil {
 		t.Fatalf("got %+v", got)
 	}
@@ -154,7 +157,7 @@ func TestResolvePrefersSameAlbum(t *testing.T) {
 			"C2": {ID: "C2", Title: "Cruel Summer", Album: "Lover (Deluxe)"},
 		},
 	}
-	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if len(got.Candidates) != 2 || got.Candidates[0].ID != "C2" || !got.Candidates[0].Recommended || got.Candidates[1].Recommended {
 		t.Fatalf("got %+v", got)
 	}
@@ -186,7 +189,7 @@ func loverFinder() *fakeFinder {
 func TestResolveAlbumAligns(t *testing.T) {
 	f := loverFinder()
 	c := newCache(t)
-	got := New(f, c).Resolve(context.Background(), loverGroup())
+	got := New(fin(f), c).Resolve(context.Background(), "amazon", loverGroup())
 	for i, want := range []string{"T1", "T2", "T3"} {
 		if got[i].ID != want || got[i].Via != "album" {
 			t.Errorf("track %d: got %+v, want %s via album", i, got[i], want)
@@ -195,7 +198,7 @@ func TestResolveAlbumAligns(t *testing.T) {
 	if f.count("Search") != 1 || f.count("LookupAlbum") != 1 || f.count("LookupTracks") != 0 {
 		t.Errorf("calls = %v", f.calls)
 	}
-	if _, via, ok := c.Get("s3"); !ok || via != "album" {
+	if _, via, ok := c.Get("spotify", "amazon", "s3"); !ok || via != "album" {
 		t.Errorf("album match not cached: %q %v", via, ok)
 	}
 }
@@ -206,7 +209,7 @@ func TestResolveAlbumUnalignedFallsBack(t *testing.T) {
 	al.Tracks = []model.TrackInfo{al.Tracks[0], al.Tracks[2]} // "Cruel Summer" is missing from the album
 	f.search["Taylor Swift Cruel Summer"] = []match.Item{trackItem("T2", "Cruel Summer", "Taylor Swift")}
 	f.tracks = map[string]model.TrackInfo{"T2": {ID: "T2", Title: "Cruel Summer", Artist: "Taylor Swift", DurationMS: 178000}}
-	got := New(f, newCache(t)).Resolve(context.Background(), loverGroup())
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", loverGroup())
 	if got[0].Via != "album" || got[2].Via != "album" || got[1].ID != "T2" || got[1].Via != "title" {
 		t.Fatalf("got %+v", got)
 	}
@@ -219,8 +222,8 @@ func TestResolveAlbumUnalignedFallsBack(t *testing.T) {
 func TestResolveCacheHit(t *testing.T) {
 	f := &fakeFinder{}
 	c := newCache(t)
-	c.Put("sp1", "A9", "title")
-	got := New(f, c).Resolve(context.Background(), []download.Track{cruel})[0]
+	c.Put("spotify", "amazon", "sp1", "A9", "title")
+	got := New(fin(f), c).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "A9" || got.Via != "cache" || len(f.calls) != 0 {
 		t.Fatalf("got %+v, calls %v", got, f.calls)
 	}
@@ -230,9 +233,9 @@ func TestResolveAlbumAllCachedNoCalls(t *testing.T) {
 	f := loverFinder()
 	c := newCache(t)
 	for _, tr := range loverGroup() {
-		c.Put(tr.ID, "X"+tr.ID, "album")
+		c.Put("spotify", "amazon", tr.ID, "X"+tr.ID, "album")
 	}
-	got := New(f, c).Resolve(context.Background(), loverGroup())
+	got := New(fin(f), c).Resolve(context.Background(), "amazon", loverGroup())
 	if got[2].Via != "cache" || len(f.calls) != 0 {
 		t.Fatalf("got %+v, calls %v", got, f.calls)
 	}
@@ -240,7 +243,7 @@ func TestResolveAlbumAllCachedNoCalls(t *testing.T) {
 
 func TestResolveSearchErrorSetsErr(t *testing.T) {
 	boom := errors.New("boom")
-	got := New(&fakeFinder{searchErr: boom}, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(&fakeFinder{searchErr: boom}), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if !errors.Is(got.Err, boom) || got.ID != "" {
 		t.Fatalf("got %+v", got)
 	}
@@ -250,7 +253,7 @@ func TestResolveCancelledMakesNoCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	f := loverFinder()
-	got := New(f, newCache(t)).Resolve(ctx, loverGroup())
+	got := New(fin(f), newCache(t)).Resolve(ctx, "amazon", loverGroup())
 	if len(f.calls) != 0 || !errors.Is(got[0].Err, context.Canceled) {
 		t.Fatalf("got %+v, calls %v", got, f.calls)
 	}
@@ -260,7 +263,7 @@ func TestResolveAlbumPrefersTrackNumber(t *testing.T) {
 	f := loverFinder()
 	al := f.albums["ALB"]
 	al.Tracks = append([]model.TrackInfo{{ID: "T2bonus", Title: "Cruel Summer", Artist: "Taylor Swift", TrackNumber: 19, DurationMS: 178000}}, al.Tracks...)
-	got := New(f, newCache(t)).Resolve(context.Background(), loverGroup())
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", loverGroup())
 	if got[1].ID != "T2" {
 		t.Fatalf("got %+v, want the same track number T2", got[1])
 	}
@@ -270,7 +273,7 @@ func TestResolveUnlookedTopIsNotConfident(t *testing.T) {
 	// The lookup lost the live take, so its 193 s duration is unknown: that must not pass the guard.
 	f := &fakeFinder{search: map[string][]match.Item{"Taylor Swift Cruel Summer": {
 		trackItem("L1", "Cruel Summer (Live From TS The Eras Tour)", "Taylor Swift")}}}
-	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "" || got.Err != nil || len(got.Candidates) != 1 || got.Candidates[0].ID != "L1" {
 		t.Fatalf("got %+v", got)
 	}
@@ -286,7 +289,7 @@ func TestResolveAlbumLookupErrorFallsBackToTrack(t *testing.T) {
 		},
 		tracks: map[string]model.TrackInfo{"A1": {ID: "A1", Title: "Cruel Summer", Artist: "Taylor Swift", DurationMS: 178000}},
 	}
-	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{tr})[0]
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{tr})[0]
 	if got.ID != "A1" || got.Via != "title" || got.Err != nil {
 		t.Fatalf("got %+v", got)
 	}
@@ -301,7 +304,7 @@ func TestResolveLookupTracksErrorSetsErr(t *testing.T) {
 		search:    map[string][]match.Item{"Taylor Swift Cruel Summer": {trackItem("A1", "Cruel Summer", "Taylor Swift")}},
 		tracksErr: boom,
 	}
-	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if !errors.Is(got.Err, boom) || got.ID != "" {
 		t.Fatalf("got %+v", got)
 	}
@@ -319,11 +322,63 @@ func TestResolveISRCRankOrderStopsAtFirst(t *testing.T) {
 		},
 		isrc: map[string][]string{"Y": {"other"}, "Z": {"sp1"}, "W": {"sp1"}},
 	}
-	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
 	if got.ID != "J3" || got.Via != "isrc" {
 		t.Fatalf("got %+v", got)
 	}
 	if want := "ISRC Y|ISRC Z"; strings.Join(f.calls[2:], "|") != want {
 		t.Errorf("calls = %q, want ISRC calls %s", f.calls, want)
+	}
+}
+
+func TestResolveMissingSource(t *testing.T) {
+	missing := errors.New(`no enabled source for service "amazon"`)
+	f := func(from, to string) (Finder, error) { return nil, missing }
+	got := New(f, newCache(t)).Resolve(context.Background(), "amazon", loverGroup())
+	if len(got) != 3 {
+		t.Fatalf("got %d resolutions", len(got))
+	}
+	for i, r := range got {
+		if !errors.Is(r.Err, missing) || r.ID != "" {
+			t.Errorf("[%d] = %+v", i, r)
+		}
+	}
+}
+
+func TestResolveSetsISRC(t *testing.T) {
+	f := &fakeFinder{
+		search: map[string][]match.Item{"Taylor Swift Cruel Summer": {trackItem("A1", "Cruel Summer", "Taylor Swift")}},
+		tracks: map[string]model.TrackInfo{"A1": {ID: "A1", Title: "Cruel Summer", Artist: "Taylor Swift", Album: "Lover", DurationMS: 180000, ISRC: "USUG11901473"}},
+	}
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", []download.Track{cruel})[0]
+	if got.ID != "A1" || got.ISRC != "USUG11901473" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestResolveAlbumSetsISRC(t *testing.T) {
+	f := loverFinder()
+	f.albums["ALB"].Tracks[0].ISRC = "ISRC-1"
+	got := New(fin(f), newCache(t)).Resolve(context.Background(), "amazon", loverGroup())
+	if got[0].Via != "album" || got[0].ISRC != "ISRC-1" {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+func TestResolvePairKeyedCache(t *testing.T) {
+	var pair [2]string
+	f := func(from, to string) (Finder, error) { pair = [2]string{from, to}; return &fakeFinder{}, nil }
+	c := newCache(t)
+	c.Put("deezer", "amazon", "d1", "A1", "title")
+	got := New(f, c).Resolve(context.Background(), "amazon", []download.Track{{ID: "d1", Service: "deezer"}})[0]
+	if got.ID != "A1" || got.Via != "cache" || pair != [2]string{} {
+		t.Fatalf("got %+v, finders asked %v", got, pair)
+	}
+	if _, _, ok := c.Get("spotify", "amazon", "d1"); ok {
+		t.Error("the key leaks across pairs")
+	}
+	New(f, c).Resolve(context.Background(), "tidal", []download.Track{{ID: "d1", Service: "deezer"}})
+	if pair != [2]string{"deezer", "tidal"} {
+		t.Errorf("finders asked %v", pair)
 	}
 }

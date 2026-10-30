@@ -1,4 +1,4 @@
-// Package resolve finds the Amazon track for each Spotify track.
+// Package resolve finds, for tracks of one service, the matching tracks on another.
 package resolve
 
 import (
@@ -12,52 +12,70 @@ import (
 	"sonar/internal/model"
 )
 
-// MaxCandidates is how many Amazon tracks a review offers.
+// MaxCandidates is how many target tracks a review offers.
 const MaxCandidates = 4
 
-// Finder is the network the resolver needs; Live is the real one.
+// Finder is the network the resolver needs for one pair of services: the first three are the target
+// source, OriginIDsByISRC is the origin source.
 type Finder interface {
 	Search(ctx context.Context, query string) ([]match.Item, error)
 	LookupTracks(ctx context.Context, ids []string) ([]model.TrackInfo, error)
 	LookupAlbum(ctx context.Context, id string) (*model.AlbumInfo, error)
-	SpotifyIDsByISRC(ctx context.Context, isrc string) ([]string, error)
+	OriginIDsByISRC(ctx context.Context, isrc string) ([]string, error)
 }
 
+// Finders builds the Finder for tracks of service from matched on service to.
+// It errors when either source is missing, disabled or lacks a capability.
+type Finders func(from, to string) (Finder, error)
+
 type Resolver struct {
-	f Finder
+	f Finders
 	c *Cache
 }
 
-func New(f Finder, c *Cache) *Resolver { return &Resolver{f: f, c: c} }
+func New(f Finders, c *Cache) *Resolver { return &Resolver{f: f, c: c} }
 
-// Resolve matches tracks to Amazon, as a download.Resolve with to == "amazon": one Resolution per track, same order.
-// Resolution{} means nothing was found.
-func (r *Resolver) Resolve(ctx context.Context, tracks []download.Track) []download.Resolution {
+// Resolve is a download.Resolve: one Resolution per track, same order, matching the tracks to service to.
+// The tracks of a call share one service. Resolution{} means nothing was found.
+func (r *Resolver) Resolve(ctx context.Context, to string, tracks []download.Track) []download.Resolution {
 	out := make([]download.Resolution, len(tracks))
+	if len(tracks) == 0 {
+		return out
+	}
+	from := download.ServiceOf(tracks[0])
 	var todo []int
 	for i, t := range tracks {
-		if id, _, ok := r.c.Get(t.ID); ok {
+		if id, _, ok := r.c.Get(from, to, t.ID); ok {
 			out[i] = download.Resolution{ID: id, Via: "cache"}
 		} else {
 			todo = append(todo, i)
 		}
 	}
-	if len(todo) > 0 && (len(tracks) > 1 || tracks[0].Group != "") {
-		todo = r.album(ctx, tracks, todo, out)
-	}
-	for _, i := range todo {
-		out[i] = r.track(ctx, tracks[i])
+	if len(todo) > 0 {
+		f, err := r.f(from, to)
+		if err != nil {
+			for _, i := range todo {
+				out[i].Err = err
+			}
+			return out
+		}
+		if len(tracks) > 1 || tracks[0].Group != "" {
+			todo = r.album(ctx, f, tracks, todo, out)
+		}
+		for _, i := range todo {
+			out[i] = r.track(ctx, f, tracks[i])
+		}
 	}
 	for i, res := range out {
 		if res.ID != "" && res.Via != "cache" {
-			r.c.Put(tracks[i].ID, res.ID, res.Via)
+			r.c.Put(from, to, tracks[i].ID, res.ID, res.Via)
 		}
 	}
 	return out
 }
 
-// album matches the tracks at todo as one Amazon album and returns the indexes left for the track path.
-func (r *Resolver) album(ctx context.Context, tracks []download.Track, todo []int, out []download.Resolution) []int {
+// album matches the tracks at todo as one target album and returns the indexes left for the track path.
+func (r *Resolver) album(ctx context.Context, f Finder, tracks []download.Track, todo []int, out []download.Resolution) []int {
 	fail := func(err error) []int {
 		for _, i := range todo {
 			out[i].Err = err
@@ -72,7 +90,7 @@ func (r *Resolver) album(ctx context.Context, tracks []download.Track, todo []in
 	for _, i := range todo {
 		src.Explicit = src.Explicit || tracks[i].Explicit
 	}
-	items, err := r.f.Search(ctx, match.FirstArtist(src.Artist)+" "+match.BaseTitle(src.Title))
+	items, err := f.Search(ctx, match.FirstArtist(src.Artist)+" "+match.BaseTitle(src.Title))
 	if err != nil {
 		return fail(err)
 	}
@@ -83,15 +101,15 @@ func (r *Resolver) album(ctx context.Context, tracks []download.Track, todo []in
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	al, err := r.f.LookupAlbum(ctx, best[0].ID)
+	al, err := f.LookupAlbum(ctx, best[0].ID)
 	if err != nil {
 		log.Printf("resolve: album %s: %v; matching track by track", best[0].ID, err)
 		return todo
 	}
 	var left []int
 	for _, i := range todo {
-		if id := align(tracks[i], al.Tracks); id != "" {
-			out[i] = download.Resolution{ID: id, Via: "album"}
+		if at := align(tracks[i], al.Tracks); at.ID != "" {
+			out[i] = download.Resolution{ID: at.ID, Via: "album", ISRC: at.ISRC}
 		} else {
 			left = append(left, i)
 		}
@@ -100,9 +118,11 @@ func (r *Resolver) album(ctx context.Context, tracks []download.Track, todo []in
 }
 
 // align picks the album track that is confidently t: the same track number first, then the best score.
-func align(t download.Track, album []model.TrackInfo) string {
+// The zero TrackInfo means none.
+func align(t download.Track, album []model.TrackInfo) model.TrackInfo {
 	src := match.Item{Title: t.Title, Artist: t.Artist, Explicit: t.Explicit}
-	id, bestSame, bestScore := "", false, 0.0
+	var best model.TrackInfo
+	bestSame, bestScore := false, 0.0
 	for _, at := range album {
 		s := match.Score(src, match.Item{Title: at.Title, Artist: at.Artist, Explicit: at.Explicit})
 		if s < match.ConfidentScore || !match.DurationClose(t.DurationMS, at.DurationMS) {
@@ -110,11 +130,11 @@ func align(t download.Track, album []model.TrackInfo) string {
 		}
 		same := t.TrackNumber > 0 && t.TrackNumber == at.TrackNumber &&
 			(t.DiscNumber == 0 || at.DiscNumber == 0 || t.DiscNumber == at.DiscNumber)
-		if id == "" || same && !bestSame || same == bestSame && s > bestScore {
-			id, bestSame, bestScore = at.ID, same, s
+		if best.ID == "" || same && !bestSame || same == bestSame && s > bestScore {
+			best, bestSame, bestScore = at, same, s
 		}
 	}
-	return id
+	return best
 }
 
 type candidate struct {
@@ -124,12 +144,12 @@ type candidate struct {
 	known bool // LookupTracks returned it, so its duration is real
 }
 
-func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolution {
+func (r *Resolver) track(ctx context.Context, f Finder, t download.Track) download.Resolution {
 	if err := ctx.Err(); err != nil {
 		return download.Resolution{Err: err}
 	}
 	src := match.Item{Kind: "track", Title: t.Title, Artist: t.Artist, Explicit: t.Explicit}
-	items, err := r.f.Search(ctx, match.FirstArtist(t.Artist)+" "+match.BaseTitle(t.Title))
+	items, err := f.Search(ctx, match.FirstArtist(t.Artist)+" "+match.BaseTitle(t.Title))
 	if err != nil {
 		return download.Resolution{Err: err}
 	}
@@ -144,7 +164,7 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 	for i, it := range ranked {
 		ids[i] = it.ID
 	}
-	infos, err := r.f.LookupTracks(ctx, ids)
+	infos, err := f.LookupTracks(ctx, ids)
 	if err != nil {
 		return download.Resolution{Err: err}
 	}
@@ -169,7 +189,7 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 	slices.SortStableFunc(cands, func(a, b candidate) int { return cmp.Compare(b.rank, a.rank) })
 
 	if top := cands[0]; top.known && top.Score >= match.ConfidentScore && match.DurationClose(t.DurationMS, top.DurationMS) {
-		return download.Resolution{ID: top.ID, Via: "title"}
+		return download.Resolution{ID: top.ID, Via: "title", ISRC: top.isrc}
 	}
 	for _, c := range cands {
 		if c.isrc == "" {
@@ -178,13 +198,13 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 		if err := ctx.Err(); err != nil {
 			return download.Resolution{Err: err}
 		}
-		sp, err := r.f.SpotifyIDsByISRC(ctx, c.isrc)
+		origin, err := f.OriginIDsByISRC(ctx, c.isrc)
 		if err != nil {
 			log.Printf("resolve: ISRC %s: %v", c.isrc, err)
 			continue
 		}
-		if slices.Contains(sp, t.ID) {
-			return download.Resolution{ID: c.ID, Via: "isrc"}
+		if slices.Contains(origin, t.ID) {
+			return download.Resolution{ID: c.ID, Via: "isrc", ISRC: c.isrc}
 		}
 	}
 	res := download.Resolution{Candidates: make([]download.Candidate, len(cands))}

@@ -11,11 +11,20 @@ import (
 )
 
 type cached struct {
-	AmazonID string `json:"amazon_id"`
+	TargetID string `json:"amazon_id"` // the name matches.json has always had
 	Via      string `json:"via"`
 }
 
-// Cache maps Spotify track IDs to confirmed Amazon IDs, saved as JSON.
+// key is the map key of a track: its bare id for spotify to amazon, as matches.json always had it,
+// else prefixed with the pair.
+func key(from, to, id string) string {
+	if from == "spotify" && to == "amazon" {
+		return id
+	}
+	return from + ">" + to + ":" + id
+}
+
+// Cache maps track ids of one service to confirmed ids on another, saved as JSON.
 type Cache struct {
 	mu   sync.Mutex
 	path string
@@ -39,18 +48,18 @@ func OpenCache(path string) *Cache {
 	return &Cache{path: path, m: m}
 }
 
-func (c *Cache) Get(spotifyID string) (amazonID, via string, ok bool) {
+func (c *Cache) Get(from, to, id string) (targetID, via string, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, ok := c.m[spotifyID]
-	return e.AmazonID, e.Via, ok
+	e, ok := c.m[key(from, to, id)]
+	return e.TargetID, e.Via, ok
 }
 
 // Put remembers a match and rewrites the file; a failed write is logged, the entry stays in memory.
-func (c *Cache) Put(spotifyID, amazonID, via string) {
+func (c *Cache) Put(from, to, id, targetID, via string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.m[spotifyID] = cached{amazonID, via}
+	c.m[key(from, to, id)] = cached{targetID, via}
 	if err := c.save(); err != nil {
 		log.Printf("match cache %s: %v", c.path, err)
 	}

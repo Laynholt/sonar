@@ -22,6 +22,7 @@ import (
 	"sonar/internal/history"
 	"sonar/internal/match"
 	"sonar/internal/model"
+	"sonar/internal/resolve"
 	"sonar/internal/source"
 )
 
@@ -35,12 +36,14 @@ func (f fakeSource) Download(context.Context, string, string, func(string)) (str
 // nopFinder finds nothing, so every Spotify track lands in review with no candidates.
 type nopFinder struct{}
 
+func nopFinders(string, string) (resolve.Finder, error) { return nopFinder{}, nil }
+
 func (nopFinder) Search(context.Context, string) ([]match.Item, error) { return nil, nil }
 func (nopFinder) LookupTracks(context.Context, []string) ([]model.TrackInfo, error) {
 	return nil, nil
 }
 func (nopFinder) LookupAlbum(context.Context, string) (*model.AlbumInfo, error) { return nil, nil }
-func (nopFinder) SpotifyIDsByISRC(context.Context, string) ([]string, error)    { return nil, nil }
+func (nopFinder) OriginIDsByISRC(context.Context, string) ([]string, error)     { return nil, nil }
 
 // newQueueApp wires an App on dir the way init does, with fake sites and a finder that finds nothing.
 // A nil fetch uses the App's real fetch.
@@ -51,7 +54,7 @@ func newQueueApp(t *testing.T, dir string, fetch download.Fetch, sites ...legacy
 	if fetch == nil {
 		fetch = amazonFetch(a.fetch) // shim until Task 13
 	}
-	a.startQueue(fetch, legacyBalancer(time.Minute, sites...), nopFinder{})
+	a.startQueue(fetch, legacyBalancer(time.Minute, sites...), nopFinders)
 	t.Cleanup(func() { a.shutdown(nil) })
 	return a
 }
@@ -457,19 +460,19 @@ func TestChooseCandidateCachesOnlyAfterChoose(t *testing.T) {
 	if err := a.ChooseCandidate("4uLU6hMCjMI75M1A2tKUQC", "B00A3SGXAA"); err == nil {
 		t.Fatal("chose for a track that is not in review")
 	}
-	if _, _, ok := a.cache.Get("4uLU6hMCjMI75M1A2tKUQC"); ok {
+	if _, _, ok := a.cache.Get("spotify", "amazon", "4uLU6hMCjMI75M1A2tKUQC"); ok {
 		t.Fatal("a failed choice was cached")
 	}
 	if err := a.ChooseCandidate(id, "not-an-asin"); err == nil {
 		t.Fatal("a bad Amazon ID was accepted")
 	}
-	if _, _, ok := a.cache.Get(id); ok {
+	if _, _, ok := a.cache.Get("spotify", "amazon", id); ok {
 		t.Fatal("a bad Amazon ID was cached")
 	}
 	if err := a.ChooseCandidate(id, "B00A3SGXAA"); err != nil {
 		t.Fatal(err)
 	}
-	if amz, via, _ := a.cache.Get(id); amz != "B00A3SGXAA" || via != "manual" {
+	if amz, via, _ := a.cache.Get("spotify", "amazon", id); amz != "B00A3SGXAA" || via != "manual" {
 		t.Fatalf("cache = %q, %q", amz, via)
 	}
 	waitStatus(t, a, download.Completed)
@@ -487,7 +490,7 @@ func TestUseAmazonLinkRejectsAlbum(t *testing.T) {
 	if err := a.UseAmazonLink(id, "https://music.amazon.com/albums/B00A3SGWYC?trackAsin=B00A3SGXAB"); err != nil {
 		t.Fatal(err)
 	}
-	if amz, via, _ := a.cache.Get(id); amz != "B00A3SGXAB" || via != "manual" {
+	if amz, via, _ := a.cache.Get("spotify", "amazon", id); amz != "B00A3SGXAB" || via != "manual" {
 		t.Fatalf("cache = %q, %q", amz, via)
 	}
 }

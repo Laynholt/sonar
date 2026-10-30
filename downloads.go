@@ -65,14 +65,14 @@ func (a *App) queuePath() string { return filepath.Join(a.dataDir, "queue.json")
 
 // startQueue wires sources and a new queue, restores queue.json and starts the saver; a second instance does neither.
 // Both OnChange hooks are set before Restore and before any Enqueue: neither is read under a lock.
-func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder resolve.Finder) {
+func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finders resolve.Finders) {
 	a.cache = resolve.OpenCache(filepath.Join(a.dataDir, "matches.json"))
 	a.genreCache = genre.OpenCache(filepath.Join(a.dataDir, "genres.json"))
 	if a.genres == nil {
 		a.genres = a.lookupGenres
 	}
 	a.sources = sources
-	a.dl = download.NewQueue(fetch, amazonResolve(resolve.New(finder, a.cache)), sources)
+	a.dl = download.NewQueue(fetch, resolve.New(finders, a.cache).Resolve, sources)
 	a.saveCh, a.saveStop, a.saverDone = make(chan struct{}, 1), make(chan struct{}), make(chan struct{})
 	a.sources.OnChange = func() { a.dl.Wake(); a.saveSoon() }
 	a.dl.OnChange = a.saveSoon
@@ -145,20 +145,6 @@ func amazonFetch(f func(ctx context.Context, site string, t download.Track, amaz
 			id = t.ID
 		}
 		return f(ctx, site, t, id, o, pathNoExt, onStatus)
-	}
-}
-
-// amazonResolve adapts the resolver, which matches to Amazon only, to download.Resolve. shim until Task 13
-func amazonResolve(r *resolve.Resolver) download.Resolve {
-	return func(ctx context.Context, to string, tracks []download.Track) []download.Resolution {
-		if to == "amazon" {
-			return r.Resolve(ctx, tracks)
-		}
-		out := make([]download.Resolution, len(tracks))
-		for i := range out {
-			out[i].Err = fmt.Errorf("no matcher for %s", to)
-		}
-		return out
 	}
 }
 
@@ -402,7 +388,7 @@ func (a *App) ChooseCandidate(id, amazonID string) error {
 	if err := a.dl.Choose(id, amazonID); err != nil {
 		return err
 	}
-	a.cache.Put(id, amazonID, "manual")
+	a.cache.Put("spotify", "amazon", id, amazonID, "manual") // shim until Task 13
 	return nil
 }
 
