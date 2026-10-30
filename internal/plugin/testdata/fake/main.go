@@ -64,7 +64,7 @@ func main() {
 		"unavailable": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
 			return nil, sdk.Fail(plugin.CodeUnavailable, "down", nil)
 		},
-		// download picks its outcome by pathNoExt: "unavailable", "needs" or "boom" fail with that code; anything else
+		// download picks its outcome by pathNoExt: "unavailable", "needs" or "boom" fail with that code, "crash" exits; anything else
 		// reports progress and saves to pathNoExt-<title>-<amazon id>.flac.
 		plugin.MDownload: func(_ context.Context, raw json.RawMessage, c *sdk.Call) (any, error) {
 			var p plugin.DownloadParams
@@ -76,6 +76,8 @@ func main() {
 				return nil, sdk.Fail(plugin.CodeNeedsAction, "fake: log in", plugin.NeedsAction{Message: "Log in", Action: "login"})
 			case "boom":
 				return nil, sdk.Fail(plugin.CodeOther, "fake: boom", nil)
+			case "crash":
+				os.Exit(3)
 			}
 			c.Progress(1, 3, "Ripping")
 			c.Progress(3, 3, "")

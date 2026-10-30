@@ -49,6 +49,44 @@ func TestDownloaders(t *testing.T) {
 	}
 }
 
+// Failures of the plugin process itself: a crash cools the site down, a closed or disabled plugin means the
+// site is off (the track waits, no try counted), and a cancelled ctx stays a plain cancel.
+func TestDownloaderAdapterHostErrors(t *testing.T) {
+	e := newEnv(t)
+	putDownloader(t, e, "dl")
+	r := e.open(t)
+	d := r.Downloaders()[0]
+	bg := context.Background()
+
+	_, err := d.Download(bg, source.Request{PathNoExt: "crash"})
+	if !errors.Is(err, source.ErrUnavailable) || errors.Is(err, download.ErrSiteOff) {
+		t.Fatalf("crash: %v", err)
+	}
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+	if _, err := d.Download(ctx, source.Request{PathNoExt: "p"}); err != context.Canceled {
+		t.Fatalf("cancelled: %v", err) // the restart backoff error must not hide the cancel
+	}
+
+	h, err := r.Host("dl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Close()
+	if _, err := d.Download(bg, source.Request{PathNoExt: "p"}); !errors.Is(err, download.ErrSiteOff) || !errors.Is(err, ErrClosed) {
+		t.Fatalf("closed: %v", err)
+	}
+	if err := r.SetEnabled("dl", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Download(bg, source.Request{PathNoExt: "p"}); !errors.Is(err, download.ErrSiteOff) || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("disabled: %v", err)
+	}
+	if got := (&Downloader{ID: "gone", r: r}).Label(); got != "gone" {
+		t.Fatalf("Label of a missing plugin = %q", got)
+	}
+}
+
 func TestDownloaderAdapterProgress(t *testing.T) {
 	e := newEnv(t)
 	putDownloader(t, e, "dl")

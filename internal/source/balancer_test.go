@@ -353,8 +353,33 @@ func TestStatusWaits(t *testing.T) {
 	if st := status(bal, "a"); !slices.Equal(st.Waits, []int{15, 30, 60}) || st.Wait != 30 || st.Limit != 50 {
 		t.Fatalf("a: %+v", st)
 	}
-	if st := status(bal, "b"); st.Waits != nil || st.Wait != 0 {
+	if st := status(bal, "b"); st.Waits == nil || len(st.Waits) != 0 || st.Wait != 0 { // [] in JSON, never null
 		t.Fatalf("b: %+v", st)
+	}
+}
+
+// A Source that finds its site off before SetEnabled does (a plugin disabled in the Registry first) gets a
+// cooldown, so its worker does not retake the track at once. Switching the site off and on lifts the cooldown,
+// but not a needed action.
+func TestSourceSiteOffCoolsDown(t *testing.T) {
+	off := fmt.Errorf("plugin a: disabled: %w", download.ErrSiteOff)
+	bal, _ := newTest(&fake{name: "a", results: []error{off}})
+	if _, err := fetch(bal, "a"); !errors.Is(err, download.ErrSiteOff) || bal.Ready("a") || !bal.Usable("a") {
+		t.Fatalf("err = %v, ready %v, usable %v", err, bal.Ready("a"), bal.Usable("a"))
+	}
+	ch := changes(bal)
+	bal.SetEnabled("a", false)
+	bal.SetEnabled("a", true)
+	waitChange(t, ch)
+	waitChange(t, ch)
+	if st := status(bal, "a"); !bal.Ready("a") || st.Reason != "" {
+		t.Fatalf("back on: %+v", st)
+	}
+	bal.NeedAction("a", "a: check", "check")
+	bal.SetEnabled("a", false)
+	bal.SetEnabled("a", true)
+	if st := status(bal, "a"); bal.Ready("a") || !st.NeedsAction {
+		t.Fatalf("a switch must not lift a needed action: %+v", st)
 	}
 }
 

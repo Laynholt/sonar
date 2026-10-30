@@ -100,6 +100,7 @@ func (b *Balancer) Add(s Source, accepts string, g Guard) {
 
 // SetEnabled switches a site on or off. Off, it is neither Ready nor Usable, Status leaves it out,
 // and its running downloads are cancelled with an error that wraps download.ErrSiteOff.
+// Switching it on lifts a cooldown, but not a needed action.
 func (b *Balancer) SetEnabled(name string, on bool) {
 	b.mu.Lock()
 	s := b.sites[name]
@@ -109,6 +110,10 @@ func (b *Balancer) SetEnabled(name string, on bool) {
 	}
 	if on {
 		s.on, s.turnOff = context.WithCancel(context.Background())
+		if !s.pause.needsAction { // a cooldown, e.g. from the plugin found off before this switch, ends; an action stays
+			s.pause = pause{}
+			stopTimer(&s.coolTimer)
+		}
 	} else {
 		s.turnOff()
 	}
@@ -227,7 +232,7 @@ func (b *Balancer) punish(name string, err error) {
 	switch {
 	case errors.Is(err, ErrNeedsCheck):
 		p = pause{needsAction: true, reason: err.Error(), action: actionOf(err)}
-	case errors.Is(err, ErrUnavailable):
+	case errors.Is(err, ErrUnavailable) || errors.Is(err, download.ErrSiteOff): // off before SetEnabled: no instant retake
 		p = pause{until: b.now().Add(b.cooldown), reason: err.Error()}
 	default:
 		return
@@ -362,7 +367,7 @@ func (b *Balancer) Status() []Status {
 			continue
 		}
 		st := Status{Name: name, Label: s.label, Accepts: s.accepts, Available: true, Count: s.count,
-			Limit: s.guard.Limit, Waits: slices.Clone(s.guard.Waits), Wait: s.guard.Wait, Asking: s.asking}
+			Limit: s.guard.Limit, Waits: append([]int{}, s.guard.Waits...), Wait: s.guard.Wait, Asking: s.asking}
 		if b.active(s.pause) {
 			st.Available, st.NeedsAction, st.Action, st.Reason = false, s.pause.needsAction, s.pause.action, s.pause.reason
 		}

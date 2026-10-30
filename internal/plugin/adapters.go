@@ -243,16 +243,21 @@ func (d *Downloader) Name() string { return d.ID }
 
 // Label is the plugin's name, which source.Balancer shows in its Status.
 func (d *Downloader) Label() string {
-	e, _ := d.r.Get(d.ID)
-	return e.M.Name
+	if e, ok := d.r.Get(d.ID); ok {
+		return e.M.Name
+	}
+	return d.ID
 }
 
-// Download runs the plugin's download. Byte progress reaches download.Report on ctx, status texts r.OnStatus,
-// and the unavailable and needs-action codes become source.ErrUnavailable and source.ErrNeedsCheck.
+// Download runs the plugin's download. Byte progress reaches download.Report on ctx, status texts r.OnStatus.
+// Errors other than a cancelled ctx are classified for the Balancer and the queue:
+//   - the unavailable and needs-action codes become source.ErrUnavailable and source.ErrNeedsCheck;
+//   - a plugin that is disabled, gone or closed wraps download.ErrSiteOff, so the track waits without a try;
+//   - any other failure of the process (a crash, a hang, a bad answer) wraps source.ErrUnavailable.
 func (d *Downloader) Download(ctx context.Context, r source.Request) (string, error) {
 	h, err := d.r.Host(d.ID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", err, download.ErrSiteOff)
 	}
 	var out DownloadResult
 	err = h.Call(ctx, MDownload, DownloadParams{Track: r.Track, IDs: r.IDs, PathNoExt: r.PathNoExt}, &out, func(p Progress) {
@@ -264,7 +269,12 @@ func (d *Downloader) Download(ctx context.Context, r source.Request) (string, er
 		}
 	})
 	var pe *Error
-	if errors.As(err, &pe) {
+	switch {
+	case err == nil:
+		return out.Path, nil
+	case ctx.Err() != nil:
+		return "", ctx.Err()
+	case errors.As(err, &pe):
 		switch pe.Code {
 		case CodeUnavailable:
 			return "", &siteError{pe: pe, is: source.ErrUnavailable}
@@ -273,11 +283,12 @@ func (d *Downloader) Download(ctx context.Context, r source.Request) (string, er
 			json.Unmarshal(pe.Data, &na) // no or bad data: no action button
 			return "", &siteError{pe: pe, is: source.ErrNeedsCheck, action: na.Action}
 		}
+		return "", err // an ordinary track error
+	case errors.Is(err, ErrClosed):
+		return "", fmt.Errorf("%w: %w", err, download.ErrSiteOff)
+	default:
+		return "", fmt.Errorf("%w: %w", err, source.ErrUnavailable)
 	}
-	if err != nil {
-		return "", err
-	}
-	return out.Path, nil
 }
 
 // siteError keeps a plugin's message while matching the source error its code stands for.
