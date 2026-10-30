@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"sonar/internal/amazon"
 	"sonar/internal/doubledouble"
 	"sonar/internal/download"
 	"sonar/internal/genre"
 	"sonar/internal/history"
 	"sonar/internal/match"
+	"sonar/internal/model"
 	"sonar/internal/source"
 )
 
@@ -36,11 +36,11 @@ func (f fakeSource) Download(context.Context, string, string, func(string)) (str
 type nopFinder struct{}
 
 func (nopFinder) Search(context.Context, string) ([]match.Item, error) { return nil, nil }
-func (nopFinder) LookupTracks(context.Context, []string) ([]amazon.TrackInfo, error) {
+func (nopFinder) LookupTracks(context.Context, []string) ([]model.TrackInfo, error) {
 	return nil, nil
 }
-func (nopFinder) LookupAlbum(context.Context, string) (*amazon.AlbumInfo, error) { return nil, nil }
-func (nopFinder) SpotifyIDsByISRC(context.Context, string) ([]string, error)     { return nil, nil }
+func (nopFinder) LookupAlbum(context.Context, string) (*model.AlbumInfo, error) { return nil, nil }
+func (nopFinder) SpotifyIDsByISRC(context.Context, string) ([]string, error)    { return nil, nil }
 
 // newQueueApp wires an App on dir the way init does, with fake sites and a finder that finds nothing.
 // A nil fetch uses the App's real fetch.
@@ -949,11 +949,11 @@ func TestFetchGenreAmazonViaISRC(t *testing.T) {
 	srv, asked := fakeChosic(t)
 	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
 	a.genreClient = genre.Client{Base: srv.URL, HTTP: srv.Client()}
-	swap(t, &amazonLookup, func(_ context.Context, ids []string) ([]amazon.TrackInfo, error) {
+	swap(t, &amazonLookup, func(_ context.Context, ids []string) ([]model.TrackInfo, error) {
 		if !slices.Equal(ids, []string{"B00A3SGXAA"}) {
 			t.Errorf("lookup ids = %q", ids)
 		}
-		return []amazon.TrackInfo{{ID: ids[0], ISRC: "USRC17607839"}}, nil
+		return []model.TrackInfo{{ID: ids[0], ISRC: "USRC17607839"}}, nil
 	})
 	swap(t, &spotifyByISRC, func(_ context.Context, isrc string) ([]string, error) {
 		if isrc != "USRC17607839" {

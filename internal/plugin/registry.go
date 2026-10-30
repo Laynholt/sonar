@@ -76,6 +76,7 @@ type Registry struct {
 	st        State
 	found     []Found // Discover order, every Sum filled
 	hosts     map[string]hostRec
+	links     map[string]linkRec // compiled source.links per id
 }
 
 // hostRec remembers which copy a Host was started from, so Refresh can tell when it was replaced.

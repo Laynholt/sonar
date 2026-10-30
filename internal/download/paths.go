@@ -20,12 +20,13 @@ type Track struct {
 	TrackNumber int    `json:"track_number"`
 	DiscNumber  int    `json:"disc_number"`
 	Position    int    `json:"position"`
-	Service     string `json:"service"` // "spotify" or "amazon"; "" means amazon
+	Service     string `json:"service"` // a source service id; "" means amazon (legacy)
 	AlbumID     string `json:"album_id"`
 	DurationMS  int    `json:"duration_ms"`
 	Explicit    bool   `json:"explicit"`
 	Image       string `json:"image"`
 	Group       string `json:"group"` // same non-empty Group = matched together as one album
+	ISRC        string `json:"isrc,omitempty"`
 }
 
 // Collection is what the user asked to download; Kind is track, album, playlist or artist.

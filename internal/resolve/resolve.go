@@ -7,9 +7,9 @@ import (
 	"log"
 	"slices"
 
-	"sonar/internal/amazon"
 	"sonar/internal/download"
 	"sonar/internal/match"
+	"sonar/internal/model"
 )
 
 // MaxCandidates is how many Amazon tracks a review offers.
@@ -18,8 +18,8 @@ const MaxCandidates = 4
 // Finder is the network the resolver needs; Live is the real one.
 type Finder interface {
 	Search(ctx context.Context, query string) ([]match.Item, error)
-	LookupTracks(ctx context.Context, ids []string) ([]amazon.TrackInfo, error)
-	LookupAlbum(ctx context.Context, id string) (*amazon.AlbumInfo, error)
+	LookupTracks(ctx context.Context, ids []string) ([]model.TrackInfo, error)
+	LookupAlbum(ctx context.Context, id string) (*model.AlbumInfo, error)
 	SpotifyIDsByISRC(ctx context.Context, isrc string) ([]string, error)
 }
 
@@ -100,7 +100,7 @@ func (r *Resolver) album(ctx context.Context, tracks []download.Track, todo []in
 }
 
 // align picks the album track that is confidently t: the same track number first, then the best score.
-func align(t download.Track, album []amazon.TrackInfo) string {
+func align(t download.Track, album []model.TrackInfo) string {
 	src := match.Item{Title: t.Title, Artist: t.Artist, Explicit: t.Explicit}
 	id, bestSame, bestScore := "", false, 0.0
 	for _, at := range album {
@@ -148,7 +148,7 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 	if err != nil {
 		return download.Resolution{Err: err}
 	}
-	byID := map[string]amazon.TrackInfo{}
+	byID := map[string]model.TrackInfo{}
 	for _, ti := range infos {
 		byID[ti.ID] = ti
 	}

@@ -172,3 +172,29 @@ type SearchResponse struct {
 	Artists   []SearchResult `json:"artists"`
 	Playlists []SearchResult `json:"playlists"`
 }
+
+// TrackInfo is what the matcher needs about a source's track.
+type TrackInfo struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Artist      string `json:"artist"`
+	Album       string `json:"album"`
+	AlbumID     string `json:"album_id"`
+	Image       string `json:"image"`
+	ReleaseDate string `json:"release_date"`
+	ISRC        string `json:"isrc"`
+	DurationMS  int    `json:"duration_ms"`
+	TrackNumber int    `json:"track_number"`
+	DiscNumber  int    `json:"disc_number"` // Amazon leaves it 0: its GraphQL has no such field (probed 2026-10-22)
+	Explicit    bool   `json:"explicit"`
+}
+
+type AlbumInfo struct {
+	ID          string      `json:"id"`
+	Title       string      `json:"title"`
+	Artist      string      `json:"artist"`
+	Image       string      `json:"image"`
+	ReleaseDate string      `json:"release_date"`
+	Explicit    bool        `json:"explicit"`
+	Tracks      []TrackInfo `json:"tracks"`
+}

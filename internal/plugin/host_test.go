@@ -388,3 +388,15 @@ func TestHostNotifyWaitsForInitialize(t *testing.T) {
 	}
 	l.wait(t, "got settings")
 }
+
+// count returns how many logged lines contain s.
+func (l *logs) count(s string) (n int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, line := range l.lines {
+		if strings.Contains(line, s) {
+			n++
+		}
+	}
+	return n
+}

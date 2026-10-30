@@ -1,23 +1,14 @@
 package amazon
 
-import "context"
+import (
+	"context"
 
-// TrackInfo is what the matcher needs about an Amazon track.
-type TrackInfo struct {
-	ID, Title, Artist, Album, AlbumID, Image, ReleaseDate, ISRC string
-	DurationMS, TrackNumber, DiscNumber                         int // DiscNumber stays 0: Amazon's GraphQL has no such field (probed 2026-10-22)
-	Explicit                                                    bool
-}
+	"sonar/internal/model"
+)
 
-type AlbumInfo struct {
-	ID, Title, Artist, Image, ReleaseDate string
-	Explicit                              bool
-	Tracks                                []TrackInfo
-}
-
-func trackInfo(t *gTrack, al *gAlbum) TrackInfo {
+func trackInfo(t *gTrack, al *gAlbum) model.TrackInfo {
 	artist, _, _ := t.Artists.split()
-	return TrackInfo{
+	return model.TrackInfo{
 		ID: t.ID, Title: clean(t.Title), Artist: artist,
 		Album: clean(al.Title), AlbumID: al.ID, Image: pick(al.Images, "PRIMARY"), ReleaseDate: day(al.ReleaseDate),
 		ISRC: t.ISRC, DurationMS: t.Duration * 1000, TrackNumber: t.TrackNumber,
@@ -35,8 +26,8 @@ func fetchLookupTrack(ctx context.Context, q querier, id string) (*gTrack, error
 	return out.Track, nil
 }
 
-func lookupTracks(ctx context.Context, q querier, ids []string) ([]TrackInfo, error) {
-	out := make([]TrackInfo, 0, len(ids))
+func lookupTracks(ctx context.Context, q querier, ids []string) ([]model.TrackInfo, error) {
+	out := make([]model.TrackInfo, 0, len(ids))
 	for _, id := range ids {
 		t, err := fetchLookupTrack(ctx, q, id)
 		if err != nil {
@@ -54,7 +45,7 @@ func lookupTracks(ctx context.Context, q querier, ids []string) ([]TrackInfo, er
 	return out, nil
 }
 
-func lookupAlbum(ctx context.Context, q querier, id string) (*AlbumInfo, error) {
+func lookupAlbum(ctx context.Context, q querier, id string) (*model.AlbumInfo, error) {
 	var out struct {
 		Album *gAlbum `json:"album"`
 	}
@@ -66,10 +57,10 @@ func lookupAlbum(ctx context.Context, q querier, id string) (*AlbumInfo, error) 
 		return nil, notFound("album", id)
 	}
 	artist, _, _ := al.Artists.split()
-	info := &AlbumInfo{
+	info := &model.AlbumInfo{
 		ID: al.ID, Title: clean(al.Title), Artist: artist, Image: pick(al.Images, "PRIMARY"),
 		ReleaseDate: day(al.ReleaseDate), Explicit: al.ParentalSettings.HasExplicitLanguage,
-		Tracks: make([]TrackInfo, 0, len(al.Tracks)),
+		Tracks: make([]model.TrackInfo, 0, len(al.Tracks)),
 	}
 	for i := range al.Tracks {
 		info.Tracks = append(info.Tracks, trackInfo(&al.Tracks[i], al))
@@ -86,7 +77,7 @@ func previewURL(ctx context.Context, q querier, id string) (string, error) {
 }
 
 // LookupTracks returns the tracks in input order over one guest session; unknown IDs are dropped.
-func LookupTracks(ctx context.Context, ids []string) ([]TrackInfo, error) {
+func LookupTracks(ctx context.Context, ids []string) ([]model.TrackInfo, error) {
 	s, err := newSession(ctx)
 	if err != nil {
 		return nil, err
@@ -94,7 +85,7 @@ func LookupTracks(ctx context.Context, ids []string) ([]TrackInfo, error) {
 	return lookupTracks(ctx, s, ids)
 }
 
-func LookupAlbum(ctx context.Context, id string) (*AlbumInfo, error) {
+func LookupAlbum(ctx context.Context, id string) (*model.AlbumInfo, error) {
 	s, err := newSession(ctx)
 	if err != nil {
 		return nil, err

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"sonar/internal/match"
+	"sonar/internal/model"
 	"sonar/internal/plugin"
 	"sonar/internal/plugin/sdk"
 )
@@ -81,6 +83,66 @@ func main() {
 				return nil, err
 			}
 			return cmd.Process.Pid, nil
+		},
+		// Canned answers for the per-kind clients; most echo a param, so tests see the wire names.
+		plugin.MSourceMetadata: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			return p, nil
+		},
+		plugin.MSourceSearch: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct {
+				Query string `json:"query"`
+				Limit int    `json:"limit"`
+			}
+			json.Unmarshal(p, &a)
+			return model.SearchResponse{Tracks: []model.SearchResult{{ID: "t1", Name: a.Query, Type: "track", Duration: a.Limit}}}, nil
+		},
+		plugin.MSourceSearchByType: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct {
+				Query         string `json:"query"`
+				Type          string `json:"type"`
+				Limit, Offset int
+			}
+			json.Unmarshal(p, &a)
+			return []model.SearchResult{{ID: fmt.Sprint(a.Offset), Name: a.Query, Type: a.Type, Duration: a.Limit}}, nil
+		},
+		plugin.MSourceFind: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct{ Query string }
+			json.Unmarshal(p, &a)
+			return []match.Item{{Kind: "track", ID: "m1", Title: a.Query, Score: 0.9}}, nil
+		},
+		plugin.MSourceTracks: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct{ IDs []string }
+			json.Unmarshal(p, &a)
+			var out []model.TrackInfo
+			for _, id := range a.IDs {
+				out = append(out, model.TrackInfo{ID: id, Title: "T " + id, ISRC: "US-" + id, DurationMS: 1000})
+			}
+			return out, nil
+		},
+		plugin.MSourceAlbum: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct{ ID string }
+			json.Unmarshal(p, &a)
+			return model.AlbumInfo{ID: a.ID, Title: "Album", Tracks: []model.TrackInfo{{ID: "t1", ISRC: "US-1"}}}, nil
+		},
+		plugin.MSourceISRC: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct{ ISRC string }
+			json.Unmarshal(p, &a)
+			return []string{a.ISRC + "-1", a.ISRC + "-2"}, nil
+		},
+		plugin.MSourcePreview: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct{ ID string }
+			json.Unmarshal(p, &a)
+			return "http://preview/" + a.ID, nil
+		},
+		plugin.MSourceParseLink: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a struct{ URL string }
+			json.Unmarshal(p, &a)
+			return plugin.Link{Kind: "track", ID: a.URL}, nil
+		},
+		plugin.MTag: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var a plugin.TagParams
+			json.Unmarshal(p, &a)
+			return plugin.TagResult{Fields: map[string]string{"title": a.Track.Title, "isrc": a.Track.ISRC, "id": a.IDs["x"]}}, nil
 		},
 		"initSettings": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
 			mu.Lock()

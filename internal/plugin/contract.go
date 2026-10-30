@@ -1,6 +1,10 @@
 package plugin
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"sonar/internal/download"
+)
 
 // Error codes a plugin answers with.
 const (
@@ -70,4 +74,45 @@ type Message struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *Error          `json:"error,omitempty"`
+}
+
+// Per-kind methods. Source params and results are noted on the right.
+const (
+	MSourceMetadata     = "source.metadata"     // {url} → model payload (raw JSON)
+	MSourceSearch       = "source.search"       // {query, limit} → model.SearchResponse
+	MSourceSearchByType = "source.searchByType" // {query, type, limit, offset} → []model.SearchResult
+	MSourceFind         = "source.find"         // {query} → []match.Item (for matching)
+	MSourceTracks       = "source.tracks"       // {ids} → []model.TrackInfo
+	MSourceAlbum        = "source.album"        // {id} → model.AlbumInfo
+	MSourceISRC         = "source.isrc"         // {isrc} → []string (track ids)
+	MSourcePreview      = "source.preview"      // {id} → string
+	MSourceParseLink    = "source.parseLink"    // {url} → Link
+	MDownload           = "download"            // DownloadParams → DownloadResult, with $/progress
+	MAction             = "action"              // {name} → {}
+	MTag                = "tag"                 // TagParams → TagResult
+)
+
+// Link is what source.parseLink makes of a pasted URL.
+type Link struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type DownloadParams struct {
+	Track     download.Track    `json:"track"`
+	IDs       map[string]string `json:"ids"`
+	PathNoExt string            `json:"pathNoExt"`
+}
+
+type DownloadResult struct {
+	Path string `json:"path"`
+}
+
+type TagParams struct {
+	Track download.Track    `json:"track"`
+	IDs   map[string]string `json:"ids"`
+}
+
+type TagResult struct {
+	Fields map[string]string `json:"fields"`
 }

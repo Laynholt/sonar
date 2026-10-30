@@ -5,6 +5,7 @@ import (
 
 	"sonar/internal/amazon"
 	"sonar/internal/match"
+	"sonar/internal/model"
 	"sonar/internal/spotify"
 )
 
@@ -17,11 +18,11 @@ func (live) Search(ctx context.Context, q string) ([]match.Item, error) {
 	return amazon.Search(ctx, q)
 }
 
-func (live) LookupTracks(ctx context.Context, ids []string) ([]amazon.TrackInfo, error) {
+func (live) LookupTracks(ctx context.Context, ids []string) ([]model.TrackInfo, error) {
 	return amazon.LookupTracks(ctx, ids)
 }
 
-func (live) LookupAlbum(ctx context.Context, id string) (*amazon.AlbumInfo, error) {
+func (live) LookupAlbum(ctx context.Context, id string) (*model.AlbumInfo, error) {
 	return amazon.LookupAlbum(ctx, id)
 }
 

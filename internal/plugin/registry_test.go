@@ -25,6 +25,12 @@ func putSettings(t *testing.T, root, id, version, settings string) string {
 // putFake copies the built fake plugin to root/id under another id and version.
 func putFake(t *testing.T, root, id, version string) string {
 	t.Helper()
+	return putFakeManifest(t, root, id, `{"id":"`+id+`","name":"`+id+`","version":"`+version+`","kind":"tool","run":["fake"]}`)
+}
+
+// putFakeManifest is putFake with a manifest of its own, so tests can make the fake a source or a tagger.
+func putFakeManifest(t *testing.T, root, id, manifest string) string {
+	t.Helper()
 	dir := filepath.Join(root, id)
 	entries, err := os.ReadDir(fakeDir)
 	if err != nil {
@@ -36,7 +42,7 @@ func putFake(t *testing.T, root, id, version string) string {
 			t.Fatal(err)
 		}
 		if e.Name() == "plugin.json" {
-			b = []byte(`{"id":"` + id + `","name":"` + id + `","version":"` + version + `","kind":"tool","run":["fake"]}`)
+			b = []byte(manifest)
 		}
 		writeFile(t, filepath.Join(dir, e.Name()), string(b))
 	}
