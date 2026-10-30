@@ -94,8 +94,8 @@ func TestSourcePreview(t *testing.T) {
 func TestSourceForLinkOrder(t *testing.T) {
 	e := newEnv(t)
 	putSource(t, e, "bad", "s0", `["("]`, allCan) // does not compile: never matches, logged once
-	putSource(t, e, "one", "s1", `["^http://site/"]`, allCan)
-	putSource(t, e, "two", "s2", `["^http://site/.*"]`, allCan)
+	putSource(t, e, "one", "s1", `["http://site/.*"]`, allCan)
+	putSource(t, e, "two", "s2", `["http://site/x"]`, allCan)
 	r := e.open(t)
 	if err := r.SetOrder([]string{"bad", "two", "one"}); err != nil {
 		t.Fatal(err)
@@ -192,5 +192,51 @@ func TestModelInfoJSON(t *testing.T) {
 	var out model.TrackInfo
 	if err := json.Unmarshal(raw, &out); err != nil || out != in {
 		t.Fatalf("round trip: %+v, %v", out, err)
+	}
+}
+
+func TestSourceForLinkWholeURL(t *testing.T) {
+	e := newEnv(t)
+	putSource(t, e, "src", "svc", `["https://open[.]spotify[.]com/track/[a-z]+"]`, allCan)
+	r := e.open(t)
+	if _, ok := r.SourceForLink("https://open.spotify.com/track/abc"); !ok {
+		t.Fatal("no match for the real URL")
+	}
+	for _, u := range []string{
+		"https://evil.example/?u=https://open.spotify.com/track/1",
+		"https://open.spotify.com/track/abc/extra",
+		"x https://open.spotify.com/track/abc",
+	} {
+		if _, ok := r.SourceForLink(u); ok {
+			t.Errorf("matched %q", u)
+		}
+	}
+}
+
+// A user-folder source replaced on disk with other links must follow the new patterns after Refresh.
+func TestSourceForLinkReplacedCopy(t *testing.T) {
+	e := newEnv(t)
+	put := func(version, link string) {
+		putFakeManifest(t, e.user, "usr", `{"id":"usr","name":"usr","version":"`+version+`","kind":"source","run":["fake"],`+
+			`"source":{"service":"svc","links":["`+link+`"],"can":`+allCan+`}}`)
+	}
+	put("1.0.0", "http://old/.*")
+	r := e.open(t)
+	if err := r.SetEnabled("usr", true, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.SourceForLink("http://old/x"); !ok {
+		t.Fatal("old pattern does not match")
+	}
+	put("1.0.1", "http://new/.*")
+	r.Refresh()
+	if err := r.SetEnabled("usr", true, true); err != nil { // an edited copy needs the user's trust again
+		t.Fatal(err)
+	}
+	if _, ok := r.SourceForLink("http://old/x"); ok {
+		t.Fatal("old pattern still served after Refresh")
+	}
+	if _, ok := r.SourceForLink("http://new/x"); !ok {
+		t.Fatal("new pattern does not match")
 	}
 }

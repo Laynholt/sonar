@@ -55,24 +55,25 @@ func (r *Registry) SourceForLink(url string) (*SourceClient, bool) {
 	return nil, false
 }
 
-// linkRec holds the compiled links of one copy of a plugin; sum says which copy.
+// linkRec holds the compiled links of a plugin and the patterns they came from.
 type linkRec struct {
-	sum string
-	res []*regexp.Regexp
+	links []string
+	res   []*regexp.Regexp
 }
 
-// linkRes compiles e's source.links once per copy (a changed copy has another checksum).
-// A pattern that does not compile is logged and never matches.
+// linkRes compiles e's source.links, once per distinct list: a replaced copy with other patterns recompiles.
+// Patterns match the whole URL. One that does not compile is logged and never matches.
 func (r *Registry) linkRes(e Entry) []*regexp.Regexp {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if rec, ok := r.links[e.M.ID]; ok && rec.sum == e.Sum {
+	if rec, ok := r.links[e.M.ID]; ok && slices.Equal(rec.links, e.M.Source.Links) {
+		r.mu.Unlock()
 		return rec.res
 	}
 	var res []*regexp.Regexp
+	var bad []string
 	for _, p := range e.M.Source.Links {
-		if re, err := regexp.Compile(p); err != nil {
-			r.logf("plugin %q: source.links %q: %v", e.M.ID, p, err)
+		if re, err := regexp.Compile(`^(?:` + p + `)$`); err != nil {
+			bad = append(bad, fmt.Sprintf("plugin %q: source.links %q: %v", e.M.ID, p, err))
 		} else {
 			res = append(res, re)
 		}
@@ -80,7 +81,11 @@ func (r *Registry) linkRes(e Entry) []*regexp.Regexp {
 	if r.links == nil {
 		r.links = map[string]linkRec{}
 	}
-	r.links[e.M.ID] = linkRec{e.Sum, res}
+	r.links[e.M.ID] = linkRec{slices.Clone(e.M.Source.Links), res}
+	r.mu.Unlock()
+	for _, m := range bad { // not under mu: logf is the app's
+		r.logf("%s", m)
+	}
 	return res
 }
 
