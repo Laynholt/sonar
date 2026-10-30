@@ -82,7 +82,7 @@ func Discover(builtinDir, userDir string, sums map[string]string) []Found {
 		}
 		entries, _ := os.ReadDir(src.dir)
 		for _, e := range entries {
-			if !e.IsDir() {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") { // "." folders are installs in flight
 				continue
 			}
 			f := load(filepath.Join(src.dir, e.Name()), e.Name(), src.builtin, sums)

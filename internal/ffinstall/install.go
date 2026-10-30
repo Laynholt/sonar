@@ -239,6 +239,15 @@ func download(ctx context.Context, c *http.Client, a Asset, w io.Writer, report 
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// SafeName is nil when a zip entry name is a clean relative path that stays inside the folder it is
+// unpacked into: no "..", no drive or root, no backslash (filepath treats it as a separator on Windows).
+func SafeName(name string) error {
+	if name == "." || strings.ContainsAny(name, `\:`) || !filepath.IsLocal(name) || path.Clean(name) != name {
+		return fmt.Errorf("unsafe file name in archive: %q", name)
+	}
+	return nil
+}
+
 // unpack copies */bin/ffmpeg.exe and */bin/*.dll from the zip flat into dst.
 func unpack(ctx context.Context, zipPath, dst string, report func(Progress)) ([]string, error) {
 	zr, err := zip.OpenReader(zipPath)
@@ -267,8 +276,8 @@ func unpack(ctx context.Context, zipPath, dst string, report func(Progress)) ([]
 	var total uint64
 	for _, f := range picked {
 		name := path.Base(f.Name)
-		if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `\/`) {
-			return nil, fmt.Errorf("unsafe file name in archive: %q", f.Name)
+		if err := SafeName(name); err != nil {
+			return nil, err
 		}
 		// Windows names are case-insensitive, so "A.dll" and "a.dll" are the same file.
 		if slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) }) {

@@ -431,3 +431,16 @@ func TestInstallSweepsStaleTemps(t *testing.T) {
 		t.Errorf("parent holds %v", left)
 	}
 }
+
+func TestSafeName(t *testing.T) {
+	for _, ok := range []string{"a.dll", "dir/a.dll", "a b/c"} {
+		if err := SafeName(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", ".", "..", "../x", "a/../../x", "a/./b", "/abs", "C:/x", "c:x", `a\b`, "a//b", "con", "a:b"} {
+		if SafeName(bad) == nil {
+			t.Errorf("%q passed", bad)
+		}
+	}
+}
