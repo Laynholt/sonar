@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,6 +75,13 @@ func TestBuiltinManifests(t *testing.T) {
 		if built[id] == "" {
 			t.Errorf("%s was not built; built: %v", id, built)
 		} else if m := manifest(t, id); m.Kind != plugin.KindSource || m.Source.Service != id {
+			t.Errorf("%s: %+v", id, m)
+		}
+	}
+	for _, id := range []string{"lucida", "doubledouble"} {
+		if built[id] == "" {
+			t.Errorf("%s was not built; built: %v", id, built)
+		} else if m := manifest(t, id); m.Kind != plugin.KindDownloader || m.Downloader.Accepts != "amazon" || m.Downloader.Guard.Limit != 50 {
 			t.Errorf("%s: %+v", id, m)
 		}
 	}
@@ -248,5 +258,116 @@ func TestLiveSourcePlugins(t *testing.T) {
 	meta("amazon", "https://music.amazon.com/albums/B00A3SGWYC", &al)
 	if al.AlbumInfo.Name == "" {
 		t.Errorf("amazon album: %+v", al)
+	}
+}
+
+const trackID = "B00A3SGXAA"
+
+// fakeLucida serves lucida.to's flow for the one track in the lucida test fixture; with status != 0 every answer is that status.
+func fakeLucida(t *testing.T, status int) {
+	t.Helper()
+	page, err := os.ReadFile("../../internal/lucida/testdata/data_track.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	polls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if status != 0 {
+			w.WriteHeader(status)
+			return
+		}
+		switch r.URL.Query().Get("url") {
+		case "/api/fetch/stream/v2":
+			w.Write([]byte(`{"success":true,"handoff":"h1","name":"srv"}`))
+		case "/api/fetch/request/h1":
+			if polls++; polls == 1 {
+				w.Write([]byte(`{"success":true,"status":"ripping","message":"Ripping {item}..."}`))
+			} else {
+				w.Write([]byte(`{"success":true,"status":"completed"}`))
+			}
+		case "/api/fetch/request/h1/download":
+			w.Header().Set("Content-Type", "audio/flac")
+			w.Write([]byte("fLaC-test"))
+		default:
+			w.Write(page)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("SONAR_LUCIDA_BASE", srv.URL)
+}
+
+func download(h *plugin.Host, pathNoExt string, onProgress func(plugin.Progress)) (plugin.DownloadResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var res plugin.DownloadResult
+	err := h.Call(ctx, plugin.MDownload, plugin.DownloadParams{IDs: map[string]string{"amazon": trackID}, PathNoExt: pathNoExt}, &res, onProgress)
+	return res, err
+}
+
+func TestLucidaPluginDownload(t *testing.T) {
+	fakeLucida(t, 0)
+	base := filepath.Join(t.TempDir(), "a", "song")
+	var notes []plugin.Progress
+	res, err := download(start(t, "lucida"), base, func(p plugin.Progress) { notes = append(notes, p) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Path != base+".flac" {
+		t.Fatalf("path %q", res.Path)
+	}
+	if b, _ := os.ReadFile(res.Path); string(b) != "fLaC-test" {
+		t.Fatalf("content %q", b)
+	}
+	var status, bytes bool
+	for _, n := range notes {
+		status = status || n.Status == "Ripping track..."
+		bytes = bytes || n.Bytes == int64(len("fLaC-test"))
+	}
+	if !status || !bytes {
+		t.Fatalf("want a status note and a byte note, got %+v", notes)
+	}
+}
+
+func TestDownloaderUnavailable(t *testing.T) {
+	fakeLucida(t, http.StatusServiceUnavailable)
+	_, err := download(start(t, "lucida"), filepath.Join(t.TempDir(), "x"), nil)
+	var pe *plugin.Error
+	if !errors.As(err, &pe) || pe.Code != plugin.CodeUnavailable {
+		t.Fatalf("want -32001, got %v", err)
+	}
+}
+
+func TestDoubleDoubleNeedsAction(t *testing.T) {
+	h := start(t, "doubledouble")
+	var mu sync.Mutex
+	var statuses []plugin.PluginStatus
+	h.OnStatus = func(st plugin.PluginStatus) {
+		mu.Lock()
+		statuses = append(statuses, st)
+		mu.Unlock()
+	}
+	_, err := download(h, filepath.Join(t.TempDir(), "x"), nil)
+	var pe *plugin.Error
+	if !errors.As(err, &pe) || pe.Code != plugin.CodeNeedsAction {
+		t.Fatalf("want -32002, got %v", err)
+	}
+	var na plugin.NeedsAction
+	if json.Unmarshal(pe.Data, &na) != nil || na.Action != "check" {
+		t.Errorf("error data %s", pe.Data)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(statuses) != 1 || statuses[0].Available || statuses[0].NeedsAction == nil || statuses[0].NeedsAction.Action != "check" {
+		t.Fatalf("statuses %+v", statuses)
+	}
+}
+
+func TestDoubleDoubleUnknownAction(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := start(t, "doubledouble").Call(ctx, plugin.MAction, map[string]string{"name": "nope"}, nil, nil)
+	var pe *plugin.Error
+	if !errors.As(err, &pe) || pe.Code != plugin.CodeOther || pe.Message != "unknown action" {
+		t.Fatalf("got %v", err)
 	}
 }

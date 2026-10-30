@@ -1,0 +1,15 @@
+{
+  "id": "lucida",
+  "name": "Lucida",
+  "version": "1.0.0",
+  "author": "sonar",
+  "description": "Downloads Amazon Music tracks through lucida.to.",
+  "kind": "downloader",
+  "run": ["lucida"],
+  "contract": 1,
+  "downloader": {
+    "accepts": "amazon",
+    "parallel": 1,
+    "guard": { "limit": 50, "waits": [15, 30, 60, 120], "wait": 30 }
+  }
+}
