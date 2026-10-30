@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // putSettings writes a do-nothing plugin whose manifest has the given settings JSON array.
@@ -322,4 +323,85 @@ func TestRegistryRefreshReplaced(t *testing.T) {
 		t.Fatalf("host: %v, dir %s", h2 == h, h2.f.Dir)
 	}
 	echo(t, h2)
+}
+
+func TestRegistrySetStateKeepsTrust(t *testing.T) {
+	e := newEnv(t)
+	putSettings(t, e.user, "evil", "1.0.0", `[]`)
+	putSettings(t, e.user, "good", "1.0.0", `[]`)
+	r := e.open(t)
+	if err := r.SetEnabled("good", true, true); err != nil {
+		t.Fatal(err)
+	}
+	evil, _ := r.Get("evil")
+	// an imported state vouching for a plugin the user never confirmed, and dropping the real trust
+	err := r.SetState(State{Enabled: map[string]bool{"evil": true, "good": true}, Trusted: map[string]string{"evil": evil.Sum}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := r.Get("evil"); g.Enabled || g.Trusted {
+		t.Fatalf("imported trust took effect: %+v", g)
+	}
+	if _, err := r.Host("evil"); err == nil {
+		t.Fatal("Host started an unconfirmed plugin")
+	}
+	if g, _ := r.Get("good"); !g.Enabled || !g.Trusted {
+		t.Fatalf("local trust lost: %+v", g)
+	}
+	if _, ok := r.State().Trusted["evil"]; ok {
+		t.Fatal("imported Trusted entry kept")
+	}
+}
+
+func TestRegistryOnChangeOutsideLock(t *testing.T) {
+	e := newEnv(t)
+	putSettings(t, e.user, "third", "1.0.0", `[]`)
+	r := e.open(t)
+	calls := 0
+	r.OnChange = func() { // would deadlock if the registry lock were held
+		calls++
+		r.List()
+		r.State()
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.SetEnabled("third", true, true)
+		r.Refresh()
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnChange ran under the registry lock")
+	}
+	if calls != 2 {
+		t.Fatalf("OnChange calls: %d", calls)
+	}
+}
+
+func TestRegistryOnStatus(t *testing.T) {
+	e := newEnv(t)
+	e.bless(t, "fake1", putFake(t, e.builtin, "fake1", "1.0.0"))
+	r := e.open(t)
+	got := make(chan string, 1)
+	r.OnStatus = func(id string, st PluginStatus) {
+		if st.NeedsAction != nil && st.NeedsAction.Action == "check" {
+			got <- id
+		}
+	}
+	h, err := r.Host("fake1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Call(context.Background(), "status", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case id := <-got:
+		if id != "fake1" {
+			t.Fatalf("status for %q", id)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no status")
+	}
 }

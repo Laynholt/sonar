@@ -62,16 +62,19 @@ var ErrNeedsTrust = errors.New("needs_trust")
 // Registry owns plugins.json and one Host per enabled plugin, started on first use.
 type Registry struct {
 	OnChange func() // called after every state change and Refresh, never under the lock
+	// OnStatus gets the $/status notes of every plugin. Like OnChange, set it before the first Host call.
+	OnStatus func(id string, st PluginStatus)
 
 	dataDir, builtinDir, userDir string
 	sums                         map[string]string
 	init                         func(id string) InitParams
 	logf                         func(format string, args ...any)
 
-	mu    sync.Mutex
-	st    State
-	found []Found // Discover order, every Sum filled
-	hosts map[string]hostRec
+	refreshMu sync.Mutex // serialises Refresh
+	mu        sync.Mutex
+	st        State
+	found     []Found // Discover order, every Sum filled
+	hosts     map[string]hostRec
 }
 
 // hostRec remembers which copy a Host was started from, so Refresh can tell when it was replaced.
@@ -123,11 +126,13 @@ func (r *Registry) discover() []Found {
 
 // Refresh rediscovers plugins and stops hosts whose plugin is gone, replaced, edited or no longer trusted.
 func (r *Registry) Refresh() {
+	r.refreshMu.Lock() // so a slow older scan cannot overwrite a newer one; r.mu is not held while scanning
 	found := r.discover()
 	r.mu.Lock()
 	r.found = found
 	stop := r.dropInactive()
 	r.mu.Unlock()
+	r.refreshMu.Unlock()
 	closeAll(stop)
 	r.changed()
 }
@@ -254,6 +259,11 @@ func (r *Registry) Host(id string) (*Host, error) {
 		return rec.h, nil
 	}
 	h := NewHost(f, func() InitParams { return r.initParams(id) }, r.logf)
+	h.OnStatus = func(st PluginStatus) {
+		if r.OnStatus != nil {
+			r.OnStatus(id, st)
+		}
+	}
 	r.hosts[id] = hostRec{h, f.Dir, f.Sum}
 	return h, nil
 }
@@ -377,10 +387,13 @@ func (r *Registry) State() State {
 	return r.st.clone()
 }
 
-// SetState replaces the whole state (import and migration).
+// SetState replaces the state (import and migration) but keeps the current Trusted map:
+// trust is only ever granted by SetEnabled with confirm, never by a state coming from outside.
 func (r *Registry) SetState(s State) error {
 	return r.change(func(st *State) error {
+		trusted := st.Trusted
 		*st = s.clone()
+		st.Trusted = trusted
 		return nil
 	})
 }
