@@ -72,7 +72,7 @@ func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder 
 		a.genres = a.lookupGenres
 	}
 	a.sources = sources
-	a.dl = download.NewQueue(fetch, resolve.New(finder, a.cache).Resolve, sources)
+	a.dl = download.NewQueue(fetch, amazonResolve(resolve.New(finder, a.cache)), sources)
 	a.saveCh, a.saveStop, a.saverDone = make(chan struct{}, 1), make(chan struct{}), make(chan struct{})
 	a.sources.OnChange = func() { a.dl.Wake(); a.saveSoon() }
 	a.dl.OnChange = a.saveSoon
@@ -95,6 +95,31 @@ func (a *App) startQueue(fetch download.Fetch, sources *source.Balancer, finder 
 	}
 	a.sources.RestoreGuardPauses(pauses)
 	go a.saver()
+}
+
+// amazonFetch adapts a fetch by Amazon ID to download.Fetch. shim until Task 13
+func amazonFetch(f func(ctx context.Context, site string, t download.Track, amazonID string, o download.Options, pathNoExt string, onStatus func(string)) (string, error)) download.Fetch {
+	return func(ctx context.Context, site string, t download.Track, ids map[string]string, o download.Options, pathNoExt string, onStatus func(string)) (string, error) {
+		id := ids["amazon"]
+		if download.ServiceOf(t) == "amazon" {
+			id = t.ID
+		}
+		return f(ctx, site, t, id, o, pathNoExt, onStatus)
+	}
+}
+
+// amazonResolve adapts the resolver, which matches to Amazon only, to download.Resolve. shim until Task 13
+func amazonResolve(r *resolve.Resolver) download.Resolve {
+	return func(ctx context.Context, to string, tracks []download.Track) []download.Resolution {
+		if to == "amazon" {
+			return r.Resolve(ctx, tracks)
+		}
+		out := make([]download.Resolution, len(tracks))
+		for i := range out {
+			out[i].Err = fmt.Errorf("no matcher for %s", to)
+		}
+		return out
+	}
 }
 
 // saveSoon asks the saver to write queue.json; requests made while one is pending fold into it.

@@ -103,7 +103,7 @@ func (a *App) init() {
 	if a.dd.Token() == "" { // first run: say so before any track fails
 		sources.NeedCheck("doubledouble")
 	}
-	a.startQueue(a.fetch, sources, resolve.Live())
+	a.startQueue(amazonFetch(a.fetch), sources, resolve.Live()) // shim until Task 13
 }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }

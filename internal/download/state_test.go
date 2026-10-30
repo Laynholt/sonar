@@ -47,7 +47,7 @@ func TestPendingSavesDownloadingAsQueued(t *testing.T) {
 		t.Fatalf("pending = %+v", p)
 	}
 	d := got["D"]
-	if d.Item.Status != Queued || d.Item.AmazonID != "D" || d.Item.Bytes != 0 || d.Item.Size != 0 ||
+	if d.Item.Status != Queued || len(d.Item.IDs) != 0 || d.Item.Bytes != 0 || d.Item.Size != 0 ||
 		d.Item.Message != "" || d.Item.Site != "" || d.Item.Error != "" || d.Collection != playlist || d.Options != o {
 		t.Errorf("D = %+v", d)
 	}
@@ -61,7 +61,11 @@ func TestPendingSavesDownloadingAsQueued(t *testing.T) {
 
 func saved(o Options, id string, st Status, amazonID string) Saved {
 	tr := Track{ID: id, Title: "t" + id, Artist: "a", Service: "spotify"}
-	return Saved{Item: Item{ID: id, QueueID: "playlist:pl1", Track: tr, Status: st, AmazonID: amazonID}, Collection: playlist, Options: o}
+	sv := Saved{Item: Item{ID: id, QueueID: "playlist:pl1", Track: tr, Status: st}, Collection: playlist, Options: o}
+	if amazonID != "" {
+		sv.Item.IDs = map[string]string{"amazon": amazonID}
+	}
+	return sv
 }
 
 func TestRestoreHoldsAndKeepsStatuses(t *testing.T) {
@@ -144,7 +148,7 @@ func TestClearKeepsCompleted(t *testing.T) {
 		case "m":
 			wait(ctx, gate)
 		}
-		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID} })
 	}}
 	q := newMQ(t, f, r)
 	o := testOpts(t)
@@ -288,5 +292,37 @@ func TestPendingEmptyIsNotNil(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), `"items": []`) {
 		t.Errorf("file:\n%s", raw)
+	}
+}
+
+// A queue.json written before per-service IDs has "amazon_id"; a review in it was always for Amazon.
+func TestRestoreLegacyAmazonID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.json")
+	o := `{"dir": "` + filepath.ToSlash(t.TempDir()) + `", "format": "original", "source": "auto", "filename_template": "{title}"}`
+	raw := `{"version": 1, "items": [
+		{"item": {"id": "s1", "track": {"id": "s1", "title": "t1", "service": "spotify"}, "status": "queued", "amazon_id": "B0X"}, "options": ` + o + `},
+		{"item": {"id": "s2", "track": {"id": "s2", "title": "t2", "service": "spotify"}, "status": "review", "amazon_id": ""}, "options": ` + o + `}
+	]}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &fakeResolve{}
+	q := newMQ(t, &fakeFetch{}, r)
+	q.Restore(st.Items)
+	s := q.Snapshot()
+	if it := find(s, "s1"); it.Status != Queued || it.IDs["amazon"] != "B0X" {
+		t.Errorf("s1 = %+v", it)
+	}
+	if it := find(s, "s2"); it.Status != Review || it.ReviewService != "amazon" || len(it.IDs) != 0 {
+		t.Errorf("s2 = %+v", it)
+	}
+	q.Resume()
+	waitFor(t, q, allIn(Completed, "s1"))
+	if len(r.callLog()) != 0 {
+		t.Errorf("resolve calls = %v", r.callLog())
 	}
 }

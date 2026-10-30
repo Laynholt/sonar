@@ -49,7 +49,7 @@ func newQueueApp(t *testing.T, dir string, fetch download.Fetch, sites ...source
 	a := &App{dataDir: dir, findFFmpeg: func(string) string { return "" }}
 	a.dd = doubledouble.New(filepath.Join(dir, "doubledouble-token"))
 	if fetch == nil {
-		fetch = a.fetch
+		fetch = amazonFetch(a.fetch) // shim until Task 13
 	}
 	a.startQueue(fetch, source.NewBalancer(time.Minute, sites...), nopFinder{})
 	t.Cleanup(func() { a.shutdown(nil) })
@@ -66,7 +66,7 @@ func newTestApp(t *testing.T, ffmpeg string) (*App, func() []fetched) {
 	t.Helper()
 	var mu sync.Mutex
 	var got []fetched
-	a := newQueueApp(t, t.TempDir(), func(_ context.Context, _ string, _ download.Track, _ string, o download.Options, p string, _ func(string)) (string, error) {
+	a := newQueueApp(t, t.TempDir(), func(_ context.Context, _ string, _ download.Track, _ map[string]string, o download.Options, p string, _ func(string)) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, fetched{o, p})
@@ -181,8 +181,8 @@ func TestDownloadTracksAcceptsSpotify(t *testing.T) {
 			var groups []string
 			for _, it := range items {
 				groups = append(groups, it.Track.Group)
-				if it.AmazonID != "" {
-					t.Errorf("%s: a Spotify track got AmazonID %q before matching", it.ID, it.AmazonID)
+				if it.IDs["amazon"] != "" {
+					t.Errorf("%s: a Spotify track got an Amazon ID %q before matching", it.ID, it.IDs["amazon"])
 				}
 			}
 			if !slices.Equal(groups, tc.groups) {
@@ -555,7 +555,7 @@ func TestCorruptQueueFileStartsEmpty(t *testing.T) {
 func TestShutdownSavesBeforeClose(t *testing.T) {
 	dir := t.TempDir()
 	started := make(chan struct{})
-	a := newQueueApp(t, dir, func(ctx context.Context, _ string, _ download.Track, _ string, _ download.Options, _ string, _ func(string)) (string, error) {
+	a := newQueueApp(t, dir, func(ctx context.Context, _ string, _ download.Track, _ map[string]string, _ download.Options, _ string, _ func(string)) (string, error) {
 		close(started)
 		<-ctx.Done()
 		return "", ctx.Err()
@@ -617,7 +617,7 @@ func TestGuardWaitTakesTheDialogsMinutes(t *testing.T) {
 	dir := t.TempDir()
 	tr := download.Track{ID: "B00A3SGXA1", Title: "T"}
 	err := download.SaveState(filepath.Join(dir, "queue.json"), download.State{Version: 1, Items: []download.Saved{{
-		Item:       download.Item{ID: tr.ID, Track: tr, Status: download.Queued, AmazonID: tr.ID},
+		Item:       download.Item{ID: tr.ID, Track: tr, Status: download.Queued},
 		Collection: download.Collection{Kind: "track", ID: tr.ID, Name: "T"},
 		Options:    download.Options{Dir: t.TempDir(), Format: "original", Source: "lucida", FilenameTemplate: "{title}", GuardLimit: 1, GuardWait: 120},
 	}}})
@@ -646,7 +646,7 @@ func TestSecondInstanceLeavesQueueFileAlone(t *testing.T) {
 	tr := download.Track{ID: "B00A3SGXA1", Title: "T"}
 	path := filepath.Join(dir, "queue.json")
 	err = download.SaveState(path, download.State{Version: 1, Items: []download.Saved{{
-		Item:       download.Item{ID: tr.ID, Track: tr, Status: download.Queued, AmazonID: tr.ID},
+		Item:       download.Item{ID: tr.ID, Track: tr, Status: download.Queued},
 		Collection: download.Collection{Kind: "track", ID: tr.ID, Name: "T"},
 		Options:    download.Options{Dir: t.TempDir(), Format: "original", FilenameTemplate: "{title}"},
 	}}})

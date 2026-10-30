@@ -83,7 +83,7 @@ func TestResolveConfidentTitle(t *testing.T) {
 	}
 	c := newCache(t)
 	got := New(f, c).Resolve(context.Background(), []download.Track{cruel})
-	if got[0].AmazonID != "A1" || got[0].Via != "title" || got[0].Err != nil {
+	if got[0].ID != "A1" || got[0].Via != "title" || got[0].Err != nil {
 		t.Fatalf("got %+v", got[0])
 	}
 	if id, via, ok := c.Get("sp1"); !ok || id != "A1" || via != "title" {
@@ -99,7 +99,7 @@ func TestResolveLiveVersionNeedsReview(t *testing.T) {
 	}
 	c := newCache(t)
 	got := New(f, c).Resolve(context.Background(), []download.Track{cruel})[0]
-	if got.AmazonID != "" || got.Err != nil || len(got.Candidates) != 1 || !got.Candidates[0].Recommended {
+	if got.ID != "" || got.Err != nil || len(got.Candidates) != 1 || !got.Candidates[0].Recommended {
 		t.Fatalf("got %+v", got)
 	}
 	if cd := got.Candidates[0]; cd.ID != "L1" || cd.Album != "The Eras Tour" || cd.DurationMS != 193000 {
@@ -121,7 +121,7 @@ func isrcFinder() *fakeFinder {
 func TestResolveISRCConfirms(t *testing.T) {
 	f := isrcFinder()
 	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
-	if got.AmazonID != "I1" || got.Via != "isrc" {
+	if got.ID != "I1" || got.Via != "isrc" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -130,14 +130,14 @@ func TestResolveISRCErrorFallsBackToReview(t *testing.T) {
 	f := isrcFinder()
 	f.isrcErr = errors.New("spotify down")
 	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
-	if got.AmazonID != "" || got.Err != nil || len(got.Candidates) != 1 || got.Candidates[0].ID != "I1" {
+	if got.ID != "" || got.Err != nil || len(got.Candidates) != 1 || got.Candidates[0].ID != "I1" {
 		t.Fatalf("got %+v", got)
 	}
 }
 
 func TestResolveNotFound(t *testing.T) {
 	got := New(&fakeFinder{}, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
-	if got.AmazonID != "" || got.Candidates != nil || got.Err != nil {
+	if got.ID != "" || got.Candidates != nil || got.Err != nil {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -188,7 +188,7 @@ func TestResolveAlbumAligns(t *testing.T) {
 	c := newCache(t)
 	got := New(f, c).Resolve(context.Background(), loverGroup())
 	for i, want := range []string{"T1", "T2", "T3"} {
-		if got[i].AmazonID != want || got[i].Via != "album" {
+		if got[i].ID != want || got[i].Via != "album" {
 			t.Errorf("track %d: got %+v, want %s via album", i, got[i], want)
 		}
 	}
@@ -207,7 +207,7 @@ func TestResolveAlbumUnalignedFallsBack(t *testing.T) {
 	f.search["Taylor Swift Cruel Summer"] = []match.Item{trackItem("T2", "Cruel Summer", "Taylor Swift")}
 	f.tracks = map[string]model.TrackInfo{"T2": {ID: "T2", Title: "Cruel Summer", Artist: "Taylor Swift", DurationMS: 178000}}
 	got := New(f, newCache(t)).Resolve(context.Background(), loverGroup())
-	if got[0].Via != "album" || got[2].Via != "album" || got[1].AmazonID != "T2" || got[1].Via != "title" {
+	if got[0].Via != "album" || got[2].Via != "album" || got[1].ID != "T2" || got[1].Via != "title" {
 		t.Fatalf("got %+v", got)
 	}
 	want := []string{"Search Taylor Swift Lover", "LookupAlbum ALB", "Search Taylor Swift Cruel Summer", "LookupTracks"}
@@ -221,7 +221,7 @@ func TestResolveCacheHit(t *testing.T) {
 	c := newCache(t)
 	c.Put("sp1", "A9", "title")
 	got := New(f, c).Resolve(context.Background(), []download.Track{cruel})[0]
-	if got.AmazonID != "A9" || got.Via != "cache" || len(f.calls) != 0 {
+	if got.ID != "A9" || got.Via != "cache" || len(f.calls) != 0 {
 		t.Fatalf("got %+v, calls %v", got, f.calls)
 	}
 }
@@ -241,7 +241,7 @@ func TestResolveAlbumAllCachedNoCalls(t *testing.T) {
 func TestResolveSearchErrorSetsErr(t *testing.T) {
 	boom := errors.New("boom")
 	got := New(&fakeFinder{searchErr: boom}, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
-	if !errors.Is(got.Err, boom) || got.AmazonID != "" {
+	if !errors.Is(got.Err, boom) || got.ID != "" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -261,7 +261,7 @@ func TestResolveAlbumPrefersTrackNumber(t *testing.T) {
 	al := f.albums["ALB"]
 	al.Tracks = append([]model.TrackInfo{{ID: "T2bonus", Title: "Cruel Summer", Artist: "Taylor Swift", TrackNumber: 19, DurationMS: 178000}}, al.Tracks...)
 	got := New(f, newCache(t)).Resolve(context.Background(), loverGroup())
-	if got[1].AmazonID != "T2" {
+	if got[1].ID != "T2" {
 		t.Fatalf("got %+v, want the same track number T2", got[1])
 	}
 }
@@ -271,7 +271,7 @@ func TestResolveUnlookedTopIsNotConfident(t *testing.T) {
 	f := &fakeFinder{search: map[string][]match.Item{"Taylor Swift Cruel Summer": {
 		trackItem("L1", "Cruel Summer (Live From TS The Eras Tour)", "Taylor Swift")}}}
 	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
-	if got.AmazonID != "" || got.Err != nil || len(got.Candidates) != 1 || got.Candidates[0].ID != "L1" {
+	if got.ID != "" || got.Err != nil || len(got.Candidates) != 1 || got.Candidates[0].ID != "L1" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -287,7 +287,7 @@ func TestResolveAlbumLookupErrorFallsBackToTrack(t *testing.T) {
 		tracks: map[string]model.TrackInfo{"A1": {ID: "A1", Title: "Cruel Summer", Artist: "Taylor Swift", DurationMS: 178000}},
 	}
 	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{tr})[0]
-	if got.AmazonID != "A1" || got.Via != "title" || got.Err != nil {
+	if got.ID != "A1" || got.Via != "title" || got.Err != nil {
 		t.Fatalf("got %+v", got)
 	}
 	if f.count("LookupAlbum GONE") != 1 {
@@ -302,7 +302,7 @@ func TestResolveLookupTracksErrorSetsErr(t *testing.T) {
 		tracksErr: boom,
 	}
 	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
-	if !errors.Is(got.Err, boom) || got.AmazonID != "" {
+	if !errors.Is(got.Err, boom) || got.ID != "" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -320,7 +320,7 @@ func TestResolveISRCRankOrderStopsAtFirst(t *testing.T) {
 		isrc: map[string][]string{"Y": {"other"}, "Z": {"sp1"}, "W": {"sp1"}},
 	}
 	got := New(f, newCache(t)).Resolve(context.Background(), []download.Track{cruel})[0]
-	if got.AmazonID != "J3" || got.Via != "isrc" {
+	if got.ID != "J3" || got.Via != "isrc" {
 		t.Fatalf("got %+v", got)
 	}
 	if want := "ISRC Y|ISRC Z"; strings.Join(f.calls[2:], "|") != want {

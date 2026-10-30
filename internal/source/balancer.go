@@ -78,6 +78,9 @@ func (b *Balancer) Names() []string {
 	return names
 }
 
+// Accepts is the service whose ids every site downloads: lucida and doubledouble take Amazon tracks only. shim until Task 10
+func (b *Balancer) Accepts(string) string { return "amazon" }
+
 // Ready reports whether name may take a track: no cooldown, no check, not asking, no guard pause.
 func (b *Balancer) Ready(name string) bool {
 	b.mu.Lock()

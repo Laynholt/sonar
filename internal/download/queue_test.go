@@ -26,7 +26,16 @@ type fakeFetch struct {
 	fn    func(ctx context.Context, id, pathNoExt string) (string, error)
 }
 
-func (f *fakeFetch) fetch(ctx context.Context, site string, t Track, id string, o Options, pathNoExt string, onStatus func(string)) (string, error) {
+// amazonID is the Amazon ID a fetch would download: an Amazon track's own, else the one matched for it.
+func amazonID(t Track, ids map[string]string) string {
+	if ServiceOf(t) == "amazon" {
+		return t.ID
+	}
+	return ids["amazon"]
+}
+
+func (f *fakeFetch) fetch(ctx context.Context, site string, t Track, ids map[string]string, o Options, pathNoExt string, onStatus func(string)) (string, error) {
+	id := amazonID(t, ids)
 	f.mu.Lock()
 	f.calls = append(f.calls, call{site, id, pathNoExt, o, t})
 	f.mu.Unlock()
@@ -457,7 +466,7 @@ func TestQueueSameTargetWaitsForRunningDownload(t *testing.T) {
 
 func TestQueueReportsProgress(t *testing.T) {
 	release := make(chan struct{})
-	q := NewQueue(func(ctx context.Context, _ string, _ Track, _ string, _ Options, pathNoExt string, _ func(string)) (string, error) {
+	q := NewQueue(func(ctx context.Context, _ string, _ Track, _ map[string]string, _ Options, pathNoExt string, _ func(string)) (string, error) {
 		Report(ctx, 5, 10)
 		select {
 		case <-release:
@@ -473,21 +482,23 @@ func TestQueueReportsProgress(t *testing.T) {
 }
 
 // fakeResolve records the track IDs of each call and the peak of overlapping calls.
-// fn decides the outcome (default: a confident match "B-"+ID via "title").
+// fn decides the outcome (default: a confident match "B-"+ID via "title"); tos records each call's target service.
 type fakeResolve struct {
 	mu        sync.Mutex
 	calls     [][]string
+	tos       []string
 	cur, peak int
 	fn        func(ctx context.Context, ts []Track) []Resolution
 }
 
-func (r *fakeResolve) resolve(ctx context.Context, ts []Track) []Resolution {
+func (r *fakeResolve) resolve(ctx context.Context, to string, ts []Track) []Resolution {
 	ids := make([]string, len(ts))
 	for i, t := range ts {
 		ids[i] = t.ID
 	}
 	r.mu.Lock()
 	r.calls = append(r.calls, ids)
+	r.tos = append(r.tos, to)
 	r.cur++
 	r.peak = max(r.peak, r.cur)
 	r.mu.Unlock()
@@ -501,7 +512,7 @@ func (r *fakeResolve) resolve(ctx context.Context, ts []Track) []Resolution {
 	}
 	out := make([]Resolution, len(ts))
 	for i, t := range ts {
-		out[i] = Resolution{AmazonID: "B-" + t.ID, Via: "title"}
+		out[i] = Resolution{ID: "B-" + t.ID, Via: "title"}
 	}
 	return out
 }
@@ -510,6 +521,12 @@ func (r *fakeResolve) callLog() [][]string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([][]string(nil), r.calls...)
+}
+
+func (r *fakeResolve) toLog() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.tos...)
 }
 
 func newMQ(t *testing.T, f *fakeFetch, r *fakeResolve) *Queue {
@@ -551,12 +568,12 @@ func reviewAll(ctx context.Context, ts []Track) []Resolution {
 func TestSpotifyTrackMatchedThenDownloaded(t *testing.T) {
 	f := &fakeFetch{}
 	r := &fakeResolve{fn: func(_ context.Context, ts []Track) []Resolution {
-		return each(ts, func(Track) Resolution { return Resolution{AmazonID: "B000000001", Via: "isrc"} })
+		return each(ts, func(Track) Resolution { return Resolution{ID: "B000000001", Via: "isrc"} })
 	}}
 	q := newMQ(t, f, r)
 	q.Enqueue(album, testOpts(t), spotify("s1"))
 	it := find(waitFor(t, q, allIn(Completed, "s1")), "s1")
-	if it.AmazonID != "B000000001" || it.Via != "isrc" {
+	if it.IDs["amazon"] != "B000000001" || it.Via != "isrc" {
 		t.Errorf("item = %+v", it)
 	}
 	if c := f.callLog(); len(c) != 1 || c[0].id != "B000000001" {
@@ -569,7 +586,7 @@ func TestUncertainGoesToReview(t *testing.T) {
 	q := newMQ(t, f, &fakeResolve{fn: reviewAll})
 	q.Enqueue(album, testOpts(t), spotify("s1"))
 	it := find(waitFor(t, q, allIn(Review, "s1")), "s1")
-	if len(it.Candidates) != 2 || it.AmazonID != "" {
+	if len(it.Candidates) != 2 || it.IDs["amazon"] != "" {
 		t.Errorf("item = %+v", it)
 	}
 	time.Sleep(20 * time.Millisecond)
@@ -587,7 +604,7 @@ func TestChooseQueuesCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := find(waitFor(t, q, allIn(Completed, "s1")), "s1")
-	if it.AmazonID != "B000000002" || it.Via != "manual" {
+	if it.IDs["amazon"] != "B000000002" || it.Via != "manual" {
 		t.Errorf("item = %+v", it)
 	}
 	if c := f.callLog(); len(c) != 1 || c[0].id != "B000000002" {
@@ -624,7 +641,7 @@ func TestGroupResolvedTogether(t *testing.T) {
 	r := &fakeResolve{}
 	r.fn = func(_ context.Context, ts []Track) []Resolution {
 		time.Sleep(10 * time.Millisecond) // long enough for an overlapping call to show in peak
-		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID} })
 	}
 	q := newMQ(t, &fakeFetch{}, r)
 	ts := spotify("g1", "s4", "g2", "g3")
@@ -652,7 +669,7 @@ func TestMatchTimeoutScalesWithGroup(t *testing.T) {
 		mu.Lock()
 		left[len(ts)] = time.Until(d)
 		mu.Unlock()
-		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID} })
 	}}
 	q := newMQ(t, &fakeFetch{}, r)
 	ts := spotify("g1", "g2", "g3", "s4")
@@ -678,7 +695,7 @@ func TestPlaylistMatchedOneByOne(t *testing.T) {
 	r := &fakeResolve{}
 	r.fn = func(ctx context.Context, ts []Track) []Resolution {
 		wait(ctx, gate)
-		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID} })
 	}
 	f := &fakeFetch{fn: func(ctx context.Context, _, p string) (string, error) {
 		wait(ctx, release)
@@ -704,7 +721,7 @@ func TestMatchErrorRetryRematches(t *testing.T) {
 			return each(ts, func(Track) Resolution { return Resolution{Err: errors.New("no network")} })
 		}
 		wait(ctx, gate)
-		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID} })
 	}
 	q := newMQ(t, &fakeFetch{}, r)
 	q.Enqueue(album, testOpts(t), spotify("s1"))
@@ -716,7 +733,7 @@ func TestMatchErrorRetryRematches(t *testing.T) {
 		t.Errorf("after Retry: %+v", it)
 	}
 	close(gate)
-	if it := find(waitFor(t, q, allIn(Completed, "s1")), "s1"); it.AmazonID != "B-s1" {
+	if it := find(waitFor(t, q, allIn(Completed, "s1")), "s1"); it.IDs["amazon"] != "B-s1" {
 		t.Errorf("item = %+v", it)
 	}
 }
@@ -751,7 +768,7 @@ func TestAmazonTrackSkipsMatching(t *testing.T) {
 	ts[1].Service = "amazon"
 	q.Enqueue(album, testOpts(t), ts)
 	s := waitFor(t, q, allIn(Completed, "A", "B"))
-	if find(s, "A").AmazonID != "A" || find(s, "B").AmazonID != "B" || len(r.callLog()) != 0 {
+	if len(find(s, "A").IDs) != 0 || len(find(s, "B").IDs) != 0 || len(r.callLog()) != 0 {
 		t.Errorf("snapshot = %+v, resolve calls = %v", s, r.callLog())
 	}
 	if f.called("A") != 1 || f.called("B") != 1 {
@@ -763,7 +780,7 @@ func TestEnqueueReleasesHold(t *testing.T) {
 	q := newMQ(t, &fakeFetch{}, &fakeResolve{})
 	q.Hold(time.Time{})
 	q.Enqueue(album, testOpts(t), append(tracks("A"), spotify("S")...))
-	if it := find(waitFor(t, q, allIn(Completed, "A", "S")), "S"); it.AmazonID != "B-S" {
+	if it := find(waitFor(t, q, allIn(Completed, "A", "S")), "S"); it.IDs["amazon"] != "B-S" {
 		t.Errorf("S = %+v", it)
 	}
 	if held, _ := q.HeldUntil(); held {
@@ -786,7 +803,7 @@ func TestHoldStopsMatching(t *testing.T) {
 		if ts[0].ID == "A" {
 			wait(ctx, gate)
 		}
-		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID} })
 	}
 	q := newMQ(t, f, r)
 	q.Enqueue(album, testOpts(t), spotify("A", "B"))
@@ -812,7 +829,7 @@ func TestCancelMatchingAndReview(t *testing.T) {
 		case "m":
 			wait(ctx, gate)
 		}
-		return each(ts, func(t Track) Resolution { return Resolution{AmazonID: "B-" + t.ID} })
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID} })
 	}
 	q := newMQ(t, f, r)
 	o := testOpts(t)
@@ -828,7 +845,7 @@ func TestCancelMatchingAndReview(t *testing.T) {
 	close(gate)
 	// Matching is serial, so once n is done the resolution for m has been applied or dropped.
 	s := waitFor(t, q, allIn(Completed, "n"))
-	if find(s, "m").Status != Cancelled || find(s, "m").AmazonID != "" || f.called("B-m") != 0 {
+	if find(s, "m").Status != Cancelled || find(s, "m").IDs["amazon"] != "" || f.called("B-m") != 0 {
 		t.Errorf("snapshot = %+v", s)
 	}
 }
@@ -842,7 +859,7 @@ func TestStaleResolutionDropped(t *testing.T) {
 			wait(ctx, gate)
 			id = "B-old"
 		}
-		return each(ts, func(Track) Resolution { return Resolution{AmazonID: id} })
+		return each(ts, func(Track) Resolution { return Resolution{ID: id} })
 	}
 	q := newMQ(t, f, r)
 	q.Enqueue(album, testOpts(t), spotify("s1"))
@@ -851,26 +868,43 @@ func TestStaleResolutionDropped(t *testing.T) {
 	q.Retry("s1")
 	close(gate) // the first attempt's result arrives while the entry is matching again
 	it := find(waitFor(t, q, allIn(Completed, "s1")), "s1")
-	if it.AmazonID != "B-new" || len(r.callLog()) != 2 || f.called("B-old") != 0 {
+	if it.IDs["amazon"] != "B-new" || len(r.callLog()) != 2 || f.called("B-old") != 0 {
 		t.Errorf("item = %+v, resolve calls = %v, fetch calls = %+v", it, r.callLog(), f.callLog())
 	}
 }
 
-// fakeSites has fixed names and settable readiness; every site is Usable unless marked otherwise.
+// fakeSites has settable names, readiness and accepts; every site is Usable unless marked otherwise,
+// and accepts "amazon" unless set otherwise.
 type fakeSites struct {
-	names    []string
 	mu       sync.Mutex
+	names    []string
 	ready    map[string]bool
 	unusable map[string]bool
-	asked    int // Ready calls
+	accepts  map[string]string
+	asked    int            // Ready calls
+	looked   map[string]int // Ready calls that returned true: the worker then scanned the queue under its lock
 }
 
 func newSites(names ...string) *fakeSites {
-	s := &fakeSites{names: names, ready: map[string]bool{}, unusable: map[string]bool{}}
+	s := &fakeSites{ready: map[string]bool{}, unusable: map[string]bool{}, accepts: map[string]string{}, looked: map[string]int{}}
 	for _, n := range names {
-		s.ready[n] = true
+		s.add(n, "amazon")
 	}
 	return s
+}
+
+// add appends a ready site taking accepts.
+func (s *fakeSites) add(name, accepts string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.names = append(s.names, name)
+	s.ready[name], s.accepts[name] = true, accepts
+}
+
+func (s *fakeSites) Accepts(name string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.accepts[name]
 }
 
 // readySites returns n ready sites named "a", "b", ….
@@ -882,12 +916,19 @@ func readySites(n int) *fakeSites {
 	return newSites(names...)
 }
 
-func (s *fakeSites) Names() []string { return s.names }
+func (s *fakeSites) Names() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.names...)
+}
 
 func (s *fakeSites) Ready(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.asked++
+	if s.ready[name] {
+		s.looked[name]++
+	}
 	return s.ready[name]
 }
 
@@ -895,6 +936,12 @@ func (s *fakeSites) Usable(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return !s.unusable[name]
+}
+
+func (s *fakeSites) lookedAt(name string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.looked[name]
 }
 
 func (s *fakeSites) set(name string, ready bool) {
@@ -928,15 +975,24 @@ func (l *siteLog) String() string {
 	return strings.Join(l.sites, " ")
 }
 
-// siteQ runs fn as the fetch: nil saves pathNoExt+".flac", an error fails the attempt.
+// siteQ runs fn as the fetch: nil saves pathNoExt+".flac", an error fails the attempt. id is the Amazon ID.
 func siteQ(t *testing.T, s Sites, log *siteLog, fn func(ctx context.Context, site, id string) error) *Queue {
-	q := NewQueue(func(ctx context.Context, site string, _ Track, id string, _ Options, p string, _ func(string)) (string, error) {
+	return siteMQ(t, s, nil, log, fn)
+}
+
+// siteMQ is siteQ with r matching tracks; a nil r is a nil Resolve.
+func siteMQ(t *testing.T, s Sites, r *fakeResolve, log *siteLog, fn func(ctx context.Context, site, id string) error) *Queue {
+	var res Resolve
+	if r != nil {
+		res = r.resolve
+	}
+	q := NewQueue(func(ctx context.Context, site string, tr Track, ids map[string]string, _ Options, p string, _ func(string)) (string, error) {
 		log.add(site)
-		if err := fn(ctx, site, id); err != nil {
+		if err := fn(ctx, site, amazonID(tr, ids)); err != nil {
 			return "", err
 		}
 		return p + ".flac", nil
-	}, nil, s)
+	}, res, s)
 	t.Cleanup(q.Close)
 	return q
 }
@@ -1150,5 +1206,177 @@ func TestErrorKeepsSitePrefixOnce(t *testing.T) {
 	q.Enqueue(album, testOpts(t), tracks("1"))
 	if it := find(waitFor(t, q, allIn(Failed, "1")), "1"); it.Error != "a: HTTP 404" {
 		t.Errorf("error = %q", it.Error)
+	}
+}
+
+func fetchOK(context.Context, string, string) error { return nil }
+
+func TestTakeOwnService(t *testing.T) {
+	s := newSites("a")
+	s.set("a", false)
+	r, log := &fakeResolve{}, &siteLog{}
+	q := siteMQ(t, s, r, log, fetchOK)
+	q.Enqueue(album, testOpts(t), tracks("A"))
+	if it := find(q.Snapshot(), "A"); it.Status != Queued {
+		t.Fatalf("A = %+v, want queued at once", it)
+	}
+	s.set("a", true)
+	q.Wake()
+	it := find(waitFor(t, q, allIn(Completed, "A")), "A")
+	if len(it.IDs) != 0 || len(r.callLog()) != 0 || log.String() != "a" {
+		t.Errorf("A = %+v, resolve calls = %v, fetches on %q", it, r.callLog(), log)
+	}
+}
+
+func TestAnyTakesAtOnce(t *testing.T) {
+	s := newSites("a")
+	s.add("x", "any")
+	s.set("a", false)
+	s.set("x", false)
+	r, log := &fakeResolve{}, &siteLog{}
+	q := siteMQ(t, s, r, log, fetchOK)
+	q.Enqueue(album, testOpts(t), spotify("S"))
+	if it := find(q.Snapshot(), "S"); it.Status != Queued {
+		t.Fatalf("S = %+v, want queued at once", it)
+	}
+	s.set("a", true)
+	q.Wake()
+	deadline := time.Now().Add(2 * time.Second)
+	for s.lookedAt("a") == 0 { // a's worker has scanned the queue and passed S over
+		if time.Now().After(deadline) {
+			t.Fatal("a never looked at the queue")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if it := find(q.Snapshot(), "S"); it.Status != Queued || log.String() != "" {
+		t.Fatalf("S = %+v, fetches on %q; a takes only Amazon IDs", it, log)
+	}
+	s.set("x", true)
+	q.Wake()
+	it := find(waitFor(t, q, allIn(Completed, "S")), "S")
+	if it.Site != "x" || len(it.IDs) != 0 || len(r.callLog()) != 0 || log.String() != "x" {
+		t.Errorf("S = %+v, resolve calls = %v, fetches on %q", it, r.callLog(), log)
+	}
+}
+
+func TestMatchWhenNoSiteCanTake(t *testing.T) {
+	gate := make(chan struct{})
+	r, log := &fakeResolve{}, &siteLog{}
+	r.fn = func(ctx context.Context, ts []Track) []Resolution {
+		wait(ctx, gate)
+		return each(ts, func(t Track) Resolution { return Resolution{ID: "B-" + t.ID, Via: "isrc", ISRC: "USX"} })
+	}
+	q := siteMQ(t, newSites("a", "b"), r, log, func(_ context.Context, _, id string) error {
+		if id != "B-S" {
+			return fmt.Errorf("fetched %q", id)
+		}
+		return nil
+	})
+	q.Enqueue(album, testOpts(t), spotify("S"))
+	if it := find(q.Snapshot(), "S"); it.Status != Matching {
+		t.Fatalf("S = %+v, want matching", it)
+	}
+	close(gate)
+	it := find(waitFor(t, q, allIn(Completed, "S")), "S")
+	if it.IDs["amazon"] != "B-S" || it.Via != "isrc" || it.Track.ISRC != "USX" || it.Error != "" {
+		t.Errorf("S = %+v", it)
+	}
+	if tos := r.toLog(); len(tos) != 1 || tos[0] != "amazon" {
+		t.Errorf("resolve targets = %v", tos)
+	}
+}
+
+func TestReviewServiceSet(t *testing.T) {
+	r, log := &fakeResolve{fn: reviewAll}, &siteLog{}
+	q := siteMQ(t, newSites("a"), r, log, func(_ context.Context, _, id string) error {
+		if id != "B000000002" {
+			return fmt.Errorf("fetched %q", id)
+		}
+		return nil
+	})
+	q.Enqueue(album, testOpts(t), spotify("S"))
+	if it := find(waitFor(t, q, allIn(Review, "S")), "S"); it.ReviewService != "amazon" || len(it.IDs) != 0 {
+		t.Fatalf("S = %+v", it)
+	}
+	if err := q.Choose("S", "B000000002"); err != nil {
+		t.Fatal(err)
+	}
+	if it := find(waitFor(t, q, allIn(Completed, "S")), "S"); it.IDs["amazon"] != "B000000002" || it.Via != "manual" {
+		t.Errorf("S = %+v", it)
+	}
+}
+
+// x takes anything but goes down on the track; only a is left, and it needs an Amazon ID.
+func TestFallbackMatchesAfterAnyFails(t *testing.T) {
+	s := newSites("a")
+	s.add("x", "any")
+	r, log := &fakeResolve{}, &siteLog{}
+	q := siteMQ(t, s, r, log, func(_ context.Context, site, id string) error {
+		if site == "x" {
+			s.set("x", false)
+			return siteDown("x")
+		}
+		if id != "B-S" {
+			return fmt.Errorf("fetched %q", id)
+		}
+		return nil
+	})
+	q.Enqueue(album, testOpts(t), spotify("S"))
+	it := find(waitFor(t, q, allIn(Completed, "S")), "S")
+	if it.Site != "a" || it.IDs["amazon"] != "B-S" || log.String() != "x a" {
+		t.Errorf("S = %+v, fetches on %q", it, log)
+	}
+	if tos := r.toLog(); len(tos) != 1 || tos[0] != "amazon" {
+		t.Errorf("resolve targets = %v", tos)
+	}
+}
+
+func TestFixedSourceAccepts(t *testing.T) {
+	for _, tc := range []struct {
+		source  string
+		matched bool
+	}{{"a", true}, {"x", false}} {
+		t.Run(tc.source, func(t *testing.T) {
+			s := newSites("a")
+			s.add("x", "any")
+			r, log := &fakeResolve{}, &siteLog{}
+			q := siteMQ(t, s, r, log, fetchOK)
+			o := testOpts(t)
+			o.Source = tc.source
+			q.Enqueue(album, o, spotify("S"))
+			it := find(waitFor(t, q, allIn(Completed, "S")), "S")
+			if it.Site != tc.source || log.String() != tc.source || (len(r.callLog()) == 1) != tc.matched {
+				t.Errorf("S = %+v, fetches on %q, resolve calls = %v", it, log, r.callLog())
+			}
+		})
+	}
+}
+
+func TestAddSiteLater(t *testing.T) {
+	s := newSites()
+	r, log := &fakeResolve{}, &siteLog{}
+	var cur, peak atomic.Int32
+	q := siteMQ(t, s, r, log, func(context.Context, string, string) error {
+		n := cur.Add(1)
+		defer cur.Add(-1)
+		if n > peak.Load() {
+			peak.Store(n)
+		}
+		time.Sleep(5 * time.Millisecond)
+		return nil
+	})
+	q.Enqueue(album, testOpts(t), append(tracks("A", "B"), spotify("S")...))
+	if snap := q.Snapshot(); !allIn(Queued, "A", "B", "S")(snap) { // no site yet, so nothing to match for
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	s.add("a", "amazon")
+	q.AddSite("a", 1)
+	q.AddSite("a", 1) // starts no second worker
+	waitFor(t, q, allIn(Completed, "A", "B", "S"))
+	if log.String() != "a a a" || peak.Load() != 1 {
+		t.Errorf("fetches on %q, peak in flight = %d", log, peak.Load())
+	}
+	if tos := r.toLog(); len(tos) != 1 || tos[0] != "amazon" {
+		t.Errorf("resolve targets = %v", tos)
 	}
 }

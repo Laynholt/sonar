@@ -30,14 +30,14 @@ type Resolver struct {
 
 func New(f Finder, c *Cache) *Resolver { return &Resolver{f: f, c: c} }
 
-// Resolve is a download.Resolve: one Resolution per track, same order.
+// Resolve matches tracks to Amazon, as a download.Resolve with to == "amazon": one Resolution per track, same order.
 // Resolution{} means nothing was found.
 func (r *Resolver) Resolve(ctx context.Context, tracks []download.Track) []download.Resolution {
 	out := make([]download.Resolution, len(tracks))
 	var todo []int
 	for i, t := range tracks {
 		if id, _, ok := r.c.Get(t.ID); ok {
-			out[i] = download.Resolution{AmazonID: id, Via: "cache"}
+			out[i] = download.Resolution{ID: id, Via: "cache"}
 		} else {
 			todo = append(todo, i)
 		}
@@ -49,8 +49,8 @@ func (r *Resolver) Resolve(ctx context.Context, tracks []download.Track) []downl
 		out[i] = r.track(ctx, tracks[i])
 	}
 	for i, res := range out {
-		if res.AmazonID != "" && res.Via != "cache" {
-			r.c.Put(tracks[i].ID, res.AmazonID, res.Via)
+		if res.ID != "" && res.Via != "cache" {
+			r.c.Put(tracks[i].ID, res.ID, res.Via)
 		}
 	}
 	return out
@@ -91,7 +91,7 @@ func (r *Resolver) album(ctx context.Context, tracks []download.Track, todo []in
 	var left []int
 	for _, i := range todo {
 		if id := align(tracks[i], al.Tracks); id != "" {
-			out[i] = download.Resolution{AmazonID: id, Via: "album"}
+			out[i] = download.Resolution{ID: id, Via: "album"}
 		} else {
 			left = append(left, i)
 		}
@@ -169,7 +169,7 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 	slices.SortStableFunc(cands, func(a, b candidate) int { return cmp.Compare(b.rank, a.rank) })
 
 	if top := cands[0]; top.known && top.Score >= match.ConfidentScore && match.DurationClose(t.DurationMS, top.DurationMS) {
-		return download.Resolution{AmazonID: top.ID, Via: "title"}
+		return download.Resolution{ID: top.ID, Via: "title"}
 	}
 	for _, c := range cands {
 		if c.isrc == "" {
@@ -184,7 +184,7 @@ func (r *Resolver) track(ctx context.Context, t download.Track) download.Resolut
 			continue
 		}
 		if slices.Contains(sp, t.ID) {
-			return download.Resolution{AmazonID: c.ID, Via: "isrc"}
+			return download.Resolution{ID: c.ID, Via: "isrc"}
 		}
 	}
 	res := download.Resolution{Candidates: make([]download.Candidate, len(cands))}

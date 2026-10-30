@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -31,19 +32,40 @@ const trackTimeout = 15 * time.Minute
 const matchTimeout = 5 * time.Minute
 
 type Item struct {
-	ID         string      `json:"id"`
-	QueueID    string      `json:"queue_id"`
-	Track      Track       `json:"track"`
-	Status     Status      `json:"status"`
-	Message    string      `json:"message"`
-	Path       string      `json:"path"`
-	Error      string      `json:"error"`
-	Bytes      int64       `json:"bytes"` // written so far
-	Size       int64       `json:"size"`  // expected file size, 0 when the site does not say
-	AmazonID   string      `json:"amazon_id"`
-	Via        string      `json:"via"`
-	Candidates []Candidate `json:"candidates,omitempty"`
-	Site       string      `json:"site"`
+	ID         string            `json:"id"`
+	QueueID    string            `json:"queue_id"`
+	Track      Track             `json:"track"`
+	Status     Status            `json:"status"`
+	Message    string            `json:"message"`
+	Path       string            `json:"path"`
+	Error      string            `json:"error"`
+	Bytes      int64             `json:"bytes"`         // written so far
+	Size       int64             `json:"size"`          // expected file size, 0 when the site does not say
+	IDs        map[string]string `json:"ids,omitempty"` // service → id found for this track (its own service's id is not stored here)
+	Via        string            `json:"via"`
+	Candidates []Candidate       `json:"candidates,omitempty"`
+	// ReviewService is the service the candidates of an item in review belong to.
+	ReviewService string `json:"review_service,omitempty"`
+	Site          string `json:"site"`
+}
+
+// ServiceOf is the service t belongs to: t.Service, "" meaning amazon.
+func ServiceOf(t Track) string {
+	if t.Service == "" {
+		return "amazon"
+	}
+	return t.Service
+}
+
+// withID returns a copy of ids with service set to id. IDs maps are never written in place:
+// a Snapshot or a running Fetch may hold the old one.
+func withID(ids map[string]string, service, id string) map[string]string {
+	out := maps.Clone(ids)
+	if out == nil {
+		out = map[string]string{}
+	}
+	out[service] = id
+	return out
 }
 
 type Candidate struct {
@@ -59,24 +81,26 @@ type Candidate struct {
 	Recommended bool    `json:"recommended"`
 }
 
+// Resolution is one track's match on another service. ISRC, when set, fills the track's ISRC.
 type Resolution struct {
-	AmazonID   string
-	Via        string
-	Candidates []Candidate
-	Err        error
+	ID, Via, ISRC string
+	Candidates    []Candidate
+	Err           error
 }
 
-// Resolve returns one Resolution per track, same order. AmazonID != "" means confident.
+// Resolve matches tracks to the service to and returns one Resolution per track, same order. ID != "" means confident.
 // It must return promptly once ctx is done: Close waits for it.
-type Resolve func(ctx context.Context, tracks []Track) []Resolution
+type Resolve func(ctx context.Context, to string, tracks []Track) []Resolution
 
-// Sites are the download sites, one worker each. Ready and Usable are called under the queue lock,
+// Sites are the download sites. All of its methods are called under the queue lock,
 // so they must not call back into the Queue.
 type Sites interface {
 	Names() []string
 	Ready(name string) bool
 	// Usable is false while only the user can make the site ready again, e.g. by passing a browser check.
 	Usable(name string) bool
+	// Accepts is the service whose ids the site downloads, or "any" for a site that takes every track as it is.
+	Accepts(name string) string
 }
 
 // ErrSiteDown marks a Fetch error that is the site's fault, not the track's: in auto mode the track waits for another site.
@@ -84,8 +108,8 @@ type Sites interface {
 var ErrSiteDown = errors.New("download site unavailable")
 
 // Fetch downloads one track through site to pathNoExt+extension and returns the file path.
-// t is the entry's Track and amazonID its AmazonID. onStatus must not be called after Fetch returns.
-type Fetch func(ctx context.Context, site string, t Track, amazonID string, o Options, pathNoExt string, onStatus func(string)) (string, error)
+// t is the entry's Track and ids its IDs, which Fetch must not modify. onStatus must not be called after Fetch returns.
+type Fetch func(ctx context.Context, site string, t Track, ids map[string]string, o Options, pathNoExt string, onStatus func(string)) (string, error)
 
 type entry struct {
 	Item
@@ -94,17 +118,18 @@ type entry struct {
 	pathNoExt string
 	cancel    context.CancelFunc // set while Downloading
 	attempt   int                // bumped on each entry into Matching; a result for an older attempt is dropped
+	target    string             // while Matching: the service to match to
 	tried     []string           // auto mode: sites that failed the track, in order; cleared by Retry and Enqueue
 	errs      []string           // "site: err" for each of tried
 }
 
-// Queue matches tracks one job at a time and downloads them one track per site;
+// Queue matches tracks one job at a time and downloads them through each site's workers;
 // one entry per track ID, in first-enqueue order.
 type Queue struct {
 	fetch      Fetch
 	resolve    Resolve
 	sites      Sites
-	names      []string
+	started    map[string]bool // sites with workers
 	base       context.Context // parent of every Resolve call; cancelled by Close
 	cancelBase context.CancelFunc
 	mu         sync.Mutex
@@ -126,18 +151,40 @@ type Queue struct {
 	OnChange func()
 }
 
-// NewQueue starts one worker per site and the matcher. A nil resolve fails every Spotify track with "no match result".
+// NewQueue starts one worker per site and the matcher. A nil resolve fails every track that needs matching with "no match result".
 func NewQueue(fetch Fetch, resolve Resolve, sites Sites) *Queue {
-	names := sites.Names()
-	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, names: names, byID: map[string]*entry{}, busy: map[string]bool{}}
+	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, started: map[string]bool{}, byID: map[string]*entry{}, busy: map[string]bool{}}
 	q.base, q.cancelBase = context.WithCancel(context.Background())
 	q.cond = sync.NewCond(&q.mu)
-	q.wg.Add(len(names) + 1)
-	for _, name := range names {
+	q.wg.Add(1)
+	go q.matcher()
+	for _, name := range sites.Names() {
+		q.AddSite(name, 1)
+	}
+	return q
+}
+
+// AddSite starts workers for name, which Sites.Names must list, and sends queued tracks that no site
+// can take as they are to matching. A second call for the same name, or one after Close, does nothing.
+func (q *Queue) AddSite(name string, workers int) {
+	defer q.notify()
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed || q.started[name] {
+		return
+	}
+	q.started[name] = true
+	workers = max(workers, 1) // a started site without a worker would hold its tracks forever
+	q.wg.Add(workers)
+	for range workers {
 		go q.worker(name)
 	}
-	go q.matcher()
-	return q
+	for _, e := range q.order {
+		if e.Status == Queued {
+			q.placeLocked(e, "")
+		}
+	}
+	q.cond.Broadcast()
 }
 
 // Wake makes idle workers look again, e.g. after a site became ready.
@@ -166,22 +213,57 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 			q.order = append(q.order, e)
 		}
 		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t}, c: c, o: o, pathNoExt: PathNoExt(t, c, o), attempt: e.attempt}
-		if t.Service == "" || t.Service == "amazon" {
-			e.AmazonID = t.ID
-		}
-		e.begin()
+		q.placeLocked(e, "")
 	}
 	q.releaseLocked()
 	q.cond.Broadcast()
 }
 
-// begin starts a fresh or retried entry: matching until it has an Amazon ID, then queued.
-func (e *entry) begin() {
+// placeLocked queues e when a site it may go to can take it as it is; otherwise it sends e to matching for
+// the service of the first of those sites. down, a site that has just gone down on e, is left out.
+// With no such site at all e waits queued, e.g. for AddSite.
+func (q *Queue) placeLocked(e *entry, down string) {
 	e.Status = Queued
-	if e.AmazonID == "" {
-		e.Status = Matching
+	target := ""
+	for _, n := range q.candidatesLocked(e) {
+		if n == down {
+			continue
+		}
+		if q.canTake(e, n) {
+			return
+		}
+		if target == "" {
+			target = q.sites.Accepts(n)
+		}
+	}
+	if target != "" {
+		e.Status, e.target, e.Candidates = Matching, target, nil
 		e.attempt++
 	}
+}
+
+// candidatesLocked lists the sites e may go to: in auto mode the started, usable sites that have not tried it,
+// in Names order; otherwise o.Source once started.
+func (q *Queue) candidatesLocked(e *entry) []string {
+	if !e.auto() {
+		if q.started[e.o.Source] {
+			return []string{e.o.Source}
+		}
+		return nil
+	}
+	var out []string
+	for _, n := range q.sites.Names() {
+		if q.started[n] && !slices.Contains(e.tried, n) && q.sites.Usable(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// canTake reports whether site can download e with what e has: its own service's id or one found for it.
+func (q *Queue) canTake(e *entry, site string) bool {
+	a := q.sites.Accepts(site)
+	return a == "any" || a == ServiceOf(e.Track) || e.IDs[a] != ""
 }
 
 func (q *Queue) Snapshot() []Item {
@@ -194,8 +276,8 @@ func (q *Queue) Snapshot() []Item {
 	return out
 }
 
-// Choose downloads amazonID for an item in review.
-func (q *Queue) Choose(id, amazonID string) error {
+// Choose downloads targetID, an id on the item's ReviewService, for an item in review.
+func (q *Queue) Choose(id, targetID string) error {
 	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -203,10 +285,10 @@ func (q *Queue) Choose(id, amazonID string) error {
 	if e == nil || e.Status != Review {
 		return errors.New("track is not waiting for a choice")
 	}
-	if amazonID == "" {
-		return errors.New("no Amazon track chosen")
+	if targetID == "" {
+		return errors.New("no track chosen")
 	}
-	e.Status, e.AmazonID, e.Via = Queued, amazonID, "manual"
+	e.Status, e.IDs, e.Via = Queued, withID(e.IDs, e.ReviewService, targetID), "manual"
 	q.cond.Broadcast()
 	return nil
 }
@@ -278,16 +360,14 @@ func (q *Queue) RetryFailed() {
 	}
 }
 
-// requeue sends a failed or cancelled item back to matching when it never got an Amazon ID, else to the download queue.
+// requeue sends a failed or cancelled item back to the download queue, or to matching when no site can take it.
 func (q *Queue) requeue(e *entry) {
 	if q.closed || (e.Status != Failed && e.Status != Cancelled) {
 		return
 	}
 	e.Error, e.Message, e.Path, e.Bytes, e.Size = "", "", "", 0, 0
 	e.tried, e.errs = nil, nil
-	if e.begin(); e.Status == Matching {
-		e.Candidates = nil
-	}
+	q.placeLocked(e, "")
 	q.cond.Broadcast()
 }
 
@@ -385,7 +465,8 @@ func (q *Queue) waitLocked(take func() bool) bool {
 	return false
 }
 
-// matcher resolves one job at a time: the oldest matching entry with the rest of its album group.
+// matcher resolves one job at a time: the oldest matching entry with the rest of its album group
+// that matches to the same service.
 func (q *Queue) matcher() {
 	defer q.wg.Done()
 	for {
@@ -395,7 +476,7 @@ func (q *Queue) matcher() {
 			q.mu.Unlock()
 			return
 		}
-		tracks, attempts := make([]Track, len(job)), make([]int, len(job))
+		tracks, attempts, to := make([]Track, len(job)), make([]int, len(job)), job[0].target
 		for i, e := range job {
 			tracks[i], attempts[i] = e.Track, e.attempt
 		}
@@ -404,7 +485,7 @@ func (q *Queue) matcher() {
 		var res []Resolution
 		if q.resolve != nil {
 			ctx, cancel := context.WithTimeout(q.base, matchTimeout*time.Duration(len(job)))
-			res = q.resolve(ctx, tracks)
+			res = q.resolve(ctx, to, tracks)
 			cancel()
 		}
 
@@ -418,13 +499,16 @@ func (q *Queue) matcher() {
 				r = res[i]
 			}
 			e.Candidates = r.Candidates
+			if r.ISRC != "" {
+				e.Track.ISRC = r.ISRC
+			}
 			switch {
-			case r.Err != nil:
-				e.Status, e.Error = Failed, r.Err.Error()
-			case r.AmazonID != "":
-				e.Status, e.AmazonID, e.Via = Queued, r.AmazonID, r.Via
+			case r.Err != nil: // after a fallback, the sites' errors come first
+				e.Status, e.Error = Failed, strings.Join(append(slices.Clip(e.errs), r.Err.Error()), "; ")
+			case r.ID != "":
+				e.Status, e.IDs, e.Via = Queued, withID(e.IDs, to, r.ID), r.Via
 			default:
-				e.Status = Review
+				e.Status, e.ReviewService = Review, to
 			}
 		}
 		q.cond.Broadcast()
@@ -436,7 +520,7 @@ func (q *Queue) matcher() {
 func (q *Queue) matchJobLocked() []*entry {
 	var job []*entry
 	for _, e := range q.order {
-		if e.Status == Matching && (job == nil || job[0].Track.Group != "" && e.Track.Group == job[0].Track.Group) {
+		if e.Status == Matching && (job == nil || job[0].Track.Group != "" && e.Track.Group == job[0].Track.Group && e.target == job[0].target) {
 			job = append(job, e)
 		}
 	}
@@ -456,7 +540,7 @@ func (q *Queue) worker(site string) {
 		ctx, cancel := context.WithTimeout(context.Background(), trackTimeout)
 		e.Status, e.cancel, e.Site = Downloading, cancel, site
 		q.busy[e.pathNoExt] = true
-		id, track := e.AmazonID, e.Track
+		ids, track := e.IDs, e.Track
 		q.mu.Unlock()
 		q.notify()
 		ctx = WithProgress(ctx, func(done, total int64) {
@@ -467,7 +551,7 @@ func (q *Queue) worker(site string) {
 			}
 		})
 
-		path, err := q.fetch(ctx, site, track, id, e.o, e.pathNoExt, func(msg string) {
+		path, err := q.fetch(ctx, site, track, ids, e.o, e.pathNoExt, func(msg string) {
 			q.mu.Lock()
 			defer q.mu.Unlock()
 			if e.Status == Downloading {
@@ -488,29 +572,27 @@ func (q *Queue) worker(site string) {
 		case !e.auto():
 			e.Status, e.Error = Failed, err.Error()
 		default:
-			e.Status, e.Message, e.Bytes, e.Size = Queued, "", 0, 0
+			e.Message, e.Bytes, e.Size = "", 0, 0
 			errs := append(slices.Clip(e.errs), err.Error())
-			if !errors.Is(err, ErrSiteDown) { // a site down is not tried: its gate keeps it off this track until it is back
+			down := site // a site down is not tried: its gate keeps it off this track until it is back
+			if !errors.Is(err, ErrSiteDown) {
 				msg := err.Error()
 				if !strings.HasPrefix(msg, site+": ") { // the balancer usually prefixes it already
 					msg = site + ": " + msg
 				}
 				e.tried, e.errs = append(e.tried, site), append(e.errs, msg)
-				errs = e.errs
+				errs, down = e.errs, ""
 			}
-			if !q.usableLocked(e) {
+			if len(q.candidatesLocked(e)) == 0 { // no site left that may take it without the user's help
 				e.Status, e.Error = Failed, strings.Join(errs, "; ")
+			} else {
+				q.placeLocked(e, down) // to matching when no site left can take it as it is
 			}
 		}
 		q.cond.Broadcast() // the track may be back in the queue, and its path is free
 		q.mu.Unlock()
 		q.notify()
 	}
-}
-
-// usableLocked reports whether a site that has not tried e may still take it without the user's help.
-func (q *Queue) usableLocked(e *entry) bool {
-	return slices.ContainsFunc(q.names, func(n string) bool { return !slices.Contains(e.tried, n) && q.sites.Usable(n) })
 }
 
 // auto reports whether any site may take the track; otherwise only o.Source may.
@@ -534,6 +616,9 @@ func (q *Queue) takeLocked(site string) *entry {
 				continue
 			}
 		} else if e.o.Source != site {
+			continue
+		}
+		if !q.canTake(e, site) {
 			continue
 		}
 		if q.busy[e.pathNoExt] {

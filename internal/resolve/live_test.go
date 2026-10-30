@@ -19,11 +19,11 @@ func TestLiveResolveCruelSummer(t *testing.T) {
 	tr := download.Track{ID: "1BxfuPKGuaTgP7aM0Bbdwr", Title: "Cruel Summer", Artist: "Taylor Swift", Album: "Lover",
 		AlbumArtist: "Taylor Swift", DurationMS: 178426, Service: "spotify"}
 	got := New(Live(), OpenCache(filepath.Join(t.TempDir(), "matches.json"))).Resolve(ctx, []download.Track{tr})[0]
-	t.Logf("AmazonID=%q Via=%q Err=%v", got.AmazonID, got.Via, got.Err)
+	t.Logf("AmazonID=%q Via=%q Err=%v", got.ID, got.Via, got.Err)
 	for _, c := range got.Candidates {
 		t.Logf("candidate %+v", c)
 	}
-	if got.AmazonID == "" || (got.Via != "title" && got.Via != "isrc") {
+	if got.ID == "" || (got.Via != "title" && got.Via != "isrc") {
 		t.Fatalf("want an AmazonID via title or isrc, got %+v", got)
 	}
 }

@@ -23,7 +23,7 @@ type State struct {
 }
 
 // Pending returns the entries worth keeping across a restart: matching, queued, downloading (as queued), review and failed.
-// Progress and site fields are cleared; AmazonID, Via, Candidates and Error are kept.
+// Progress and site fields are cleared; IDs, Via, Candidates, ReviewService and Error are kept.
 func (q *Queue) Pending() []Saved {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -61,10 +61,14 @@ func (q *Queue) Restore(s []Saved) {
 		e := &entry{Item: sv.Item, c: sv.Collection, o: sv.Options, pathNoExt: PathNoExt(sv.Item.Track, sv.Collection, sv.Options)}
 		e.Bytes, e.Size, e.Message, e.Site = 0, 0, "", ""
 		switch e.Status {
-		case Review, Failed:
+		case Review:
+			if e.ReviewService == "" { // saved before review_service: reviews were for Amazon
+				e.ReviewService = "amazon"
+			}
+		case Failed:
 		case Matching, Queued, Downloading:
 			e.Error = ""
-			e.begin()
+			q.placeLocked(e, "")
 		default: // the file is outside our control; anything else was finished
 			continue
 		}
@@ -76,6 +80,23 @@ func (q *Queue) Restore(s []Saved) {
 		q.releaseLocked()
 		q.held = true
 	}
+}
+
+// UnmarshalJSON reads an Item, taking a legacy "amazon_id" as IDs["amazon"] for a track from another service.
+func (it *Item) UnmarshalJSON(b []byte) error {
+	type plain Item // without this method
+	var v struct {
+		plain
+		AmazonID string `json:"amazon_id"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*it = Item(v.plain)
+	if v.AmazonID != "" && ServiceOf(it.Track) != "amazon" && it.IDs["amazon"] == "" {
+		it.IDs = withID(it.IDs, "amazon", v.AmazonID)
+	}
+	return nil
 }
 
 // Clear cancels running downloads and matches and drops every entry except completed and skipped ones.
