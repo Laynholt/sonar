@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "sleep" { // the grandchild "spawn" starts
+		time.Sleep(30 * time.Second)
+		return
+	}
 	var (
 		mu       sync.Mutex
 		settings map[string]any
@@ -28,6 +33,9 @@ func main() {
 		mu.Unlock()
 		fmt.Fprintln(os.Stderr, "fake started")
 		return nil
+	}
+	s.Notes = map[string]func(json.RawMessage){
+		plugin.MSettingsChanged: func(json.RawMessage) { fmt.Fprintln(os.Stderr, "got settings") },
 	}
 	s.Methods = map[string]sdk.Handler{
 		"echo": func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) { return p, nil },
@@ -61,6 +69,18 @@ func main() {
 		"status": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
 			s.Status(plugin.PluginStatus{NeedsAction: &plugin.NeedsAction{Message: "check", Action: "check"}})
 			return "ok", nil
+		},
+		"spawn": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
+			self, err := os.Executable()
+			if err != nil {
+				return nil, err
+			}
+			cmd := exec.Command(self, "sleep")
+			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr // holds the host's pipes open
+			if err := cmd.Start(); err != nil {
+				return nil, err
+			}
+			return cmd.Process.Pid, nil
 		},
 		"initSettings": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
 			mu.Lock()

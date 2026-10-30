@@ -35,6 +35,7 @@ type Host struct {
 	backoff     time.Duration // least time between a crash and the next start
 	initTimeout time.Duration
 	stall       time.Duration // a call with onProgress fails after this long without a note
+	pipeGrace   time.Duration // how long output may stay open after the process exits
 	maxLine     int
 
 	startMu   sync.Mutex // one start at a time; calls queue behind it
@@ -50,7 +51,8 @@ func NewHost(f Found, init func() InitParams, logf func(format string, args ...a
 		logf = func(string, ...any) {}
 	}
 	return &Host{f: f, init: init, logf: logf,
-		backoff: 10 * time.Second, initTimeout: 10 * time.Second, stall: 60 * time.Second, maxLine: 64 << 20}
+		backoff: 10 * time.Second, initTimeout: 10 * time.Second, stall: 60 * time.Second,
+		pipeGrace: time.Second, maxLine: 64 << 20}
 }
 
 // proc is one run of the plugin program.
@@ -58,12 +60,14 @@ type proc struct {
 	h     *Host
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
-	wmu   sync.Mutex // serialises writes to stdin
+	wmu   sync.Mutex  // serialises writes to stdin
+	ready atomic.Bool // initialize succeeded
 
 	mu         sync.Mutex
 	pending    map[int64]*pending
 	tail       []string
 	killReason string
+	job        job // zero once closed
 
 	dead chan struct{} // closed once the process is gone
 	err  error         // why it is gone; set before dead closes
@@ -85,12 +89,12 @@ func (h *Host) Call(ctx context.Context, method string, params, result any, onPr
 	return p.call(ctx, method, params, result, onProgress)
 }
 
-// Notify sends a notification to the running process; with none running it does nothing.
+// Notify sends a notification to the running process; until one is running and initialised it does nothing.
 func (h *Host) Notify(method string, params any) error {
 	h.mu.Lock()
 	p := h.p
 	h.mu.Unlock()
-	if p == nil {
+	if p == nil || !p.ready.Load() {
 		return nil
 	}
 	return p.send(nil, method, params)
@@ -144,6 +148,7 @@ func (h *Host) running() (*proc, error) {
 		<-p.dead
 		return nil, p.err
 	}
+	p.ready.Store(true)
 	h.mu.Lock()
 	h.lastCrash = ""
 	h.mu.Unlock()
@@ -158,18 +163,32 @@ func (h *Host) start() (*proc, error) {
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	// Our own pipes, not StdoutPipe: Wait closes those as soon as the process exits, losing its
+	// last lines, and run must be able to stop reading when a grandchild keeps them open.
+	stdout, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	stderr, err := cmd.StderrPipe()
+	stderr, errW, err := os.Pipe()
 	if err != nil {
+		stdout.Close()
+		outW.Close()
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	cmd.Stdout, cmd.Stderr = outW, errW
+	err = cmd.Start()
+	outW.Close()
+	errW.Close()
+	if err != nil {
+		stdout.Close()
+		stderr.Close()
 		return nil, fmt.Errorf("plugin %s: %w", h.f.M.ID, err)
 	}
-	p := &proc{h: h, cmd: cmd, stdin: stdin, pending: map[int64]*pending{}, dead: make(chan struct{})}
+	j, err := newJob(cmd.Process.Pid)
+	if err != nil {
+		h.logf("%s: no job object, its child processes may outlive it: %v", h.f.M.ID, err)
+	}
+	p := &proc{h: h, cmd: cmd, stdin: stdin, job: j, pending: map[int64]*pending{}, dead: make(chan struct{})}
 	h.mu.Lock()
 	closed := h.closed
 	if !closed {
@@ -199,10 +218,10 @@ func resolveRun(dir, name string) string {
 	return name
 }
 
-// run reads the process's output until it exits, then fails everything waiting on it.
-func (p *proc) run(stdout, stderr io.Reader) {
+// run waits for the process to exit and its output to end, then fails everything waiting on it.
+func (p *proc) run(stdout, stderr *os.File) {
 	h := p.h
-	errDone := make(chan struct{})
+	outDone, errDone := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(errDone)
 		sc := bufio.NewScanner(stderr)
@@ -218,16 +237,36 @@ func (p *proc) run(stdout, stderr io.Reader) {
 		}
 		io.Copy(io.Discard, stderr) // keep the pipe drained after an overlong line
 	}()
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(nil, h.maxLine)
-	for sc.Scan() {
-		p.handle(sc.Bytes())
-	}
-	if err := sc.Err(); err != nil {
-		p.kill("stdout: " + err.Error())
-	}
-	<-errDone
+	go func() {
+		defer close(outDone)
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(nil, h.maxLine)
+		for sc.Scan() {
+			p.handle(sc.Bytes())
+		}
+		if errors.Is(sc.Err(), bufio.ErrTooLong) {
+			p.kill("stdout: " + sc.Err().Error())
+		}
+	}()
 	waitErr := p.cmd.Wait()
+	p.mu.Lock()
+	p.job.close() // takes any grandchildren down with it
+	var none job
+	p.job = none
+	p.mu.Unlock()
+	grace := time.NewTimer(h.pipeGrace)
+	defer grace.Stop()
+	for _, done := range []chan struct{}{outDone, errDone} {
+		select {
+		case <-done:
+		case <-grace.C: // something else still holds the pipes: stop reading
+			stdout.Close()
+			stderr.Close()
+			<-done
+		}
+	}
+	stdout.Close()
+	stderr.Close()
 
 	p.mu.Lock()
 	reason, tail := p.killReason, strings.Join(p.tail, "; ")
@@ -314,8 +353,13 @@ func (p *proc) call(ctx context.Context, method string, params, result any, onPr
 		p.mu.Unlock()
 		close(pd.gone)
 	}()
-	if err := p.send(&id, method, params); err != nil {
-		return fmt.Errorf("plugin %s: %w", p.h.f.M.ID, err)
+	b, err := encode(&id, method, params)
+	if err != nil {
+		return fmt.Errorf("plugin %s: %s params: %w", p.h.f.M.ID, method, err)
+	}
+	if err := p.write(b); err != nil { // it cannot hear us: end it and report why it died
+		p.kill("")
+		return p.drainUntilDead(pd)
 	}
 	var watchdog *time.Timer
 	var stall <-chan time.Time
@@ -329,10 +373,10 @@ func (p *proc) call(ctx context.Context, method string, params, result any, onPr
 		case m := <-pd.in:
 			if m.Method == MProgress {
 				if onProgress != nil {
+					watchdog.Reset(p.h.stall)
 					var n ProgressParams
 					json.Unmarshal(m.Params, &n) // handle already decoded it once
 					onProgress(n.Progress)
-					watchdog.Reset(p.h.stall)
 				}
 				continue
 			}
@@ -346,12 +390,22 @@ func (p *proc) call(ctx context.Context, method string, params, result any, onPr
 			}
 			return nil
 		case <-ctx.Done():
-			p.send(nil, MCancel, map[string]int64{"id": id})
+			go p.send(nil, MCancel, map[string]int64{"id": id}) // a plugin that stopped reading must not hold us; kill unblocks it
 			return ctx.Err()
 		case <-stall:
 			p.kill(fmt.Sprintf("no progress for %g s", p.h.stall.Seconds()))
-			<-p.dead
+			return p.drainUntilDead(pd)
+		case <-p.dead:
 			return p.err
+		}
+	}
+}
+
+// drainUntilDead keeps taking pd's messages, so the reader never blocks on it, until the process is gone.
+func (p *proc) drainUntilDead(pd *pending) error {
+	for {
+		select {
+		case <-pd.in:
 		case <-p.dead:
 			return p.err
 		}
@@ -360,21 +414,30 @@ func (p *proc) call(ctx context.Context, method string, params, result any, onPr
 
 // send writes one message line; id nil makes it a notification.
 func (p *proc) send(id *int64, method string, params any) error {
+	b, err := encode(id, method, params)
+	if err != nil {
+		return err
+	}
+	return p.write(b)
+}
+
+func encode(id *int64, method string, params any) ([]byte, error) {
 	m := Message{JSONRPC: "2.0", ID: id, Method: method}
 	if params != nil {
 		b, err := json.Marshal(params)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		m.Params = b
 	}
 	b, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
+	return append(b, '\n'), err
+}
+
+func (p *proc) write(line []byte) error {
 	p.wmu.Lock()
 	defer p.wmu.Unlock()
-	_, err = p.stdin.Write(append(b, '\n'))
+	_, err := p.stdin.Write(line)
 	return err
 }
 
@@ -384,6 +447,7 @@ func (p *proc) kill(reason string) {
 	if p.killReason == "" {
 		p.killReason = reason
 	}
+	p.job.kill()
 	p.mu.Unlock()
 	p.cmd.Process.Kill() // fails only when it already exited
 }

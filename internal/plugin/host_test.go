@@ -167,7 +167,7 @@ func TestHostCancel(t *testing.T) {
 
 func TestHostCrashRestart(t *testing.T) {
 	h, _ := newFake(t, fakeDir)
-	h.backoff = 500 * time.Millisecond
+	h.backoff = 2 * time.Second
 	err := h.Call(context.Background(), "crash", nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("crash: got %v", err)
@@ -178,7 +178,7 @@ func TestHostCrashRestart(t *testing.T) {
 	if !strings.Contains(h.LastCrash(), "boom") {
 		t.Fatalf("LastCrash: %q", h.LastCrash())
 	}
-	time.Sleep(600 * time.Millisecond)
+	time.Sleep(2200 * time.Millisecond)
 	echo(t, h)
 	if h.LastCrash() != "" {
 		t.Fatalf("LastCrash after a clean start: %q", h.LastCrash())
@@ -305,4 +305,86 @@ func TestNotifyIdleIsNoop(t *testing.T) {
 	if err := h.Notify(MSettingsChanged, json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A watchdog that fires while the reader holds a note for the call must not wedge the reader:
+// the call keeps draining until the process is gone, so Call and Close both return.
+func TestHostStallWithNotesQueued(t *testing.T) {
+	h, _ := newFake(t, fakeDir)
+	h.stall = 50 * time.Millisecond
+	h.backoff = 0
+	for i := 0; i < 10; i++ { // the stall and the next note race; each round picks one at random
+		done := make(chan error, 1)
+		go func() {
+			first := true
+			done <- h.Call(context.Background(), "progress", nil, nil, func(Progress) {
+				if first { // outlast the watchdog while the reader waits with the next note
+					first = false
+					time.Sleep(150 * time.Millisecond)
+				}
+			})
+		}()
+		select {
+		case err := <-done:
+			if err != nil && !strings.Contains(err.Error(), "no progress") {
+				t.Fatalf("round %d: %v", i, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("round %d: Call hung", i)
+		}
+	}
+}
+
+func TestHostCloseKillsGrandchild(t *testing.T) {
+	h, _ := newFake(t, fakeDir)
+	var pid int
+	if err := h.Call(context.Background(), "spawn", nil, &pid, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { // the tree kill is Windows-only; elsewhere tidy up here
+		if p, err := os.FindProcess(pid); err == nil {
+			p.Kill()
+		}
+	})
+	start := time.Now()
+	h.Close()
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("Close took %v", d)
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+	for end := time.Now().Add(2 * time.Second); alive(pid); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("grandchild %d still runs", pid)
+		}
+	}
+}
+
+func TestHostNotifyWaitsForInitialize(t *testing.T) {
+	t.Setenv("FAKE_INIT_SLEEP", "300ms")
+	h, l := newFake(t, fakeDir)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		echo(t, h)
+	}()
+	for h.current() == nil {
+		time.Sleep(time.Millisecond)
+	}
+	if err := h.Notify(MSettingsChanged, InitParams{}); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	echo(t, h) // the plugin reads lines in order, so a note sent earlier is handled by now
+	l.mu.Lock()
+	early := strings.Contains(strings.Join(l.lines, "\n"), "got settings")
+	l.mu.Unlock()
+	if early {
+		t.Fatal("a note reached the plugin before initialize")
+	}
+	if err := h.Notify(MSettingsChanged, InitParams{}); err != nil {
+		t.Fatal(err)
+	}
+	l.wait(t, "got settings")
 }
