@@ -957,6 +957,13 @@ func (s *fakeSites) needCheck(name string) {
 	s.ready[name], s.unusable[name] = false, true
 }
 
+// fix undoes needCheck: the user passed the check.
+func (s *fakeSites) fix(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ready[name], s.unusable[name] = true, false
+}
+
 // siteLog records which site each fetch ran on.
 type siteLog struct {
 	mu    sync.Mutex
@@ -1378,5 +1385,62 @@ func TestAddSiteLater(t *testing.T) {
 	}
 	if tos := r.toLog(); len(tos) != 1 || tos[0] != "amazon" {
 		t.Errorf("resolve targets = %v", tos)
+	}
+}
+
+// Every site waits for a check: the track is matched now, so it is ready once a site is back.
+func TestMatchWhileEverySiteNeedsCheck(t *testing.T) {
+	s := newSites("a", "b")
+	s.needCheck("a")
+	s.needCheck("b")
+	r, log := &fakeResolve{}, &siteLog{}
+	q := siteMQ(t, s, r, log, fetchOK)
+	q.Enqueue(album, testOpts(t), spotify("S"))
+	it := find(waitFor(t, q, func(s []Item) bool { return find(s, "S").IDs["amazon"] != "" }), "S")
+	if it.Status != Queued || it.IDs["amazon"] != "B-S" || log.String() != "" {
+		t.Fatalf("S = %+v, fetches on %q", it, log)
+	}
+	s.fix("a")
+	q.Wake()
+	if it := find(waitFor(t, q, allIn(Completed, "S")), "S"); it.Site != "a" || log.String() != "a" {
+		t.Errorf("S = %+v, fetches on %q", it, log)
+	}
+	if tos := r.toLog(); len(tos) != 1 || tos[0] != "amazon" {
+		t.Errorf("resolve targets = %v", tos)
+	}
+}
+
+// x, the only site that takes S as it is, starts waiting for a check: Wake sends S to matching for a.
+func TestWakeMatchesWhenAnySiteUnusable(t *testing.T) {
+	s := newSites("a")
+	s.add("x", "any")
+	s.set("x", false)
+	r, log := &fakeResolve{}, &siteLog{}
+	q := siteMQ(t, s, r, log, fetchOK)
+	q.Enqueue(album, testOpts(t), spotify("S"))
+	if it := find(q.Snapshot(), "S"); it.Status != Queued {
+		t.Fatalf("S = %+v, want queued for x", it)
+	}
+	s.needCheck("x")
+	q.Wake()
+	it := find(waitFor(t, q, allIn(Completed, "S")), "S")
+	if it.Site != "a" || it.IDs["amazon"] != "B-S" || log.String() != "a" {
+		t.Errorf("S = %+v, fetches on %q", it, log)
+	}
+	if tos := r.toLog(); len(tos) != 1 || tos[0] != "amazon" {
+		t.Errorf("resolve targets = %v", tos)
+	}
+}
+
+// A fixed source that is not a started site: the track waits queued, unmatched, e.g. for AddSite.
+func TestFixedSourceMissingSiteWaits(t *testing.T) {
+	r := &fakeResolve{}
+	q := siteMQ(t, newSites("a"), r, &siteLog{}, fetchOK)
+	o := testOpts(t)
+	o.Source = "zz"
+	q.Enqueue(album, o, spotify("S"))
+	q.Wake()
+	if it := find(q.Snapshot(), "S"); it.Status != Queued || len(it.IDs) != 0 || len(r.callLog()) != 0 {
+		t.Errorf("S = %+v, resolve calls = %v", it, r.callLog())
 	}
 }

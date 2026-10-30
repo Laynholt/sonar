@@ -53,7 +53,7 @@ func (q *Queue) Restore(s []Saved) {
 	if q.closed {
 		return
 	}
-	hold := false
+	hold, names := false, q.sites.Names()
 	for _, sv := range s {
 		if sv.Item.ID == "" || q.byID[sv.Item.ID] != nil {
 			continue
@@ -68,7 +68,7 @@ func (q *Queue) Restore(s []Saved) {
 		case Failed:
 		case Matching, Queued, Downloading:
 			e.Error = ""
-			q.placeLocked(e, "")
+			q.placeLocked(e, names, "")
 		default: // the file is outside our control; anything else was finished
 			continue
 		}

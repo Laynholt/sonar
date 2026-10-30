@@ -179,19 +179,33 @@ func (q *Queue) AddSite(name string, workers int) {
 	for range workers {
 		go q.worker(name)
 	}
-	for _, e := range q.order {
-		if e.Status == Queued {
-			q.placeLocked(e, "")
-		}
-	}
+	q.replaceLocked()
 	q.cond.Broadcast()
 }
 
-// Wake makes idle workers look again, e.g. after a site became ready.
+// Wake makes idle workers look again, e.g. after a site became ready, and sends queued tracks that no usable
+// site can take as they are to matching, e.g. after the only site that could became unusable.
+// It calls OnChange only when a track changed, and Sites under the lock, as everywhere else.
 func (q *Queue) Wake() {
 	q.mu.Lock()
-	defer q.mu.Unlock()
+	changed := q.replaceLocked()
 	q.cond.Broadcast()
+	q.mu.Unlock()
+	if changed {
+		q.notify()
+	}
+}
+
+// replaceLocked places every queued entry again and reports whether any of them went to matching.
+func (q *Queue) replaceLocked() bool {
+	names, changed := q.sites.Names(), false
+	for _, e := range q.order {
+		if e.Status == Queued {
+			q.placeLocked(e, names, "")
+			changed = changed || e.Status != Queued
+		}
+	}
+	return changed
 }
 
 // Enqueue adds tracks and releases a hold. A track already matching, in review, queued or downloading is left as it is.
@@ -202,6 +216,7 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 	if q.closed {
 		return
 	}
+	names := q.sites.Names()
 	for _, t := range tracks {
 		e := q.byID[t.ID]
 		if e != nil && (e.Status == Matching || e.Status == Review || e.Status == Queued || e.Status == Downloading) {
@@ -213,7 +228,7 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 			q.order = append(q.order, e)
 		}
 		*e = entry{Item: Item{ID: t.ID, QueueID: c.Kind + ":" + c.ID, Track: t}, c: c, o: o, pathNoExt: PathNoExt(t, c, o), attempt: e.attempt}
-		q.placeLocked(e, "")
+		q.placeLocked(e, names, "")
 	}
 	q.releaseLocked()
 	q.cond.Broadcast()
@@ -221,11 +236,14 @@ func (q *Queue) Enqueue(c Collection, o Options, tracks []Track) {
 
 // placeLocked queues e when a site it may go to can take it as it is; otherwise it sends e to matching for
 // the service of the first of those sites. down, a site that has just gone down on e, is left out.
-// With no such site at all e waits queued, e.g. for AddSite.
-func (q *Queue) placeLocked(e *entry, down string) {
-	e.Status = Queued
+// names is Sites.Names, fetched once by the caller.
+// In auto mode with no site it may go to, e.g. while every site waits for a check, it matches e for the first
+// started site whose service e has no id for, so e is ready once a site is back; with none it waits queued.
+func (q *Queue) placeLocked(e *entry, names []string, down string) {
+	e.Status, e.target = Queued, ""
 	target := ""
-	for _, n := range q.candidatesLocked(e) {
+	cands := q.candidatesLocked(e, names)
+	for _, n := range cands {
 		if n == down {
 			continue
 		}
@@ -236,6 +254,14 @@ func (q *Queue) placeLocked(e *entry, down string) {
 			target = q.sites.Accepts(n)
 		}
 	}
+	if len(cands) == 0 && e.auto() {
+		for _, n := range names {
+			if a := q.sites.Accepts(n); q.started[n] && a != "" && a != "any" && a != ServiceOf(e.Track) && e.IDs[a] == "" {
+				target = a
+				break
+			}
+		}
+	}
 	if target != "" {
 		e.Status, e.target, e.Candidates = Matching, target, nil
 		e.attempt++
@@ -244,7 +270,7 @@ func (q *Queue) placeLocked(e *entry, down string) {
 
 // candidatesLocked lists the sites e may go to: in auto mode the started, usable sites that have not tried it,
 // in Names order; otherwise o.Source once started.
-func (q *Queue) candidatesLocked(e *entry) []string {
+func (q *Queue) candidatesLocked(e *entry, names []string) []string {
 	if !e.auto() {
 		if q.started[e.o.Source] {
 			return []string{e.o.Source}
@@ -252,7 +278,7 @@ func (q *Queue) candidatesLocked(e *entry) []string {
 		return nil
 	}
 	var out []string
-	for _, n := range q.sites.Names() {
+	for _, n := range names {
 		if q.started[n] && !slices.Contains(e.tried, n) && q.sites.Usable(n) {
 			out = append(out, n)
 		}
@@ -333,7 +359,7 @@ func (q *Queue) cancelAllLocked() {
 func (e *entry) stop() {
 	switch e.Status {
 	case Matching, Review, Queued:
-		e.Status = Cancelled
+		e.Status, e.target = Cancelled, ""
 	case Downloading:
 		e.cancel()
 	}
@@ -345,7 +371,7 @@ func (q *Queue) Retry(id string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if e := q.byID[id]; e != nil {
-		q.requeue(e)
+		q.requeue(e, q.sites.Names())
 	}
 }
 
@@ -353,21 +379,22 @@ func (q *Queue) RetryFailed() {
 	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	names := q.sites.Names()
 	for _, e := range q.order {
 		if e.Status == Failed {
-			q.requeue(e)
+			q.requeue(e, names)
 		}
 	}
 }
 
 // requeue sends a failed or cancelled item back to the download queue, or to matching when no site can take it.
-func (q *Queue) requeue(e *entry) {
+func (q *Queue) requeue(e *entry, names []string) {
 	if q.closed || (e.Status != Failed && e.Status != Cancelled) {
 		return
 	}
 	e.Error, e.Message, e.Path, e.Bytes, e.Size = "", "", "", 0, 0
 	e.tried, e.errs = nil, nil
-	q.placeLocked(e, "")
+	q.placeLocked(e, names, "")
 	q.cond.Broadcast()
 }
 
@@ -498,7 +525,7 @@ func (q *Queue) matcher() {
 			if i < len(res) {
 				r = res[i]
 			}
-			e.Candidates = r.Candidates
+			e.Candidates, e.target = r.Candidates, ""
 			if r.ISRC != "" {
 				e.Track.ISRC = r.ISRC
 			}
@@ -583,10 +610,11 @@ func (q *Queue) worker(site string) {
 				e.tried, e.errs = append(e.tried, site), append(e.errs, msg)
 				errs, down = e.errs, ""
 			}
-			if len(q.candidatesLocked(e)) == 0 { // no site left that may take it without the user's help
+			names := q.sites.Names()
+			if len(q.candidatesLocked(e, names)) == 0 { // no site left that may take it without the user's help
 				e.Status, e.Error = Failed, strings.Join(errs, "; ")
 			} else {
-				q.placeLocked(e, down) // to matching when no site left can take it as it is
+				q.placeLocked(e, names, down) // to matching when no site left can take it as it is
 			}
 		}
 		q.cond.Broadcast() // the track may be back in the queue, and its path is free
