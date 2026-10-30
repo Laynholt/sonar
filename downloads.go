@@ -21,6 +21,7 @@ import (
 	"sonar/internal/resolve"
 	"sonar/internal/source"
 	"sonar/internal/spotify"
+	"sonar/internal/tags"
 )
 
 // errNoFFmpeg starts with the NO_FFMPEG: sentinel the frontend matches on to offer the Windows-only installer.
@@ -192,7 +193,9 @@ func (a *App) ffmpeg(o download.Options) (string, error) {
 
 // Seams for tests.
 var (
-	writeGenre    = genre.WriteFLAC
+	writeGenre = func(ctx context.Context, ffmpeg, path, g string) error { // shim until Task 13
+		return tags.Write(ctx, ffmpeg, path, tags.Tags{"genre": g}, nil)
+	}
 	convertFile   = convert.Convert
 	amazonLookup  = amazon.LookupTracks
 	spotifyByISRC = spotify.TracksByISRC
@@ -272,15 +275,27 @@ func (a *App) fetch(ctx context.Context, site string, t download.Track, id strin
 		g = genre.Format(res, o.SingleGenre)
 	}
 	if o.Format == "original" {
-		if g != "" {
-			if err := writeGenre(f, g); err != nil {
-				log.Printf("genre %s: %v", f, err)
-			}
-		}
+		putGenre(ctx, ff, f, g)
 		return f, nil
 	}
 	onStatus("Converting to " + map[string]string{"mp3-320": "MP3", "m4a-aac-320": "M4A"}[o.Format] + "…")
-	return convertFile(ctx, ff, f, o.Format, g)
+	out, err := convertFile(ctx, ff, f, o.Format)
+	if err != nil {
+		return out, err
+	}
+	putGenre(ctx, ff, out, g)
+	return out, nil
+}
+
+// putGenre writes g into the file at path; a genre that cannot be written is logged and skipped, never fails the track.
+// shim until Task 13
+func putGenre(ctx context.Context, ffmpeg, path, g string) {
+	if g == "" {
+		return
+	}
+	if err := writeGenre(ctx, ffmpeg, path, g); err != nil && !errors.Is(err, context.Canceled) {
+		log.Printf("genre %s: %v", path, err)
+	}
 }
 
 // DownloadTracks validates the whole request before it queues anything; tracks with a bad Spotify ID are skipped,

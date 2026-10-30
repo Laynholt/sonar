@@ -771,7 +771,7 @@ type genreWrite struct{ path, genre string }
 func fakeWriteGenre(t *testing.T, err error) func() []genreWrite {
 	var mu sync.Mutex
 	var got []genreWrite
-	swap(t, &writeGenre, func(path, g string) error {
+	swap(t, &writeGenre, func(_ context.Context, _, path, g string) error {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, genreWrite{path, g})
@@ -977,20 +977,20 @@ func TestFetchGenreAmazonViaISRC(t *testing.T) {
 	}
 }
 
-func TestFetchConvertPassesGenre(t *testing.T) {
+func TestFetchConvertWritesGenreAfter(t *testing.T) {
 	a := newQueueApp(t, t.TempDir(), nil, fnSource(flacSource))
 	a.findFFmpeg = func(string) string { return "ff" }
 	a.genres = func(context.Context, download.Track, string) ([]string, error) { return []string{"rap", "trap"}, nil }
 	writes := fakeWriteGenre(t, nil)
-	var gotGenre, gotIn string
-	swap(t, &convertFile, func(_ context.Context, _, in, _, g string) (string, error) {
-		gotIn, gotGenre = in, g
+	var gotIn string
+	swap(t, &convertFile, func(_ context.Context, _, in, _ string) (string, error) {
+		gotIn = in
 		return "out.m4a", nil
 	})
 	o := genreOpts(false)
 	o.Format = "m4a-aac-320"
 	p, _, err := fetchGenre(t, a, o)
-	if err != nil || p != "out.m4a" || gotGenre != "Rap, Trap" || !strings.HasSuffix(gotIn, ".flac") || len(writes()) != 0 {
-		t.Errorf("path %q, err %v, genre %q, in %q, writes %v", p, err, gotGenre, gotIn, writes())
+	if err != nil || p != "out.m4a" || !strings.HasSuffix(gotIn, ".flac") || !slices.Equal(writes(), []genreWrite{{"out.m4a", "Rap, Trap"}}) {
+		t.Errorf("path %q, err %v, in %q, writes %v", p, err, gotIn, writes())
 	}
 }

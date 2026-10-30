@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
+	github.com/go-flac/flacpicture v0.3.0
 	github.com/go-flac/flacvorbis v0.2.0
 	github.com/go-flac/go-flac v1.0.0
 	github.com/pquerna/otp v1.5.0

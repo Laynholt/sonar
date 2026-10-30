@@ -64,23 +64,20 @@ func FindFFmpeg(custom string) string {
 	return p
 }
 
-// Args are the ffmpeg arguments (without the binary) for format; the tags and the cover are kept,
-// and a non-empty genre replaces the genre tag.
-func Args(in, out, format, genre string) []string {
+// Args are the ffmpeg arguments (without the binary) for format; the tags and the cover are kept.
+func Args(in, out, format string) []string {
 	a := []string{"-y", "-hide_banner", "-loglevel", "error", "-i", in,
 		"-map", "0:a:0", "-map", "0:v?", "-map_metadata", "0", "-c:v", "copy", "-disposition:v", "attached_pic"}
-	if genre != "" {
-		a = append(a, "-metadata", "genre="+genre)
-	}
 	if format == "mp3-320" {
 		return append(a, "-c:a", "libmp3lame", "-b:a", "320k", "-id3v2_version", "3", "-f", "mp3", out)
 	}
 	return append(a, "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart", "-f", "ipod", out)
 }
 
-// Convert converts in to format next to it and returns the new path. On success in is removed;
-// on failure both in and the partial file are, so a retry downloads again.
-func Convert(ctx context.Context, ffmpeg, in, format, genre string) (string, error) {
+// Convert converts in to format next to it and returns the new path. A file already in that format is
+// returned as it is, with no FFmpeg call. On success in is removed; on failure both in and the partial
+// file are, so a retry downloads again.
+func Convert(ctx context.Context, ffmpeg, in, format string) (string, error) {
 	if format == "original" {
 		return in, nil
 	}
@@ -90,11 +87,11 @@ func Convert(ctx context.Context, ffmpeg, in, format, genre string) (string, err
 	}
 	out := strings.TrimSuffix(in, filepath.Ext(in)) + ext
 	if out == in {
-		return "", fmt.Errorf("convert to %s: input already has that extension", format)
+		return in, nil
 	}
 	part := out + ".part"
 
-	cmd := exec.CommandContext(ctx, ffmpeg, Args(in, part, format, genre)...)
+	cmd := exec.CommandContext(ctx, ffmpeg, Args(in, part, format)...)
 	hideWindow(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -113,6 +110,9 @@ func Convert(ctx context.Context, ffmpeg, in, format, genre string) (string, err
 	}
 	return "", fmt.Errorf("convert to %s: %s", format, msg)
 }
+
+// HideWindow keeps the console of a child process from flashing on Windows.
+func HideWindow(cmd *exec.Cmd) { hideWindow(cmd) }
 
 // lastBytes keeps the end of s, dropping a rune the cut splits.
 func lastBytes(s string, n int) string {

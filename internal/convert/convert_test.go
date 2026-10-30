@@ -16,7 +16,7 @@ import (
 func TestArgs(t *testing.T) {
 	joined := func(a []string) string { return strings.Join(a, " ") }
 
-	mp3 := Args("in.flac", "out", "mp3-320", "")
+	mp3 := Args("in.flac", "out", "mp3-320")
 	s := joined(mp3)
 	for _, want := range []string{"libmp3lame", "320k", "-id3v2_version 3", "-f mp3", "-map_metadata 0", "attached_pic"} {
 		if !strings.Contains(s, want) {
@@ -27,7 +27,7 @@ func TestArgs(t *testing.T) {
 		t.Errorf("mp3 args must end with out: %q", s)
 	}
 
-	s = joined(Args("in.flac", "out", "m4a-aac-320", ""))
+	s = joined(Args("in.flac", "out", "m4a-aac-320"))
 	for _, want := range []string{"aac", "-f ipod", "+faststart"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("m4a args %q lack %q", s, want)
@@ -35,14 +35,13 @@ func TestArgs(t *testing.T) {
 	}
 }
 
-func TestConvertArgsGenre(t *testing.T) {
-	a := Args("in.flac", "out", "mp3-320", "Rap")
-	i := slices.Index(a, "-metadata")
-	if i < 0 || a[i+1] != "genre=Rap" || i > len(a)-2 || a[len(a)-1] != "out" {
-		t.Errorf("args %q lack -metadata genre=Rap before out", a)
+func TestArgsNoGenre(t *testing.T) {
+	a := Args("in.flac", "out", "mp3-320")
+	if slices.Contains(a, "-metadata") {
+		t.Errorf("args %q add -metadata", a)
 	}
-	if slices.Contains(Args("in.flac", "out", "m4a-aac-320", ""), "-metadata") {
-		t.Error("an empty genre must not add -metadata")
+	if s := strings.Join(a, " "); !strings.Contains(s, "-map_metadata 0") || !strings.Contains(s, "-map 0:v?") {
+		t.Errorf("args %q lose the tags or the cover", s)
 	}
 }
 
@@ -74,7 +73,7 @@ func TestConvertOriginalIsNoop(t *testing.T) {
 	if err := os.WriteFile(in, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Convert(context.Background(), "no-such-ffmpeg", in, "original", "")
+	got, err := Convert(context.Background(), "no-such-ffmpeg", in, "original")
 	if err != nil || got != in {
 		t.Fatalf("got %q, %v", got, err)
 	}
@@ -88,7 +87,7 @@ func TestConvertUnknownFormat(t *testing.T) {
 	if err := os.WriteFile(in, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Convert(context.Background(), "x", in, "ogg", ""); err == nil {
+	if _, err := Convert(context.Background(), "x", in, "ogg"); err == nil {
 		t.Fatal("want error")
 	}
 	if _, err := os.Stat(in); err != nil {
@@ -96,14 +95,15 @@ func TestConvertUnknownFormat(t *testing.T) {
 	}
 }
 
-func TestConvertSameExtension(t *testing.T) {
+// A file already in the wanted format comes back as it is; the nonexistent ffmpeg proves none was run.
+func TestConvertSameFormat(t *testing.T) {
 	in := filepath.Join(t.TempDir(), "a.mp3")
 	if err := os.WriteFile(in, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Convert(context.Background(), "x", in, "mp3-320", "")
-	if err == nil || err.Error() != "convert to mp3-320: input already has that extension" {
-		t.Fatalf("err = %v", err)
+	got, err := Convert(context.Background(), "no-such-ffmpeg", in, "mp3-320")
+	if err != nil || got != in {
+		t.Fatalf("got %q, %v", got, err)
 	}
 	if b, _ := os.ReadFile(in); string(b) != "data" {
 		t.Error("input touched")
@@ -178,7 +178,7 @@ func TestConvertReal(t *testing.T) {
 				dir := t.TempDir()
 				in := filepath.Join(dir, "x.flac")
 				makeFlac(t, ffmpeg, in, cover)
-				out, err := Convert(context.Background(), ffmpeg, in, format, "")
+				out, err := Convert(context.Background(), ffmpeg, in, format)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -225,7 +225,7 @@ func TestConvertFailureCleansUp(t *testing.T) {
 	dir := t.TempDir()
 	in := filepath.Join(dir, "bad.flac")
 	os.WriteFile(in, []byte("not audio"), 0o644)
-	_, err := Convert(context.Background(), ffmpeg, in, "mp3-320", "")
+	_, err := Convert(context.Background(), ffmpeg, in, "mp3-320")
 	if err == nil || !strings.HasPrefix(err.Error(), "convert to mp3-320:") {
 		t.Fatalf("err = %v", err)
 	}
