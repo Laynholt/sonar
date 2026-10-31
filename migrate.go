@@ -82,6 +82,11 @@ func moveFile(from, to string) error {
 	}
 	if _, err := os.Lstat(to); err == nil {
 		// An existing copy stays. Identical bytes make from a leftover; different ones keep both.
+		fromInfo, err1 := os.Stat(from)
+		toInfo, err2 := os.Stat(to)
+		if err1 == nil && err2 == nil && os.SameFile(fromInfo, toInfo) {
+			return nil // to is a link to from: removing from would lose the only copy
+		}
 		if have, err := os.ReadFile(to); err == nil && bytes.Equal(have, raw) {
 			return os.Remove(from)
 		}
