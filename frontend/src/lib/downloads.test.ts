@@ -255,7 +255,7 @@ describe("downloads store with Spotify tracks and review", () => {
         for (const f of [api.ChooseCandidate, api.UseLink, api.SkipReview, api.ResumeQueue, api.ClearQueue, api.GuardWait, api.GuardContinue]) vi.mocked(f).mockResolvedValue();
 
         await store.chooseCandidate("S1", "B0X");
-        await store.useAmazonLink("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
+        await store.useLink("S1", "https://music.amazon.com/albums/B0?trackAsin=B0X");
         await store.skipReview("S1");
         await store.resumeQueue();
         await store.clearQueue();

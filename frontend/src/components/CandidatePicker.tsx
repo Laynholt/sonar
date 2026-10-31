@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useDownloads } from "@/hooks/useDownloads";
 import { usePreview } from "@/hooks/usePreview";
+import { useSources } from "@/hooks/useSources";
 import { clock } from "@/lib/download-format";
-import { chooseCandidate, skipReview, useAmazonLink as submitLink, type DownloadItem } from "@/lib/downloads";
+import { chooseCandidate, skipReview, useLink as submitLink, type DownloadItem } from "@/lib/downloads";
 import { useI18n } from "@/lib/i18n";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { cn, errorMessage } from "@/lib/utils";
@@ -24,21 +25,23 @@ const nextReview = (all: DownloadItem[], id: string) => {
 
 const meta = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" · ");
 
-function PlayButton({ id, name }: { id: string; name: string }) {
+function PlayButton({ service, id, name }: { service: string; id: string; name: string }) {
     const { t } = useI18n();
     const { playPreview, loadingPreview, playingTrack } = usePreview();
+    const { can } = useSources();
+    if (!can(service, "preview")) return null;
     const loading = loadingPreview === id, playing = playingTrack === id;
-    return (<button type="button" disabled={loading} aria-label={t(playing ? "preview.stop" : "preview.play")} onClick={() => void playPreview(id, name)}
+    return (<button type="button" disabled={loading} aria-label={t(playing ? "preview.stop" : "preview.play")} onClick={() => void playPreview(service, id, name)}
         className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full border hover:bg-accent disabled:cursor-default">
       {loading ? <Spinner className="h-3 w-3"/> : playing ? <Pause className="h-3 w-3"/> : <Play className="h-3 w-3"/>}
     </button>);
 }
 
-interface TrackRowProps { id: string; title: string; sub: string; image: string; ms: number; className?: string; badge?: ReactNode; children?: ReactNode }
+interface TrackRowProps { service: string; id: string; title: string; sub: string; image: string; ms: number; className?: string; badge?: ReactNode; children?: ReactNode }
 
-function TrackRow({ id, title, sub, image, ms, className, badge, children }: TrackRowProps) {
+function TrackRow({ service, id, title, sub, image, ms, className, badge, children }: TrackRowProps) {
     return (<div className={cn("flex items-center gap-3 px-3 py-2", className)}>
-      {id && <PlayButton id={id} name={title}/>}
+      {id && <PlayButton service={service} id={id} name={title}/>}
       {image ? <img src={image} alt="" className="h-11 w-11 shrink-0 rounded-md object-cover"/> : <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><Music className="h-5 w-5"/></div>}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2"><span className="truncate font-medium text-sm" title={title}>{title}</span>{badge}</div>
@@ -69,7 +72,7 @@ function LinkSection({ itemId, alone, onUsed }: { itemId: string; alone: boolean
     if (!open) return (<button type="button" className="w-fit cursor-pointer text-sm text-muted-foreground underline hover:text-foreground" onClick={() => setOpen(true)}>{t("picker.pasteLink")}</button>);
     return (<form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <div className="flex gap-2">
-        <Input value={link} onChange={(e) => setLink(e.target.value)} aria-label={t("picker.linkLabel")} placeholder="https://music.amazon.com/…" disabled={busy}/>
+        <Input value={link} onChange={(e) => setLink(e.target.value)} aria-label={t("picker.linkLabel")} placeholder="https://…" disabled={busy}/>
         <Button type="submit" disabled={busy || !link.trim()}>{t("picker.linkUse")}</Button>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -78,9 +81,10 @@ function LinkSection({ itemId, alone, onUsed }: { itemId: string; alone: boolean
 
 const caption = "mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground";
 
-/** Asks which Amazon track to download for a Spotify track no match was sure about. */
+/** Asks which track on another service to download for a track no match was sure about. */
 export function CandidatePicker({ itemId, onClose }: { itemId: string; onClose: () => void }) {
     const { t } = useI18n();
+    const { label } = useSources();
     const { items } = useDownloads();
     const [currentId, setCurrentId] = useState(itemId);
     const [busy, setBusy] = useState(false);
@@ -113,15 +117,15 @@ export function CandidatePicker({ itemId, onClose }: { itemId: string; onClose: 
       <DialogContent className="sm:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader><DialogTitle>{t("picker.title")}</DialogTitle></DialogHeader>
         <div>
-          <p className={caption}>{t("picker.fromSpotify")}</p>
+          <p className={caption}>{t("picker.from", { service: label(track.service) })}</p>
           <div className="rounded-lg border">
-            <TrackRow id={track.id} title={track.title} sub={meta(track.artist, track.album, track.release_date?.slice(0, 4))} image={track.image} ms={track.duration_ms}/>
+            <TrackRow service={track.service} id={track.id} title={track.title} sub={meta(track.artist, track.album, track.release_date?.slice(0, 4))} image={track.image} ms={track.duration_ms}/>
           </div>
         </div>
         <div>
-          <p className={caption}>{t("picker.found")}</p>
+          <p className={caption}>{t("picker.found", { service: label(item.review_service ?? "") })}</p>
           {candidates.length > 0 ? (<div className="divide-y overflow-hidden rounded-lg border">
-            {candidates.map((c) => (<TrackRow key={c.id} id={c.id} title={c.title} sub={meta(c.artist, c.album, c.release_date?.slice(0, 4))} image={c.image} ms={c.duration_ms}
+            {candidates.map((c) => (<TrackRow key={c.id} service={item.review_service ?? ""} id={c.id} title={c.title} sub={meta(c.artist, c.album, c.release_date?.slice(0, 4))} image={c.image} ms={c.duration_ms}
                 className={c.recommended ? "bg-green-500/10" : undefined}
                 badge={c.recommended && <Badge className="border-transparent bg-green-500 text-white">{t("picker.recommended")}</Badge>}>
               <span className={cn("w-11 shrink-0 text-right text-sm tabular-nums", c.recommended ? "text-green-500" : "text-amber-500")}>{Math.round(c.score * 100)}%</span>

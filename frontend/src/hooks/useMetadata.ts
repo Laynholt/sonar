@@ -4,13 +4,14 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
 import { errorMessage } from "@/lib/utils";
 import { t } from "@/lib/i18n";
-import { linkServices } from "@/components/ServiceBadge";
+import { linkLabels, useSources } from "@/hooks/useSources";
 import { extractArtistID } from "@/lib/spotify-url";
 import { AddFetchHistory } from "../../wailsjs/go/main/App";
 import type { MetadataResponse } from "@/types/api";
 import { emptyNav, navigate, type NavAction, type NavEntry, type NavState, type View } from "@/hooks/navigation";
 
 export function useMetadata() {
+    const { sources } = useSources();
     const [loading, setLoading] = useState(false);
     const [nav, setNav] = useState<NavState>(emptyNav);
     const dispatch = (action: NavAction) => setNav(current => navigate(current, action));
@@ -172,7 +173,7 @@ export function useMetadata() {
         if (!url.trim()) {
             setLoading(false);
             logger.warning("empty url provided");
-            toast.error(t("meta.enterUrl", { service: linkServices }));
+            toast.error(t("meta.enterUrl", { service: linkLabels(sources) }));
             return;
         }
         let urlToFetch = url.trim();

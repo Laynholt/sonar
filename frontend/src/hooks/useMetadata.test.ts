@@ -54,6 +54,7 @@ vi.mock("react", async (importOriginal) => ({
     useState: hookState.useState,
     useRef: hookState.useRef,
 }));
+vi.mock("@/hooks/useSources", async () => (await import("../test/sources")).useSourcesMock);
 vi.mock("@/lib/api", () => ({ fetchMetadata: doubles.fetchMetadata }));
 vi.mock("@/lib/toast-with-sound", () => ({
     toastWithSound: { success: doubles.toastSuccess, error: doubles.toastError },

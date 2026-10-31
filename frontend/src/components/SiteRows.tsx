@@ -28,7 +28,7 @@ export function SiteRows({ sites, items }: { sites: source.Status[]; items: Down
     return (<ul className="rounded-md border divide-y text-sm">
       {rows.map(({ s, dot, label }) => (<li key={s.name} className="flex items-center gap-2 px-2.5 py-2">
         <span className={cn("h-2 w-2 rounded-full shrink-0", dot)}/>
-        <span className="truncate">{siteName(s.name)}</span>
+        <span className="truncate">{siteName(s)}</span>
         <span className="ml-auto shrink-0 text-muted-foreground tabular-nums">{label}</span>
       </li>))}
     </ul>);

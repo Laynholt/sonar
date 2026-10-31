@@ -14,8 +14,9 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { openFFmpegInstall } from "@/lib/ffmpeg-install";
 import { FILENAME_PRESETS, FOLDER_PRESETS } from "@/lib/downloadPresets";
 import { SourceStatus } from "@/components/SourceStatus";
-import { DefaultDownloadDir, FindFFmpeg, SelectDownloadFolder, SelectFFmpeg } from "../../wailsjs/go/main/App";
-import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
+import { siteName } from "@/lib/download-format";
+import { DefaultDownloadDir, FindFFmpeg, GetSourceStatus, SelectDownloadFolder, SelectFFmpeg } from "../../wailsjs/go/main/App";
+import { BrowserOpenURL, EventsOn } from "../../wailsjs/runtime/runtime";
 
 const SECTIONS = [
     { id: "general", label: "settings.general", Icon: Settings2 },
@@ -67,9 +68,6 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 // Radix Select rejects an empty item value, so the "no subfolder" preset gets a stand-in.
 const NONE = "none";
 const CUSTOM = "custom";
-// Keeps a pasted huge number out of the Go int.
-const MAX_GUARD_LIMIT = 100000;
-const GUARD_WAITS = [15, 30, 60, 120] as const;
 // The history keeps 200 items.
 const MAX_RECENT = 200;
 
@@ -120,6 +118,13 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
     const { t } = useI18n();
     const [defaultDir, setDefaultDir] = useState("");
     const [ffmpegFound, setFfmpegFound] = useState<string | null>(null);
+    const [downloaders, setDownloaders] = useState<{ name: string; label: string }[]>([]);
+    // The status lists the enabled downloaders only, so it is the list of sites the user can pick.
+    useEffect(() => {
+        const load = () => GetSourceStatus().then((list) => setDownloaders(list ?? []), (error) => console.error("Failed to load the download sites:", error));
+        void load();
+        return EventsOn("plugins:changed", () => void load());
+    }, []);
     useEffect(() => {
         DefaultDownloadDir().then(setDefaultDir, (error) => console.error("Failed to get the default download folder:", error));
     }, []);
@@ -189,45 +194,22 @@ function DownloadsSection({ settings, set }: { settings: SettingsType; set: (par
         <Switch id="playlist-folder" checked={settings.playlistFolder} onCheckedChange={(checked) => set({ playlistFolder: checked })}/>
       </Row>
     </Block>
-    <Block title={t("settings.blockTags")}>
-      <Row id="embed-genre" label={t("settings.embedGenre")} description={t("settings.embedGenreDesc")}>
-        <Switch id="embed-genre" checked={settings.embedGenre} onCheckedChange={(checked) => set({ embedGenre: checked })}/>
-      </Row>
-      {settings.embedGenre && (<Row id="single-genre" label={t("settings.singleGenre")} description={t("settings.singleGenreDesc")}>
-        <Switch id="single-genre" checked={settings.useSingleGenre} onCheckedChange={(checked) => set({ useSingleGenre: checked })}/>
-      </Row>)}
-    </Block>
     <Block title={t("settings.blockSource")}>
       <Row id="download-source" label={t("settings.source")} description={t("settings.sourceDesc")}>
-        <Select value={settings.downloadSource} onValueChange={(value: SettingsType["downloadSource"]) => set({ downloadSource: value })}>
+        <Select value={settings.downloadSource} onValueChange={(value) => set({ downloadSource: value })}>
           <SelectTrigger id="download-source">
             <SelectValue/>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="auto">{t("download.sourceAuto")}</SelectItem>
-            <SelectItem value="lucida">lucida</SelectItem>
-            <SelectItem value="doubledouble">doubledouble</SelectItem>
+            {downloaders.map((site) => <SelectItem key={site.name} value={site.name}>{siteName(site)}</SelectItem>)}
+            {/* A downloader that is switched off since it was chosen stays visible until the user picks another. */}
+            {settings.downloadSource !== "auto" && !downloaders.some((site) => site.name === settings.downloadSource) && <SelectItem value={settings.downloadSource}>{settings.downloadSource}</SelectItem>}
           </SelectContent>
         </Select>
       </Row>
       <Row id="site-status" label={t("settings.siteStatus")} description={t("settings.siteStatusDesc")}>
-        <div className="w-full"><SourceStatus/></div>
-      </Row>
-      <Row id="rate-guard" label={t("settings.rateGuard")} description={t("settings.rateGuardDesc")}>
-        <div className="flex items-center gap-3">
-          {settings.rateGuard && <LimitInput value={settings.rateGuardLimit} max={MAX_GUARD_LIMIT} label={t("settings.rateGuardLimit")} onChange={(limit) => set({ rateGuardLimit: limit })}/>}
-          {settings.rateGuard && <div className="w-28">
-            <Select value={String(settings.rateGuardWait)} onValueChange={(value) => set({ rateGuardWait: Number(value) as SettingsType["rateGuardWait"] })}>
-              <SelectTrigger aria-label={t("settings.rateGuardWait")}>
-                <SelectValue/>
-              </SelectTrigger>
-              <SelectContent>
-                {GUARD_WAITS.map((minutes) => <SelectItem key={minutes} value={String(minutes)}>{t("settings.rateGuardWaitOption", { minutes })}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>}
-          <Switch id="rate-guard" checked={settings.rateGuard} onCheckedChange={(checked) => set({ rateGuard: checked })}/>
-        </div>
+        <div className="w-full"><SourceStatus withAction={false}/></div>
       </Row>
     </Block>
     </div>);

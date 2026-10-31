@@ -6,7 +6,7 @@ import type { TrackMetadata } from "@/types/api";
 import { AlbumLink, ArtistLinks, type AlbumRef, type ArtistRef } from "./ArtistLinks";
 import { CoverPreview } from "./CoverPreview";
 import { openExternal } from "@/lib/utils";
-import { serviceLabels } from "./ServiceBadge";
+import { useSources } from "@/hooks/useSources";
 import { useI18n } from "@/lib/i18n";
 import { DownloadButton, type DownloadRowProps } from "./DownloadButton";
 interface TrackListProps extends DownloadRowProps {
@@ -23,6 +23,7 @@ interface TrackListProps extends DownloadRowProps {
 }
 export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPage, hideAlbumColumn = false, onPageChange, onAlbumClick, onArtistClick, onTrackClick, canDownload = false, downloadItems, onDownloadTrack, onRetryDownload, }: TrackListProps) {
     const { t, language } = useI18n();
+    const { label } = useSources();
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
             return true;
@@ -165,7 +166,7 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
               </td>
               <td className="p-4 align-middle">
                 <div className="flex items-center gap-3">
-                  <CoverPreview trackId={track.service === "spotify" ? track.id : undefined} trackName={track.name} src={track.images} className="w-10 h-10"/>
+                  <CoverPreview service={track.service} trackId={track.id} trackName={track.name} src={track.images} className="w-10 h-10"/>
                   <div className="flex min-w-0 flex-col [overflow-wrap:anywhere]">
                     <div className="flex items-center gap-2">
                       {onTrackClick ? (<span className="font-medium cursor-pointer hover:underline" onClick={() => onTrackClick(track)}>
@@ -191,12 +192,12 @@ export function TrackList({ tracks, searchQuery, sortBy, currentPage, itemsPerPa
                   {onDownloadTrack && (<DownloadButton item={downloadItems?.get(track.id ?? "")} disabled={!canDownload} onDownload={() => onDownloadTrack(track, tracks.indexOf(track))} onRetry={() => track.id && onRetryDownload?.(track.id)}/>)}
                   {track.external_urls && (<Tooltip>
                     <TooltipTrigger asChild>
-                      <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label={t("service.open", { service: serviceLabels[track.service] })}>
+                      <Button onClick={() => openExternal(track.external_urls)} size="icon" variant="outline" aria-label={t("service.open", { service: label(track.service) })}>
                         <ExternalLink className="h-4 w-4"/>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{t("service.open", { service: serviceLabels[track.service] })}</p>
+                      <p>{t("service.open", { service: label(track.service) })}</p>
                     </TooltipContent>
                   </Tooltip>)}
                 </div>

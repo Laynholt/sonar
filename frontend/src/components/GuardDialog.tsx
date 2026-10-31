@@ -5,7 +5,6 @@ import { useDownloads } from "@/hooks/useDownloads";
 import { clock, siteName } from "@/lib/download-format";
 import { guardContinue, guardWait } from "@/lib/downloads";
 import { useI18n } from "@/lib/i18n";
-import { getSettings } from "@/lib/settings";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { errorMessage } from "@/lib/utils";
 import type { source } from "../../wailsjs/go/models";
@@ -23,12 +22,13 @@ export function GuardDialog() {
         others: sites.filter((site) => site !== asking),
         done: items.filter((i) => DONE.includes(i.status)).length,
         left: items.filter((i) => LEFT.includes(i.status)).length,
-        minutes: getSettings().rateGuardWait,
     };
     // The exit animation keeps the dialog in the DOM after the guard stops asking; it shows the last question, not an empty box.
     const last = useRef(live);
     if (live) last.current = live;
     const shown = last.current;
+    // The default wait first, so Radix focuses it; a site with no guard has none to offer.
+    const waits = [...(shown?.site.waits ?? [])].sort((a, b) => Number(b === shown?.site.wait) - Number(a === shown?.site.wait));
 
     const [busy, setBusy] = useState(false);
     const answer = async (action: () => Promise<void>) => {
@@ -49,7 +49,7 @@ export function GuardDialog() {
 
     const otherLine = (site: source.Status) => {
         const now = Date.now();
-        const params = { site: siteName(site.name), count: site.count, limit: site.limit, time: clock(site.paused_until - now) };
+        const params = { site: siteName(site), count: site.count, limit: site.limit, time: clock(site.paused_until - now) };
         if (site.asking) return t("download.guardOtherAsking", params);
         if (site.paused_until > now) return t("download.guardOtherPaused", params);
         return t(site.available ? "download.guardOtherBusy" : "download.guardOtherDown", params);
@@ -58,20 +58,20 @@ export function GuardDialog() {
     return (<Dialog open={!!asking}>
       {shown && <DialogContent showCloseButton={false} className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>{t("download.guardTitle", { site: siteName(shown.site.name), count: shown.site.count })}</DialogTitle>
+          <DialogTitle>{t("download.guardTitle", { site: siteName(shown.site), count: shown.site.count })}</DialogTitle>
           <DialogDescription>{t("download.guardNote")}</DialogDescription>
         </DialogHeader>
         <div className="rounded-md border p-3 text-sm space-y-1">
           <div>{t("download.guardIf")}</div>
           <ul className="text-muted-foreground list-disc pl-5">
-            <li>{t("download.guardRest", { site: siteName(shown.site.name), minutes: shown.minutes })}</li>
+            {waits.length > 0 && <li>{t("download.guardRest", { site: siteName(shown.site), minutes: shown.site.wait })}</li>}
             {shown.others.map((site) => <li key={site.name}>{otherLine(site)}</li>)}
             <li>{t("download.guardQueue", { done: shown.done, left: shown.left })}</li>
           </ul>
         </div>
         {/* Wait comes first in the DOM so Radix focuses the safe choice; flex-row-reverse keeps it on the right. */}
-        <DialogFooter className="sm:flex-row-reverse sm:justify-start">
-          <Button disabled={busy} onClick={() => void answer(() => guardWait(shown.site.name, shown.minutes))}>{t("download.guardWait", { minutes: shown.minutes })}</Button>
+        <DialogFooter className="sm:flex-row-reverse sm:flex-wrap sm:justify-start">
+          {waits.map((minutes) => (<Button key={minutes} variant={minutes === shown.site.wait ? "default" : "outline"} disabled={busy} onClick={() => void answer(() => guardWait(shown.site.name, minutes))}>{t("download.guardWait", { minutes })}</Button>))}
           <Button variant="outline" disabled={busy} onClick={() => void answer(() => guardContinue(shown.site.name))}>{t("download.guardContinue")}</Button>
         </DialogFooter>
       </DialogContent>}

@@ -3,9 +3,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ExternalLink, XCircle } from "lucide-react";
 import { SearchAndSort } from "./SearchAndSort";
 import { TrackList } from "./TrackList";
-import { ServiceBadge, serviceLabels } from "./ServiceBadge";
+import { ServiceBadge } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import { useSources } from "@/hooks/useSources";
 import { useI18n } from "@/lib/i18n";
 import type { ArtistRef } from "./ArtistLinks";
 import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
@@ -35,6 +36,7 @@ interface AlbumInfoProps extends DownloadCardProps {
 }
 export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onArtistClick, onTrackClick, onBack, canDownload, downloadItems, onDownloadAll, downloadProgress, onDownloadTrack, onRetryDownload, onStopDownload, }: AlbumInfoProps) {
     const { t } = useI18n();
+    const { label } = useSources();
     const resolvedAlbumArtist = (() => {
         if (albumInfo.artist_id && albumInfo.artist_url) {
             return {
@@ -104,7 +106,7 @@ export function AlbumInfo({ service, sourceUrl, albumInfo, trackList, searchQuer
                 <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload}/>
                 <Button onClick={() => openExternal(sourceUrl)} variant="outline">
                   <ExternalLink className="h-4 w-4"/>
-                  {t("service.open", { service: serviceLabels[service] })}
+                  {t("service.open", { service: label(service) })}
                 </Button>
               </div>
             </div>

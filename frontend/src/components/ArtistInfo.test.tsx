@@ -6,6 +6,7 @@ import { TooltipProvider } from "./ui/tooltip";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn() }));
+vi.mock("@/hooks/useSources", async () => (await import("../test/sources")).useSourcesMock);
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { error: vi.fn() } }));
 
 const noop = vi.fn();

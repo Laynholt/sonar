@@ -1,10 +1,14 @@
+import { Music } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useSources } from "@/hooks/useSources";
 import type { Service } from "@/types/api";
-export const serviceLabels: Record<Service, string> = { spotify: "Spotify", amazon: "Amazon Music" };
-// Link mode accepts both services, so its copy names both.
-export const linkServices = `${serviceLabels.spotify} / ${serviceLabels.amazon}`;
 export function ServiceBadge({ service }: {
     service: Service;
 }) {
-    return <Badge variant="outline">{serviceLabels[service]}</Badge>;
+    const { label } = useSources();
+    return <Badge variant="outline">{label(service)}</Badge>;
+}
+/** A source's icon as the plugin gave it (an image address); a source without one gets a generic note. */
+export function SourceIcon({ icon }: { icon: string }) {
+    return icon ? <img src={icon} alt="" className="h-4 w-4"/> : <Music className="h-4 w-4"/>;
 }

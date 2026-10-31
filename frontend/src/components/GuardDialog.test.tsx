@@ -4,17 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDownloads } from "@/hooks/useDownloads";
 import { guardContinue, guardWait } from "@/lib/downloads";
 import { setLanguage } from "@/lib/i18n";
-import { getSettings } from "@/lib/settings";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { GuardDialog } from "./GuardDialog";
 import { button, deferred, mount } from "../test/render";
 
 vi.mock("@/hooks/useDownloads", () => ({ useDownloads: vi.fn() }));
 vi.mock("@/lib/downloads", () => ({ guardWait: vi.fn(), guardContinue: vi.fn() }));
-vi.mock("@/lib/settings", () => ({ getSettings: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
 
-type Site = { name: string; available: boolean; count: number; limit: number; asking: boolean; paused_until: number };
+type Site = { name: string; label: string; available: boolean; count: number; limit: number; waits: number[] | null; wait: number; asking: boolean; paused_until: number };
 type Item = { status: string };
 let view: Awaited<ReturnType<typeof mount>>;
 const state = (list: Site[], items: Item[] = []) => ({ items, byTrackId: new Map(), activeCount: 0, sites: list, held: false }) as unknown as ReturnType<typeof useDownloads>;
@@ -23,12 +21,11 @@ const show = async (list: Site[], items: Item[] = []) => {
     view = await mount(<GuardDialog/>);
 };
 const text = () => document.body.textContent;
-const lucida: Site = { name: "lucida", available: true, count: 50, limit: 50, asking: true, paused_until: 0 };
-const double: Site = { name: "doubledouble", available: true, count: 12, limit: 50, asking: false, paused_until: 0 };
+const lucida: Site = { name: "lucida", label: "Lucida", available: true, count: 50, limit: 50, waits: [15, 30, 60, 120], wait: 30, asking: true, paused_until: 0 };
+const double: Site = { name: "doubledouble", label: "DoubleDouble", available: true, count: 12, limit: 50, waits: [15, 30, 60, 120], wait: 30, asking: false, paused_until: 0 };
 
 beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(getSettings).mockReturnValue({ rateGuardWait: 30 } as ReturnType<typeof getSettings>);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 });
 afterEach(async () => { await view.unmount(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setLanguage("en"); });
@@ -37,7 +34,7 @@ describe("GuardDialog", () => {
     it("titles the dialog with the site and its count", async () => {
         await show([lucida, double]);
         expect(text()).toContain("Lucida: 50 tracks this session");
-        expect(text()).toContain("This is the limit from settings.");
+        expect(text()).toContain("This is the limit from the plugin's settings.");
     });
 
     it("says what waiting does: the rest, the other site, the saved queue", async () => {
@@ -66,13 +63,30 @@ describe("GuardDialog", () => {
         expect(text()).not.toContain("keeps downloading");
     });
 
-    it("uses the wait from the settings on the button and in the call", async () => {
+    it("offers each wait the site lists, the default first and primary, and passes the chosen one", async () => {
         vi.mocked(guardWait).mockResolvedValue(undefined);
-        vi.mocked(getSettings).mockReturnValue({ rateGuardWait: 60 } as ReturnType<typeof getSettings>);
-        await show([lucida, double]);
-        expect(text()).toContain("Lucida will rest for 60 min");
-        await act(async () => button(document.body, "Wait 60 min").click());
-        expect(guardWait).toHaveBeenCalledWith("lucida", 60);
+        await show([{ ...lucida, waits: [10, 20, 40], wait: 20 }, double]);
+        expect(text()).toContain("Lucida will rest for 20 min");
+        // The default is first in the DOM (focused); flex-row-reverse puts it on the right.
+        const waits = [...document.body.querySelectorAll("button")].map((b) => b.textContent).filter((x) => x?.startsWith("Wait"));
+        expect(waits).toEqual(["Wait 20 min", "Wait 10 min", "Wait 40 min"]);
+        expect(button(document.body, "Wait 20 min").className).toContain("bg-primary");
+        expect(button(document.body, "Wait 10 min").className).not.toContain("bg-primary");
+        await act(async () => button(document.body, "Wait 40 min").click());
+        expect(guardWait).toHaveBeenCalledWith("lucida", 40);
+    });
+
+    it.each([null, []])("offers no wait when the site lists %j, only Continue", async (waits) => {
+        await show([{ ...lucida, waits }, double]);
+        expect([...document.body.querySelectorAll("button")].some((b) => b.textContent?.startsWith("Wait"))).toBe(false);
+        expect(text()).not.toContain("will rest");
+        expect(button(document.body, "Continue anyway")).toBeTruthy();
+    });
+
+    it("names a site by its label, else by its id", async () => {
+        await show([{ ...lucida, label: "" }, { ...double, label: "Double Double" }]);
+        expect(text()).toContain("lucida: 50 tracks this session");
+        expect(text()).toContain("Double Double keeps downloading (12 of 50)");
     });
 
     it("reads in Russian as the mockup does", async () => {

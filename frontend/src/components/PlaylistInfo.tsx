@@ -3,9 +3,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ExternalLink, XCircle } from "lucide-react";
 import { SearchAndSort } from "./SearchAndSort";
 import { TrackList } from "./TrackList";
-import { ServiceBadge, serviceLabels } from "./ServiceBadge";
+import { ServiceBadge } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import { useSources } from "@/hooks/useSources";
 import { useI18n } from "@/lib/i18n";
 import type { AlbumRef, ArtistRef } from "./ArtistLinks";
 import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
@@ -61,6 +62,7 @@ function decodeHtmlEntities(value?: string): string {
 }
 export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onPageChange, onAlbumClick, onArtistClick, onTrackClick, onBack, canDownload, downloadItems, onDownloadAll, downloadProgress, onDownloadTrack, onRetryDownload, onStopDownload, }: PlaylistInfoProps) {
     const { t } = useI18n();
+    const { label } = useSources();
     const decodedDescription = decodeHtmlEntities(playlistInfo.description);
     return (<div className="space-y-6">
       <Card className="relative">
@@ -99,7 +101,7 @@ export function PlaylistInfo({ service, sourceUrl, playlistInfo, trackList, sear
                 <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload}/>
                 <Button onClick={() => openExternal(sourceUrl)} variant="outline">
                   <ExternalLink className="h-4 w-4"/>
-                  {t("service.open", { service: serviceLabels[service] })}
+                  {t("service.open", { service: label(service) })}
                 </Button>
               </div>
             </div>

@@ -144,7 +144,7 @@ export const retryDownload = (id: string) => then(RetryDownload(id));
 export const retryFailedDownloads = () => then(RetryFailedDownloads());
 export const clearFinishedDownloads = () => then(ClearFinishedDownloads());
 export const chooseCandidate = (id: string, amazonId: string) => then(ChooseCandidate(id, amazonId));
-export const useAmazonLink = (id: string, link: string) => then(UseLink(id, link));
+export const useLink = (id: string, link: string) => then(UseLink(id, link));
 export const skipReview = (id: string) => then(SkipReview(id));
 export const resumeQueue = () => then(ResumeQueue());
 export const clearQueue = () => then(ClearQueue());

@@ -11,6 +11,7 @@ import { TrackList } from "./TrackList";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { error: vi.fn() } }));
+vi.mock("@/hooks/useSources", async () => (await import("../test/sources")).useSourcesMock);
 vi.mock("@/lib/picker", () => ({ openPicker: vi.fn() }));
 
 function makeTrack(n: number, over: Partial<TrackMetadata> = {}): TrackMetadata {
@@ -82,17 +83,19 @@ describe("TrackList", () => {
         expect(render(tracks)).not.toContain('aria-label="Go to next page"');
     });
 
-    it("labels the open link per service and keeps the preview out of the Actions cell", () => {
+    it("labels the open link per source and keeps the preview out of the Actions cell, offering it only where the source can preview", () => {
         const doc = (markup: string) => new DOMParser().parseFromString(markup, "text/html");
         const spotify = doc(render([makeTrack(1)]));
         const amazon = doc(render([makeTrack(1, { service: "amazon" })]));
+        const mute = doc(render([makeTrack(1, { service: "mute" })]));
 
-        for (const [parsed, label] of [[spotify, "Open in Spotify"], [amazon, "Open in Amazon Music"]] as const) {
+        for (const [parsed, label] of [[spotify, "Open in Spotify"], [amazon, "Open in Amazon Music"], [mute, "Open in Mute"]] as const) {
             const actions = parsed.querySelector("tbody tr td:last-child")!;
             expect([...actions.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([label]);
         }
         expect(spotify.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
-        expect(amazon.querySelectorAll('button[aria-label="Play preview"]').length).toBe(0);
+        expect(amazon.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
+        expect(mute.querySelectorAll('button[aria-label="Play preview"]').length).toBe(0);
     });
 
     it("makes each artist its own link", async () => {
@@ -251,7 +254,7 @@ describe("TrackList preview", () => {
         const cover = () => view.container.querySelector("tbody button[aria-label$=\" preview\"]") as HTMLButtonElement;
 
         await act(async () => cover().click());
-        expect(GetPreviewURL).toHaveBeenCalledWith("amazon", "track-1");
+        expect(GetPreviewURL).toHaveBeenCalledWith("spotify", "track-1");
         await act(async () => listeners.loadeddata());
         expect(cover().getAttribute("aria-label")).toBe("Stop preview");
 

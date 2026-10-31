@@ -11,8 +11,8 @@ import { model } from "../../wailsjs/go/models";
 import { cn, errorMessage } from "@/lib/utils";
 import { useTypingEffect } from "@/hooks/useTypingEffect";
 import { t as translate, useI18n } from "@/lib/i18n";
-import { linkServices, serviceLabels } from "@/components/ServiceBadge";
-import type { Service } from "@/types/api";
+import { SourceIcon } from "@/components/ServiceBadge";
+import { linkLabels, useSources } from "@/hooks/useSources";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 const FETCH_LINKS = [
     "https://open.spotify.com/track/...",
@@ -57,14 +57,20 @@ interface SearchBarProps {
 }
 export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, history, onHistorySelect, onHistoryRemove, hasResult, searchMode, onSearchModeChange, canGoBack, onBack, }: SearchBarProps) {
     const { t, language } = useI18n();
-    const [searchService, setSearchService] = useState<Service>(() => {
+    const { sources, label, can } = useSources();
+    const [savedService, setSavedService] = useState(() => {
         try {
-            return localStorage.getItem(SEARCH_SERVICE_KEY) === "amazon" ? "amazon" : "spotify";
+            return localStorage.getItem(SEARCH_SERVICE_KEY) ?? "";
         }
         catch {
-            return "spotify";
+            return "";
         }
     });
+    // The remembered service, else the first one that can search (e.g. when the remembered plugin is off).
+    const searchable = sources.filter((s) => s.can.includes("search"));
+    const searchService = (searchable.find((s) => s.service === savedService) ?? searchable[0])?.service ?? "";
+    const canPage = can(searchService, "searchByType");
+    const linkServices = linkLabels(sources);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<model.SearchResponse | null>(null);
     const [searchStatus, setSearchStatus] = useState<"idle" | "debouncing" | "loading" | "success" | "empty" | "error">("idle");
@@ -93,7 +99,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
     }, []);
     const isSearching = searchStatus === "loading" || searchStatus === "debouncing";
     // Stable between renders: useTypingEffect restarts whenever the array changes.
-    const placeholders = useMemo(() => searchMode ? SEARCH_PLACEHOLDERS : [translate("search.paste", { service: linkServices }), ...FETCH_LINKS], [searchMode, language]);
+    const placeholders = useMemo(() => searchMode ? SEARCH_PLACEHOLDERS : [translate("search.paste", { service: linkServices }), ...FETCH_LINKS], [searchMode, language, linkServices]);
     const placeholderText = useTypingEffect(placeholders);
     useEffect(() => {
         try {
@@ -151,8 +157,8 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         invalidateSearch();
         onSearchModeChange(mode);
     };
-    const changeService = (next: Service) => {
-        setSearchService(next);
+    const changeService = (next: string) => {
+        setSavedService(next);
         try {
             localStorage.setItem(SEARCH_SERVICE_KEY, next);
         }
@@ -176,7 +182,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         setSearchError("");
         const query = searchQuery.trim();
         setSearchStatus(searchMode && query ? "debouncing" : "idle");
-        if (!searchMode || !query) return;
+        if (!searchMode || !query || !searchService) return;
         const timeout = setTimeout(async () => {
             if (generation !== searchGeneration.current) return;
             setSearchStatus("loading");
@@ -194,8 +200,8 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                 setLastSearchedQuery(query);
                 saveRecentSearch(query);
                 setSearchStatus(results.tracks.length || results.albums.length || results.artists.length || results.playlists.length ? "success" : "empty");
-                // Amazon's search has no paging, so it never offers load more.
-                const more = (items: unknown[]) => searchService === "spotify" && items.length === SEARCH_LIMIT;
+                // A source that cannot search by type has no paging, so it never offers load more.
+                const more = (items: unknown[]) => canPage && items.length === SEARCH_LIMIT;
                 setHasMore({
                     tracks: more(raw.tracks),
                     albums: more(raw.albums),
@@ -221,7 +227,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             clearTimeout(timeout);
             invalidateRequests();
         };
-    }, [searchQuery, searchMode, searchService, retry, saveRecentSearch, invalidateRequests]);
+    }, [searchQuery, searchMode, searchService, canPage, retry, saveRecentSearch, invalidateRequests]);
     const handleLoadMore = async () => {
         if (!searchResults || !lastSearchedQuery || isLoadingMore)
             return;
@@ -238,7 +244,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         setIsLoadingMore(true);
         setLoadMoreError("");
         try {
-            const moreResults = await SearchByType("spotify", lastSearchedQuery, typeMap[activeTab], SEARCH_LIMIT, rawOffset.current[tab]);
+            const moreResults = await SearchByType(searchService, lastSearchedQuery, typeMap[activeTab], SEARCH_LIMIT, rawOffset.current[tab]);
             if (!isCurrent()) return;
             rawOffset.current[tab] += moreResults.length;
             if (moreResults.length > 0) {
@@ -352,16 +358,17 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
                         </>) : (<>
-                            <InputWithContext id="spotify-search" aria-label={t("search.aria", { service: serviceLabels[searchService] })} placeholder={placeholderText} value={searchQuery} onChange={(e) => changeQuery(e.target.value)} className="pr-8"/>
+                            <InputWithContext id="spotify-search" aria-label={t("search.aria", { service: label(searchService) })} placeholder={placeholderText} value={searchQuery} onChange={(e) => changeQuery(e.target.value)} className="pr-8"/>
                             {searchQuery && (<button type="button" aria-label={t("search.clear")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => changeQuery("")}>
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
                         </>)}
                 </div>
 
-                {searchMode && (<div role="radiogroup" aria-label={t("search.service")} className="flex shrink-0 rounded-md border">
-                        {(["spotify", "amazon"] as const).map((option) => (<Button key={option} type="button" role="radio" aria-checked={searchService === option} variant={searchService === option ? "secondary" : "ghost"} onClick={() => changeService(option)}>
-                                {serviceLabels[option]}
+                {searchMode && searchable.length > 1 && (<div role="radiogroup" aria-label={t("search.service")} className="flex shrink-0 rounded-md border">
+                        {searchable.map((option) => (<Button key={option.service} type="button" role="radio" aria-checked={searchService === option.service} variant={searchService === option.service ? "secondary" : "ghost"} onClick={() => changeService(option.service)}>
+                                <SourceIcon icon={option.icon}/>
+                                {option.label}
                             </Button>))}
                     </div>)}
 

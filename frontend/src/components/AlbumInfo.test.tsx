@@ -5,6 +5,7 @@ import { AlbumInfo } from "./AlbumInfo";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn() }));
+vi.mock("@/hooks/useSources", async () => (await import("../test/sources")).useSourcesMock);
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { error: vi.fn() } }));
 
 const albumInfo = { name: "Album", artists: "Artist", images: "", release_date: "2020", total_tracks: 3 };

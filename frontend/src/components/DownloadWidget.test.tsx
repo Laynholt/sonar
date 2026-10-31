@@ -14,8 +14,9 @@ const MB = 1024 * 1024;
 const item = (id: string, status: string, extra: Partial<DownloadItem> = {}) =>
     ({ id, queue_id: "album:x", track: { title: `Song ${id}`, artist: "Artist" }, status, message: "", path: "", error: "", bytes: 0, size: 0, ...extra }) as DownloadItem;
 const active = (items: DownloadItem[]) => items.filter((i) => ["matching", "queued", "downloading"].includes(i.status)).length;
-type Site = { name: string; available: boolean; count: number; limit: number; asking: boolean; paused_until: number };
-const site = (name: string, extra: Partial<Site> = {}): Site => ({ name, available: true, count: 0, limit: 0, asking: false, paused_until: 0, ...extra });
+type Site = { name: string; label: string; available: boolean; count: number; limit: number; asking: boolean; paused_until: number };
+const LABELS: Record<string, string> = { lucida: "Lucida", doubledouble: "DoubleDouble" };
+const site = (name: string, extra: Partial<Site> = {}): Site => ({ name, label: LABELS[name] ?? name, available: true, count: 0, limit: 0, asking: false, paused_until: 0, ...extra });
 const set = (items: DownloadItem[], sites: Site[] = []) =>
     vi.mocked(useDownloads).mockReturnValue({ items, byTrackId: new Map(), activeCount: active(items), sites, held: false } as unknown as ReturnType<typeof useDownloads>);
 

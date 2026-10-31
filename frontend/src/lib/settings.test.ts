@@ -90,16 +90,20 @@ it("defaults the language to auto and keeps a saved one", async () => {
     expect((await settings.loadSettings()).language).toBe("ru");
 });
 
-it("fills the download defaults for old saved settings and turns the guard off as limit 0", async () => {
+it("fills the download defaults for old saved settings", async () => {
     const api = await import("../../wailsjs/go/main/App");
     const settings = await import("./settings");
     vi.mocked(api.LoadSettings).mockResolvedValue({ theme: "blue" });
     const loaded = await settings.loadSettings();
-    expect(loaded).toMatchObject({ theme: "blue", filenameTemplate: "{title} - {artist}", rateGuard: true, rateGuardLimit: 50, downloadFormat: "original" });
+    expect(loaded).toMatchObject({ theme: "blue", filenameTemplate: "{title} - {artist}", downloadFormat: "original" });
     expect(settings.downloadOptions(loaded)).toMatchObject({ dir: "", filename_template: "{title} - {artist}", playlist_folder: true });
 });
 
-it("embeds the genre by default, all genres", async () => {
+it("ignores the guard and genre keys saved before they became plugin settings", async () => {
+    const api = await import("../../wailsjs/go/main/App");
     const settings = await import("./settings");
-    expect(settings.DEFAULT_SETTINGS).toMatchObject({ embedGenre: true, useSingleGenre: false });
+    vi.mocked(api.LoadSettings).mockResolvedValue({ theme: "blue", downloadSource: "lucida", rateGuard: false, rateGuardLimit: 10, rateGuardWait: 60, embedGenre: false, useSingleGenre: true });
+    const options = settings.downloadOptions(await settings.loadSettings());
+    expect(options).toMatchObject({ source: "lucida" });
+    expect(Object.keys(options)).toEqual(["dir", "format", "source", "folder_template", "filename_template", "playlist_folder", "ffmpeg_path"]);
 });

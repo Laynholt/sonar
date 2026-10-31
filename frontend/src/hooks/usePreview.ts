@@ -32,7 +32,7 @@ export function stopPreview() {
     haltAudio();
     setState({ loadingPreview: null, playingTrack: null });
 }
-async function playPreview(trackId: string, trackName: string) {
+async function playPreview(service: string, trackId: string, trackName: string) {
     if (state.playingTrack === trackId && currentAudio) {
         stopPreview();
         return;
@@ -41,7 +41,7 @@ async function playPreview(trackId: string, trackName: string) {
     const request = requestId;
     try {
         setState({ loadingPreview: trackId });
-        const previewURL = await GetPreviewURL(/^[A-Za-z0-9]{22}$/.test(trackId) ? "spotify" : "amazon", trackId);
+        const previewURL = await GetPreviewURL(service, trackId);
         if (request !== requestId) return;
         if (!previewURL) {
             toast.error(t("preview.unavailable"), {

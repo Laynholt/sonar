@@ -68,8 +68,8 @@ it("does not mistake Object.prototype names for languages", () => {
 it("keeps the Russian copy the mockups approved", () => {
     const ru = (key: Parameters<typeof translate>[1], params?: Record<string, number | string>) => translate("ru", key, params);
     expect(ru("picker.title")).toBe("Неуверенное совпадение");
-    expect(ru("picker.fromSpotify")).toBe("Из Spotify");
-    expect(ru("picker.found")).toBe("Нашлось на Amazon");
+    expect(ru("picker.from", { service: "Spotify" })).toBe("Из Spotify");
+    expect(ru("picker.found", { service: "Amazon" })).toBe("Нашлось на Amazon");
     expect(ru("picker.recommended")).toBe("Рекомендован");
     expect(ru("picker.choose")).toBe("Выбрать");
     expect(ru("picker.skip")).toBe("Пропустить трек");

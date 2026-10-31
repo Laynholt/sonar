@@ -1,4 +1,4 @@
-export type Service = "spotify" | "amazon";
+export type Service = string;
 export interface ArtistSimple {
     id: string;
     name: string;

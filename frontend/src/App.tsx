@@ -185,8 +185,8 @@ function App() {
         return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("mouseup", onMouseUp); };
     });
     const openArtist = (artist: { id: string; external_urls: string }) => {
-        if (loaded?.data.service === "amazon") {
-            void chainFetch(artist.external_urls || `https://music.amazon.com/artists/${artist.id}`);
+        if (artist.external_urls) {
+            void chainFetch(artist.external_urls);
             return;
         }
         const artistID = extractArtistID(artist.id) || extractArtistID(artist.external_urls || "");

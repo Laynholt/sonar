@@ -12,16 +12,11 @@ export interface Settings {
     language: string;
     downloadPath: string;
     downloadFormat: "original" | "mp3-320" | "m4a-aac-320";
-    downloadSource: "auto" | "lucida" | "doubledouble";
+    downloadSource: string; // "auto" or a downloader id
     folderTemplate: string;
     filenameTemplate: string;
     playlistFolder: boolean;
-    embedGenre: boolean;
-    useSingleGenre: boolean;
     ffmpegPath: string;
-    rateGuard: boolean;
-    rateGuardLimit: number;
-    rateGuardWait: 15 | 30 | 60 | 120;
     recentLimit: number;
 }
 
@@ -38,12 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
     folderTemplate: "",
     filenameTemplate: "{title} - {artist}",
     playlistFolder: true,
-    embedGenre: true,
-    useSingleGenre: false,
     ffmpegPath: "",
-    rateGuard: true,
-    rateGuardLimit: 50,
-    rateGuardWait: 30,
     recentLimit: 20,
 };
 

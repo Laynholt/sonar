@@ -13,6 +13,5 @@ export const clock = (ms: number) => {
 /** Time left at the given speed as "m:ss", or "" when the speed or size is unknown. */
 export const eta = (left: number, speed: number) => (left <= 0 || speed <= 0 ? "" : clock(Math.ceil(left / speed) * 1000));
 
-const SITE_NAMES: Record<string, string> = { lucida: "Lucida", doubledouble: "DoubleDouble" };
-/** A download site's display name; an unknown site keeps the name the backend gave it. */
-export const siteName = (name: string) => SITE_NAMES[name] ?? name;
+/** A download site's display name: the label its plugin gave it, else its id. */
+export const siteName = (site: { name: string; label?: string }) => site.label || site.name;

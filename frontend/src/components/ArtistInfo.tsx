@@ -4,9 +4,10 @@ import { BadgeCheck, ExternalLink, XCircle } from "lucide-react";
 import { SearchAndSort } from "./SearchAndSort";
 import { TrackList } from "./TrackList";
 import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
-import { ServiceBadge, serviceLabels } from "./ServiceBadge";
+import { ServiceBadge } from "./ServiceBadge";
 import type { Service, TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import { useSources } from "@/hooks/useSources";
 import { useI18n } from "@/lib/i18n";
 import type { AlbumRef, ArtistRef } from "./ArtistLinks";
 interface ArtistInfoProps extends DownloadCardProps {
@@ -49,6 +50,7 @@ interface ArtistInfoProps extends DownloadCardProps {
 }
 export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQuery, sortBy, currentPage, itemsPerPage, onSearchChange, onSortChange, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, activeTab, onTabChange, canDownload, downloadItems, onDownloadAll, downloadProgress, onDownloadTrack, onRetryDownload, onStopDownload, }: ArtistInfoProps) {
     const { t } = useI18n();
+    const { label } = useSources();
     const hasGallery = artistInfo.gallery && artistInfo.gallery.length > 0;
     return (<div className="space-y-6">
       <Card className="overflow-hidden p-0 relative">
@@ -96,7 +98,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
                     <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload} size="sm"/>
                     <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline" className="bg-white/10 hover:bg-white/20 text-white border-white/20">
                       <ExternalLink className="h-4 w-4"/>
-                      {t("service.open", { service: serviceLabels[service] })}
+                      {t("service.open", { service: label(service) })}
                     </Button>
                     </div>
                   </div>
@@ -143,7 +145,7 @@ export function ArtistInfo({ service, artistInfo, albumList, trackList, searchQu
               <DownloadAll label="download.all" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload} size="sm"/>
               <Button onClick={() => openExternal(artistInfo.external_urls)} size="sm" variant="outline">
                       <ExternalLink className="h-4 w-4"/>
-                      {t("service.open", { service: serviceLabels[service] })}
+                      {t("service.open", { service: label(service) })}
                     </Button>
               </div>
             </div>

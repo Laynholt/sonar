@@ -3,11 +3,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ExternalLink, XCircle } from "lucide-react";
 import type { TrackMetadata } from "@/types/api";
 import { openExternal } from "@/lib/utils";
+import { useSources } from "@/hooks/useSources";
 import { useI18n } from "@/lib/i18n";
 import { AlbumLink, ArtistLinks, type AlbumRef, type ArtistRef } from "./ArtistLinks";
 import { CoverPreview } from "./CoverPreview";
 import { DownloadAll, type DownloadCardProps } from "./DownloadButton";
-import { ServiceBadge, serviceLabels } from "./ServiceBadge";
+import { ServiceBadge } from "./ServiceBadge";
 interface TrackInfoProps extends DownloadCardProps {
     track: TrackMetadata & {
         album_name: string;
@@ -19,6 +20,7 @@ interface TrackInfoProps extends DownloadCardProps {
 }
 export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, canDownload, onDownloadAll, downloadProgress, onStopDownload, }: TrackInfoProps) {
     const { t, language } = useI18n();
+    const { label } = useSources();
     const formatDuration = (ms: number) => {
         const minutes = Math.floor(ms / 60000);
         const seconds = Math.floor((ms % 60000) / 1000);
@@ -45,7 +47,7 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, canDownl
     <CardContent className="px-6">
       <div className="flex flex-col gap-6 md:flex-row">
         <div className="flex flex-1 items-start gap-6 min-w-0">
-          <CoverPreview trackId={track.service === "spotify" ? track.id : undefined} trackName={track.name} src={track.images} className="h-48 w-48 rounded-md shadow-lg"/>
+          <CoverPreview service={track.service} trackId={track.id} trackName={track.name} src={track.images} className="h-48 w-48 rounded-md shadow-lg"/>
           <div className="flex min-h-48 flex-1 flex-col justify-between gap-4 min-w-0">
             <div className="space-y-1">
               <ServiceBadge service={track.service}/>
@@ -61,7 +63,7 @@ export function TrackInfo({ track, onBack, onArtistClick, onAlbumClick, canDownl
               <DownloadAll label="download.track" canDownload={canDownload} onDownload={onDownloadAll} progress={downloadProgress} onStop={onStopDownload}/>
               <Button onClick={() => openExternal(track.external_urls)} variant="outline">
                 <ExternalLink className="h-4 w-4"/>
-                {t("service.open", { service: serviceLabels[track.service] })}
+                {t("service.open", { service: label(track.service) })}
               </Button>
             </div>
           </div>

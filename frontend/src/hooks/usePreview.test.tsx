@@ -39,18 +39,24 @@ it("drops a preview URL that resolves after a newer play request", async () => {
     const b = deferred<string>();
     vi.mocked(GetPreviewURL).mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
     let first!: Promise<void>, second!: Promise<void>;
-    await act(async () => { first = api.playPreview("A", "A"); });
-    await act(async () => { second = api.playPreview("B", "B"); });
+    await act(async () => { first = api.playPreview("spotify", "A", "A"); });
+    await act(async () => { second = api.playPreview("spotify", "B", "B"); });
     await act(async () => { b.resolve("urlB"); await second; });
     await act(async () => { a.resolve("urlA"); await first; });
     expect(played).toEqual(["urlB"]);
+});
+
+it("asks the track's own source for the preview", async () => {
+    vi.mocked(GetPreviewURL).mockResolvedValueOnce("url1");
+    await act(async () => { await api.playPreview("amazon", "B0X", "T"); });
+    expect(GetPreviewURL).toHaveBeenCalledWith("amazon", "B0X");
 });
 
 it("drops a pending preview when stopped", async () => {
     const a = deferred<string>();
     vi.mocked(GetPreviewURL).mockReturnValueOnce(a.promise);
     let first!: Promise<void>;
-    await act(async () => { first = api.playPreview("A", "A"); });
+    await act(async () => { first = api.playPreview("spotify", "A", "A"); });
     await act(async () => { api.stopPreview(); });
     await act(async () => { a.resolve("urlA"); await first; });
     expect(played).toEqual([]);
@@ -59,9 +65,9 @@ it("drops a pending preview when stopped", async () => {
 
 it("shares one preview across components and stops the previous track", async () => {
     vi.mocked(GetPreviewURL).mockResolvedValueOnce("url1").mockResolvedValueOnce("url2");
-    await act(async () => { await api.playPreview("t1", "T1"); });
+    await act(async () => { await api.playPreview("spotify", "t1", "T1"); });
     await act(async () => listeners.loadeddata());
-    await act(async () => { await other.playPreview("t2", "T2"); });
+    await act(async () => { await other.playPreview("spotify", "t2", "T2"); });
     await act(async () => listeners.loadeddata());
 
     expect((audios[0] as unknown as { pauses: number }).pauses).toBe(1);

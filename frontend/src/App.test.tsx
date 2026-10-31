@@ -28,6 +28,7 @@ const album: MetadataResponse = {
 };
 
 vi.mock("@/components/ui/select", () => import("./test/nativeSelect"));
+vi.mock("@/hooks/useSources", async () => (await import("./test/sources")).useSourcesMock);
 vi.mock("@/lib/api", () => ({ fetchMetadata: vi.fn() }));
 vi.mock("@/hooks/usePreview", async (original) => ({ ...await original<typeof import("@/hooks/usePreview")>(), stopPreview: vi.fn() }));
 vi.mock("../wailsjs/go/main/App", () => ({ DownloadTracks: vi.fn().mockResolvedValue(undefined), GetDownloadState: vi.fn().mockResolvedValue({ items: [], sites: [], held: false }), GetPendingQueue: vi.fn().mockResolvedValue({ tracks: 0, review: 0, collections: [] }), AddFetchHistory: vi.fn().mockResolvedValue(undefined), GetFetchHistory: vi.fn(), GetFetchHistoryData: vi.fn(), DeleteFetchHistoryItem: vi.fn(), Search: vi.fn(), SearchByType: vi.fn(), LoadSettings: vi.fn().mockResolvedValue({}), SaveSettings: vi.fn() }));
@@ -149,6 +150,17 @@ describe("back button over the click chain", () => {
         expect(urlInput().value).toBe(playlistUrl);
         expect(backButton().disabled).toBe(true);
         expect(stopPreview).toHaveBeenCalled();
+    });
+
+    it("opens an artist from the artist's own link, whichever service it is on", async () => {
+        const artistUrl = "https://music.example.com/artists/9";
+        const withArtist: MetadataResponse = { ...playlist, track_list: playlist.track_list.map((track) => ({ ...track, service: "other", artists_data: [{ id: "9", name: "Artist", external_urls: artistUrl }] })) } as MetadataResponse;
+        vi.mocked(fetchMetadata).mockImplementation(async (url) => (url === playlistUrl ? withArtist : album));
+        await openPlaylist();
+
+        await clickText("button", "Artist");
+
+        expect(fetchMetadata).toHaveBeenLastCalledWith(artistUrl);
     });
 
     it("restores the page and the search query", async () => {

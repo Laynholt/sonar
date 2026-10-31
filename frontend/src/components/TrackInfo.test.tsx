@@ -6,6 +6,7 @@ import { TrackInfo } from "./TrackInfo";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ GetPreviewURL: vi.fn() }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn() }));
+vi.mock("@/hooks/useSources", async () => (await import("../test/sources")).useSourcesMock);
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { error: vi.fn() } }));
 
 const track: TrackMetadata & { album_name: string; release_date: string } = {
@@ -65,11 +66,14 @@ describe("TrackInfo", () => {
         expect(() => button(view.container, "Album")).toThrow();
     });
 
-    it("offers a preview for Spotify tracks but not Amazon ones", async () => {
+    it("offers a preview when the track's source can preview, whichever source it is", async () => {
         view = await mount(<TrackInfo track={track}/>);
         expect(view.container.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
 
         await view.render(<TrackInfo track={{ ...track, service: "amazon" }}/>);
+        expect(view.container.querySelectorAll('button[aria-label="Play preview"]').length).toBe(1);
+
+        await view.render(<TrackInfo track={{ ...track, service: "mute" }}/>);
         expect(view.container.querySelectorAll('button[aria-label="Play preview"]').length).toBe(0);
     });
 

@@ -7,8 +7,10 @@ import { Search, SearchByType } from "../../wailsjs/go/main/App";
 import { model } from "../../wailsjs/go/models";
 import type { history } from "../../wailsjs/go/models";
 import { mount, change, button, deferred } from "../test/render";
+import { setSources, AMAZON, SPOTIFY } from "../test/sources";
 
 vi.mock("../../wailsjs/go/main/App", () => ({ Search: vi.fn(), SearchByType: vi.fn() }));
+vi.mock("@/hooks/useSources", async () => (await import("../test/sources")).useSourcesMock);
 vi.mock("@/hooks/useTypingEffect", () => ({ useTypingEffect: (texts: string[]) => texts[0] }));
 
 function result(name: string) {
@@ -21,6 +23,7 @@ const props = { url: "", loading: false, onUrlChange: vi.fn(), onFetch: vi.fn(),
 let view: Awaited<ReturnType<typeof mount>>;
 beforeEach(async () => {
     vi.resetAllMocks();
+    setSources([SPOTIFY, AMAZON]);
     vi.useFakeTimers();
     localStorage.clear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -280,6 +283,57 @@ describe("search service switch", () => {
         view = await mount(<TooltipProvider><SearchBar {...props}/></TooltipProvider>);
         expect(button(view.container, "Amazon Music").getAttribute("aria-checked")).toBe("true");
         expect(button(view.container, "Spotify").getAttribute("aria-checked")).toBe("false");
+    });
+
+    const remount = async () => {
+        await view.unmount();
+        view = await mount(<TooltipProvider><SearchBar {...props}/></TooltipProvider>);
+    };
+    const radios = () => [...view.container.querySelectorAll('[role="radio"]')].map((item) => item.textContent);
+
+    it("lists the sources that can search, with the source's icon when it has one and a generic one when not", async () => {
+        const noSearch = { ...AMAZON, service: "noisy", label: "Noisy", can: ["preview"] };
+        setSources([{ ...SPOTIFY, icon: "data:image/png;base64,AAAA" }, AMAZON, noSearch]);
+        await remount();
+        expect(radios()).toEqual(["Spotify", "Amazon Music"]);
+        const [first, second] = view.container.querySelectorAll('[role="radio"]');
+        expect(first.querySelector("img")!.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+        expect(second.querySelector("img")).toBeNull();
+        expect(second.querySelector("svg")).not.toBeNull();
+    });
+
+    it("hides the switch when only one source can search", async () => {
+        setSources([SPOTIFY]);
+        await remount();
+        expect(radios()).toEqual([]);
+        vi.mocked(Search).mockResolvedValue(response("Solo"));
+        await start("one");
+        expect(Search).toHaveBeenCalledWith("spotify", "one", 50);
+    });
+
+    it("offers load more only for a source that can search by type", async () => {
+        vi.mocked(Search).mockResolvedValue(response("Hit", 50));
+        vi.mocked(SearchByType).mockResolvedValue([]);
+        await start("first");
+        await act(async () => button(view.container, "Load More").click());
+        expect(SearchByType).toHaveBeenCalledWith("spotify", "first", "track", 50, 50);
+        setSources([SPOTIFY, { ...AMAZON, can: ["search", "searchByType"] }]);
+        await pick("Amazon Music");
+        await act(async () => vi.advanceTimersByTimeAsync(400));
+        await act(async () => button(view.container, "Load More").click());
+        expect(SearchByType).toHaveBeenLastCalledWith("amazon", "first", "track", 50, 50);
+    });
+
+    it("falls back to the first source when the remembered one is gone", async () => {
+        localStorage.setItem("sonar_search_service", "gone");
+        await remount();
+        expect(button(view.container, "Spotify").getAttribute("aria-checked")).toBe("true");
+        localStorage.setItem("sonar_search_service", "amazon");
+        setSources([SPOTIFY]);
+        await remount();
+        vi.mocked(Search).mockResolvedValue(response("Fallback"));
+        await start("x");
+        expect(Search).toHaveBeenCalledWith("spotify", "x", 50);
     });
 
     it("keeps Amazon results when a late Spotify response arrives after switching", async () => {

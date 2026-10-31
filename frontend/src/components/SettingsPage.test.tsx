@@ -5,10 +5,10 @@ import { getLanguage, setLanguage } from "@/lib/i18n";
 import { downloadOptions, type Settings } from "@/lib/settings";
 import { openFFmpegInstall } from "@/lib/ffmpeg-install";
 import { toastWithSound } from "@/lib/toast-with-sound";
-import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
+import { BrowserOpenURL, EventsOn } from "../../wailsjs/runtime/runtime";
 import { SettingsPage } from "./SettingsPage";
-import { mount, button, change, deferred } from "../test/render";
-import { GetSourceStatus, RunPluginAction, SaveSettings, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
+import { mount, button, change } from "../test/render";
+import { GetSourceStatus, SaveSettings, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
 
 vi.mock("@/components/ui/select", () => import("../test/nativeSelect"));
 vi.mock("../../wailsjs/go/main/App", () => ({
@@ -16,7 +16,7 @@ vi.mock("../../wailsjs/go/main/App", () => ({
     GetSourceStatus: vi.fn(), RunPluginAction: vi.fn(), FindFFmpeg: vi.fn(), SelectFFmpeg: vi.fn(),
 }));
 vi.mock("@/lib/ffmpeg-install", () => ({ openFFmpegInstall: vi.fn() }));
-vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn() }));
+vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn(), EventsOn: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
 
 const onUnsavedChangesChange = vi.fn();
@@ -26,7 +26,7 @@ beforeEach(async () => {
     vi.resetAllMocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.mocked(DefaultDownloadDir).mockResolvedValue("C:\\Music\\sonar");
-    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "lucida", label: "lucida", accepts: "amazon", available: true, needs_action: false, action: "", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }, { name: "doubledouble", label: "doubledouble", accepts: "amazon", available: false, needs_action: true, action: "check", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }]);
+    vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "lucida", label: "Lucida", accepts: "amazon", available: true, needs_action: false, action: "", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }, { name: "doubledouble", label: "DoubleDouble", accepts: "amazon", available: false, needs_action: true, action: "check", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }]);
     vi.mocked(FindFFmpeg).mockResolvedValue("");
     vi.mocked(SelectFFmpeg).mockResolvedValue("C:\\ff\\ffmpeg.exe");
     Object.defineProperty(window, "matchMedia", { configurable: true, value: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }) });
@@ -99,15 +99,10 @@ describe("SettingsPage", () => {
             await act(async () => button(view.container, "Save Changes").click());
             return downloadOptions(vi.mocked(SaveSettings).mock.lastCall![0] as unknown as Settings);
         };
-        // The guard and genre options are plugin settings now; these still live in the saved settings until the plugin UI lands.
-        const lastSaved = async () => {
-            await act(async () => button(view.container, "Save Changes").click());
-            return vi.mocked(SaveSettings).mock.lastCall![0] as unknown as Settings;
-        };
 
         it("is the second tab and shows its settings", async () => {
             await open();
-            expect([...view.container.querySelectorAll("h2")].map((item) => item.textContent)).toEqual(["Saving", "Folders and file names", "Tags", "Source"]);
+            expect([...view.container.querySelectorAll("h2")].map((item) => item.textContent)).toEqual(["Saving", "Folders and file names", "Source"]);
             for (const text of ["Download folder", "Site", "Site status", "Format", "Folder structure", "File name", "Playlist folder"])
                 expect(view.container.textContent).toContain(text);
             expect(view.container.textContent).not.toContain("Preview");
@@ -115,19 +110,47 @@ describe("SettingsPage", () => {
             expect(view.container.textContent).not.toContain("Found automatically");
         });
 
-        it("the genre switches save embedGenre and useSingleGenre to the settings, and the single one shows only while embedding", async () => {
+        it("the guard and genre controls are gone, and so is the check button", async () => {
             await open();
-            for (const text of ["Write genre", "Only one genre"])
-                expect(view.container.textContent).toContain(text);
-            const click = (id: string) => act(async () => (view.container.querySelector(id) as HTMLButtonElement).click());
-            expect(await lastSaved()).toMatchObject({ embedGenre: true, useSingleGenre: false });
-            await click("#single-genre");
-            expect(await lastSaved()).toMatchObject({ embedGenre: true, useSingleGenre: true });
-            await click("#embed-genre");
-            expect(view.container.querySelector("#single-genre")).toBeNull();
-            expect(await lastSaved()).toMatchObject({ embedGenre: false });
-            await click("#embed-genre");
-            expect(view.container.querySelector("#single-genre")).not.toBeNull();
+            for (const text of ["Write genre", "Only one genre", "Download limit warning", "Tracks before the warning", "Pause length"])
+                expect(view.container.textContent).not.toContain(text);
+            expect(view.container.querySelector("#embed-genre, #single-genre, #rate-guard")).toBeNull();
+            expect(view.container.querySelector('input[type="number"]')).toBeNull();
+            // The status line stays; only the way to pass the check moved out.
+            expect(view.container.textContent).toContain("needs the check");
+            expect([...view.container.querySelectorAll("button")].some((b) => b.textContent === "Pass check")).toBe(false);
+        });
+
+        // The saved settings outlive a test, so each one that picks a source puts Auto back.
+        const choose = async (value: string) => { await pick(selectWith(value), value); await lastOptions(); };
+
+        it("the Source select lists Auto and the enabled downloaders by name, and saves the pick", async () => {
+            await open();
+            await choose("auto");
+            const source = selectWith("auto");
+            expect([...source.options].map((option) => [option.value, option.textContent])).toEqual([["auto", "Auto"], ["lucida", "Lucida"], ["doubledouble", "DoubleDouble"]]);
+            await pick(source, "doubledouble");
+            expect(await lastOptions()).toMatchObject({ source: "doubledouble" });
+            await choose("auto");
+        });
+
+        it("reloads the downloaders when a plugin changes", async () => {
+            await open();
+            await choose("auto");
+            vi.mocked(GetSourceStatus).mockResolvedValue([]);
+            await act(async () => vi.mocked(EventsOn).mock.calls[0][1]());
+            expect([...selectWith("auto").options].map((option) => option.value)).toEqual(["auto"]);
+        });
+
+        it("keeps a chosen downloader that was switched off in the list instead of changing the choice", async () => {
+            await open();
+            await choose("lucida");
+            vi.mocked(GetSourceStatus).mockResolvedValue([]);
+            await act(async () => vi.mocked(EventsOn).mock.calls[0][1]());
+            const source = selectWith("auto");
+            expect([...source.options].map((option) => option.value)).toEqual(["auto", "lucida"]);
+            expect(source.value).toBe("lucida");
+            await choose("auto");
         });
 
         it("Browse puts the chosen folder in the field and marks the page unsaved", async () => {
@@ -145,32 +168,6 @@ describe("SettingsPage", () => {
             const input = view.container.querySelector('input[value="{title} - {artist}"]') as HTMLInputElement;
             await act(async () => change(input, "{artist}/{title}"));
             expect(await lastOptions()).toMatchObject({ filename_template: "{artist}/{title}" });
-        });
-
-        it("doubledouble that needs the check offers the button", async () => {
-            const check = deferred<void>();
-            vi.mocked(RunPluginAction).mockReturnValue(check.promise);
-            await open();
-            expect(view.container.textContent).toContain("needs the check");
-            const calls = vi.mocked(GetSourceStatus).mock.calls.length;
-            await act(async () => button(view.container, "Pass check").click());
-            expect(RunPluginAction).toHaveBeenCalledWith("doubledouble", "check");
-            expect(button(view.container, "Pass the check in the browser window…").disabled).toBe(true);
-            expect(view.container.textContent).toContain("untick “Upload to”, tick “Hide my download”");
-            await act(async () => check.resolve());
-            expect(view.container.textContent).not.toContain("untick “Upload to”");
-            expect(vi.mocked(GetSourceStatus).mock.calls.length).toBeGreaterThan(calls);
-            expect(vi.mocked(toastWithSound.success)).toHaveBeenCalledWith("Check passed, doubledouble is back");
-        });
-
-        it("a failed check shows the error and re-enables the button", async () => {
-            vi.mocked(RunPluginAction).mockRejectedValue(new Error("timed out"));
-            await open();
-            const calls = vi.mocked(GetSourceStatus).mock.calls.length;
-            await act(async () => button(view.container, "Pass check").click());
-            expect(vi.mocked(GetSourceStatus).mock.calls.length).toBeGreaterThan(calls);
-            expect(vi.mocked(toastWithSound.error)).toHaveBeenCalledWith(expect.stringContaining("timed out"));
-            expect(button(view.container, "Pass check").disabled).toBe(false);
         });
 
         it("MP3 shows the FFmpeg row", async () => {
@@ -236,42 +233,6 @@ describe("SettingsPage", () => {
         it("opening the tab alone does not mark the page unsaved", async () => {
             await open();
             expect(onUnsavedChangesChange).not.toHaveBeenCalledWith(true);
-        });
-
-        it("the guard wait offers 15, 30, 60 and 120 minutes, defaults to 30 and is saved", async () => {
-            await open();
-            const wait = selectWith("120");
-            expect([...wait.options].map((option) => option.value)).toEqual(["15", "30", "60", "120"]);
-            expect([...wait.options].map((option) => option.textContent)).toEqual(["15 min", "30 min", "60 min", "120 min"]);
-            expect(wait.value).toBe("30");
-            expect(await lastSaved()).toMatchObject({ rateGuardWait: 30 });
-            await pick(selectWith("120"), "120");
-            expect(await lastSaved()).toMatchObject({ rateGuardWait: 120 });
-        });
-
-        it("the guard wait shows only while the rate guard is on", async () => {
-            await open();
-            await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
-            expect(view.container.querySelector('option[value="120"]')).toBeNull();
-            await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
-            expect(view.container.querySelector('option[value="120"]')).not.toBeNull();
-        });
-
-        it("the rate guard limit is saved to the settings", async () => {
-            await open();
-            const limit = view.container.querySelector('input[type="number"]') as HTMLInputElement;
-            expect(limit.min).toBe("1");
-            await act(async () => change(limit, "30"));
-            expect(await lastSaved()).toMatchObject({ rateGuardLimit: 30 });
-            await act(async () => change(limit, ""));
-            expect(await lastSaved()).toMatchObject({ rateGuardLimit: 30 });
-            await act(async () => limit.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
-            expect(limit.value).toBe("30");
-            await act(async () => change(limit, "99999999999999999999"));
-            expect(await lastSaved()).toMatchObject({ rateGuardLimit: 30 });
-            await act(async () => (view.container.querySelector("#rate-guard") as HTMLButtonElement).click());
-            expect(view.container.querySelector('input[type="number"]')).toBeNull();
-            expect(await lastSaved()).toMatchObject({ rateGuard: false });
         });
     });
 });
