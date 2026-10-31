@@ -101,7 +101,19 @@ func TestDownloadTracksValidates(t *testing.T) {
 		})
 	}
 
+	// A track whose source plugin is off would wait unplaced: refuse it with the usual "switched off".
 	a, fetches := newTestApp(t, "ff")
+	if err := a.SetPluginEnabled("amazon", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.DownloadTracks(req(t, "", "", "B00A3SGXAA")); err == nil || err.Error() != "Amazon Music is switched off" {
+		t.Fatalf("source off: err = %v", err)
+	}
+	if n := len(a.GetDownloadState().Items); n != 0 {
+		t.Fatalf("source off: enqueued %d", n)
+	}
+
+	a, fetches = newTestApp(t, "ff")
 	if err := a.DownloadTracks(withService(req(t, "mp3-320", "lucida", "B00A3SGXAA", ""), "amazon")); err != nil { // the empty id is skipped
 		t.Fatal(err)
 	}

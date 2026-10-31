@@ -75,11 +75,23 @@ func userPluginsDir(dataDir string) string {
 	return filepath.Join(dataDir, "plugins")
 }
 
+// builtinMissing answers "no_builtin_plugins:<dir>", which the UI explains, when the plugins folder next to
+// sonar.exe is gone (an exe-only upgrade): then no built-in source runs. nil otherwise.
+func (a *App) builtinMissing() error {
+	if _, err := os.Stat(a.builtinDir); a.builtinDir != "" && errors.Is(err, os.ErrNotExist) {
+		return errors.New("no_builtin_plugins:" + a.builtinDir)
+	}
+	return nil
+}
+
 // builtinOrder is the built-in downloaders' order until the user sets one: lucida before doubledouble.
 var builtinOrder = []string{"lucida", "doubledouble"}
 
 func (a *App) openPlugins(builtinDir, userDir string, sums map[string]string) {
-	a.pluginsDir = userDir
+	a.pluginsDir, a.builtinDir = userDir, builtinDir
+	if err := a.builtinMissing(); err != nil {
+		log.Printf("plugins: the built-in plugins folder %s is missing; reinstall sonar", builtinDir)
+	}
 	a.reg = plugin.OpenRegistry(a.dataDir, builtinDir, userDir, sums, a.pluginInit, log.Printf)
 	a.reg.DefaultOrder = builtinOrder
 }
@@ -291,6 +303,9 @@ func (a *App) GetMetadata(url string) (string, error) {
 			if slices.Contains(e.M.Source.Can, plugin.CanMetadata) {
 				labels = append(labels, sourceLabel(e))
 			}
+		}
+		if err := a.builtinMissing(); len(labels) == 0 && err != nil {
+			return "", err
 		}
 		if len(labels) == 0 {
 			return "", errors.New("Unsupported link: no source plugin is turned on.")

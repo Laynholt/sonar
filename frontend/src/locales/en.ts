@@ -174,6 +174,7 @@ export const en = {
     "plugins.installed": "{id} installed",
     "plugins.exported": "Saved to {path}",
     "plugins.importPartial": "Installed {ids}, then the import stopped: {error}",
+    "plugins.builtinMissing": "The plugins folder next to sonar.exe is missing ({dir}). Reinstall sonar.",
     "plugins.guardLimit": "Track limit (0 — no limit)",
     "plugins.guardWait": "Pause",
     "plugins.minutes": "{minutes} min",

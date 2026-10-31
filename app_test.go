@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -18,6 +19,21 @@ func TestGetMetadataUnsupported(t *testing.T) {
 	a = newPluginApp(t, t.TempDir(), nil)
 	if _, err := a.GetMetadata("https://spotify/x"); err == nil || err.Error() != "Unsupported link: no source plugin is turned on." {
 		t.Fatalf("no sources: err = %v", err)
+	}
+}
+
+// An exe-only upgrade leaves no plugins folder next to sonar.exe: say so instead of "no source plugin is turned on".
+func TestBuiltinPluginsMissing(t *testing.T) {
+	a := newPluginApp(t, t.TempDir(), nil)
+	if err := os.Remove(a.builtinDir); err != nil {
+		t.Fatal(err)
+	}
+	want := "no_builtin_plugins:" + a.builtinDir
+	if _, err := a.GetMetadata("https://spotify/x"); err == nil || err.Error() != want {
+		t.Fatalf("GetMetadata: err = %v", err)
+	}
+	if err := a.DownloadTracks(req(t, "", "", "B00A3SGXAA")); err == nil || err.Error() != want {
+		t.Fatalf("DownloadTracks: err = %v", err)
 	}
 }
 

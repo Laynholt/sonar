@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { move, parseConflict, parsePartial, textIn } from "./plugins";
+import { explainMissingPlugins, move, parseConflict, parsePartial, textIn } from "./plugins";
 
 describe("textIn", () => {
     it("picks the language, then English, then the first key, like Go's Text.In", () => {
@@ -12,6 +12,12 @@ describe("textIn", () => {
 });
 
 describe("binding answers", () => {
+    it("explains a missing built-in plugins folder and passes any other error on", () => {
+        expect(explainMissingPlugins(new Error("no_builtin_plugins:C:\\sonar\\plugins")))
+            .toBe("The plugins folder next to sonar.exe is missing (C:\\sonar\\plugins). Reinstall sonar.");
+        const other = new Error("boom");
+        expect(explainMissingPlugins(other)).toBe(other);
+    });
     it("reads the ids of an import conflict", () => {
         expect(parseConflict("conflict:a,b")).toEqual(["a", "b"]);
         expect(parseConflict(new Error("conflict:a"))).toEqual(["a"]);

@@ -369,10 +369,10 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 	if o.Dir == "" {
 		o.Dir = a.DefaultDownloadDir()
 	}
-	services := map[string]bool{}
+	services := map[string]bool{} // service → whether a source for it is on; an off one's tracks would never be placed
 	for _, e := range a.reg.List() {
 		if e.Err == "" && e.M.Kind == plugin.KindSource && e.M.Source != nil {
-			services[e.M.Source.Service] = true
+			services[e.M.Source.Service] = services[e.M.Source.Service] || e.Enabled
 		}
 	}
 	tracks := make([]download.Track, 0, len(req.Tracks))
@@ -384,6 +384,12 @@ func (a *App) DownloadTracks(req DownloadRequest) error {
 			continue
 		}
 		if svc := download.ServiceOf(t); !services[svc] {
+			if err := a.builtinMissing(); err != nil {
+				return err
+			}
+			if _, off := services[svc]; off {
+				return errors.New(a.serviceLabel(svc) + " is switched off")
+			}
 			return fmt.Errorf("unknown service %q", svc)
 		}
 		if k := req.Collection.Kind; (k == "album" || k == "artist") && t.AlbumID != "" {

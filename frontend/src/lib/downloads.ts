@@ -2,6 +2,7 @@ import { CancelAllDownloads, CancelDownload, ChooseCandidate, ClearFinishedDownl
 import type { download, main, source } from "../../wailsjs/go/models";
 import type { TrackMetadata } from "@/types/api";
 import { openFFmpegInstall } from "./ffmpeg-install";
+import { explainMissingPlugins } from "./plugins";
 import { t } from "./i18n";
 import { logger } from "./logger";
 import { downloadOptions, getSettings } from "./settings";
@@ -130,7 +131,7 @@ export async function startDownload(collection: { kind: CollectionKind; id: stri
             openFFmpegInstall(() => void startDownload(collection, tracks));
             return;
         }
-        toastWithSound.error(errorMessage(err, t("recent.unknownError")));
+        toastWithSound.error(errorMessage(explainMissingPlugins(err), t("recent.unknownError")));
         return;
     }
     batches.get(queueId)!.after = started;

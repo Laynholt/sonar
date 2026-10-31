@@ -173,6 +173,7 @@
     "plugins.installed": "{id} установлен",
     "plugins.exported": "Сохранено: {path}",
     "plugins.importPartial": "Установлены {ids}, затем импорт прервался: {error}",
+    "plugins.builtinMissing": "Рядом с sonar.exe нет папки с плагинами ({dir}). Переустановите sonar.",
     "plugins.guardLimit": "Лимит треков (0 — без лимита)",
     "plugins.guardWait": "Пауза",
     "plugins.minutes": "{minutes} мин",

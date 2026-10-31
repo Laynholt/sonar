@@ -33,6 +33,7 @@ type App struct {
 
 	reg        *plugin.Registry
 	pluginsDir string     // the user's plugins folder
+	builtinDir string     // the plugins folder next to sonar.exe, "" when the exe's folder is unknown
 	syncMu     sync.Mutex // serialises syncDownloaders
 	sources    *source.Balancer
 	dl         *download.Queue
