@@ -16,10 +16,6 @@ out_lock = threading.Lock()
 cancels = {}  # request id -> Event, set when sonar sends $/cancel
 
 
-def log(*a):
-    print(*a, file=sys.stderr, flush=True)
-
-
 def send(msg):
     msg["jsonrpc"] = "2.0"
     with out_lock:
@@ -39,8 +35,6 @@ class RpcError(Exception):
     def __init__(self, code, message, data=None):
         super().__init__(message)
         self.code, self.data = code, data
-
-
 
 
 def tag(req_id, params, cancel):

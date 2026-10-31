@@ -75,7 +75,7 @@ func download(ctx context.Context, p plugin.DownloadParams, c *sdk.Call) (any, e
 				rerr = err
 			}
 			done += int64(n)
-			c.Progress(done, resp.ContentLength, "")
+			c.Progress(done, max(resp.ContentLength, 0), "") // -1: size unknown
 		}
 		if rerr == io.EOF {
 			break

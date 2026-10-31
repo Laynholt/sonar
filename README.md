@@ -2,7 +2,7 @@
 
 Desktop app (Wails v2: Go backend, React/Vite frontend) for looking up Spotify and Amazon Music links and search results, with a SpotiDownloader-style UI. No sign-in needed.
 
-Status: stage 3c (downloads of Spotify and Amazon Music sources, genre tags, built-in FFmpeg installer).
+Status: all three planned stages and the plugin core are done: downloads of Spotify and Amazon Music sources, genre tags and the built-in FFmpeg installer, with sources, downloaders and taggers as plugins.
 
 ## Features
 

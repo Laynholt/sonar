@@ -62,7 +62,7 @@ my-plugin/
 | `version` | строка | **обязательно.** `X.Y.Z`, числа сравниваются как числа |
 | `author`, `description` | строка | показываются в списке |
 | `kind` | строка | **обязательно.** `source`, `downloader`, `tagger` или `tool` |
-| `run` | массив строк | **обязательно.** Чем запускать. Первый элемент — программа, дальше аргументы: `["python", "main.py"]`, `["node", "index.js"]`, `["my-plugin"]`. Если файл с таким именем есть в папке плагина, берётся он (на Windows к имени дописывается `.exe`), иначе программа ищется в `PATH`. Рабочая папка — папка плагина |
+| `run` | массив строк | **обязательно.** Чем запускать. Первый элемент — программа, дальше аргументы: `["python", "main.py"]`, `["node", "index.js"]`, `["my-plugin"]`. Нет `python` в `PATH` — замените его на `py` или полный путь к `python.exe`. Если файл с таким именем есть в папке плагина, берётся он (на Windows к имени дописывается `.exe`), иначе программа ищется в `PATH`. Рабочая папка — папка плагина |
 | `contract` | число | версия контракта; сейчас **1**. Пропущено — считается 1. Другое число — плагин не включится |
 | `settings` | массив | поля настроек, см. ниже |
 | `source` / `downloader` / `tagger` | объект | блок вида; обязателен для своего `kind` |
@@ -151,17 +151,25 @@ my-plugin/
 
 Сообщение — один JSON-объект в одной строке (JSON-RPC 2.0, без заголовков и без переносов внутри объекта), в кодировке UTF-8.
 
-- **stdin** плагина: запросы и уведомления от sonar. Закрытие stdin значит «sonar завершился»: выходите.
+- **stdin** плагина: запросы и уведомления от sonar. Закрытие stdin значит «sonar завершился»: выходите. Если плагин не выходит, sonar убивает процесс (на Windows вместе с его дочерними процессами).
 - **stdout**: ответы и уведомления плагина. **Ничего, кроме протокола, в stdout печатать нельзя.** Длина строки — до 64 МиБ.
 - **stderr**: журнал плагина. Каждая строка попадает в журнал sonar (страница отладки) с именем плагина. Последние строки показываются в причине сбоя.
 
-Три вида сообщений:
+**В каждом сообщении, и в ваших тоже, обязательно поле `"jsonrpc":"2.0"`.** Строка без него молча отбрасывается: плагин не получит `initialize`
+(или sonar не получит ответ) и через 10 секунд будет убит по таймауту.
+
+Четыре вида сообщений:
+
+- запрос: есть `id`, ждёт ответ;
+- ответ: тот же `id` и `result`;
+- ошибка вместо ответа: тот же `id` и `error`;
+- уведомление: `id` нет, ответа нет.
 
 ```json
-{"jsonrpc":"2.0","id":3,"method":"source.search","params":{"query":"daft punk","limit":10}}   запрос: есть id, ждёт ответ
-{"jsonrpc":"2.0","id":3,"result":{...}}                                                         ответ
-{"jsonrpc":"2.0","id":3,"error":{"code":-32001,"message":"site is down"}}                       ошибка вместо ответа
-{"jsonrpc":"2.0","method":"$/progress","params":{...}}                                          уведомление: id нет, ответа нет
+{"jsonrpc":"2.0","id":3,"method":"source.search","params":{"query":"daft punk","limit":10}}
+{"jsonrpc":"2.0","id":3,"result":{"tracks":[],"albums":[],"artists":[],"playlists":[]}}
+{"jsonrpc":"2.0","id":3,"error":{"code":-32001,"message":"site is down"}}
+{"jsonrpc":"2.0","method":"$/progress","params":{"id":5,"bytes":1024,"size":4096,"status":""}}
 ```
 
 Запросы идут параллельно: ответ на `id` может прийти в любом порядке, поэтому обрабатывайте запросы в отдельных потоках
@@ -172,7 +180,7 @@ my-plugin/
 sonar запускает программу, когда плагин нужен впервые, и держит её, пока плагин включён. Первым сообщением всегда идёт `initialize`.
 Плагин отвечает на него (содержимое ответа sonar не использует, можно `{}`) в течение **10 секунд**, иначе его убивают.
 Если процесс упал или завис, sonar перезапускает его при следующем вызове, не чаще раза в 10 секунд, а сбой показывает в списке плагинов
-и в ошибке трека. Загрузка, от которой больше 60 секунд нет ни байта прогресса, считается зависшей. Ограничения по времени
+и в ошибке трека. Загрузка, от которой больше 60 секунд нет ни одного `$/progress`, считается зависшей. Ограничения по времени
 для остальных вызовов sonar ставит сам (от 30 секунд до нескольких минут): отвечайте быстро или хотя бы без зависаний.
 
 ### Коды ошибок
@@ -207,7 +215,7 @@ sonar запускает программу, когда плагин нужен 
 - `proxy` — прокси, как его ввёл пользователь в настройках sonar (`""` — не задан);
 - `effectiveProxy` — прокси, которым sonar сам ходил бы на `https://example.com` с учётом настроек, переменных окружения и системы (`""` — напрямую).
   Ходите в сеть через него. Адреса `localhost` и `127.0.0.1` sonar всегда открывает напрямую;
-- `lang` — язык интерфейса (`ru`, `en`, …); `dataDir` — папка для файлов плагина (создайте её сами).
+- `lang` — язык интерфейса (`ru`, `en`, …); `dataDir` — папка для файлов плагина (sonar уже создал её).
 
 Плагин на Go берёт готовое: `sdk.Server.FollowProxy` настраивает общий HTTP-клиент `internal/httpx` под прокси.
 
@@ -219,8 +227,9 @@ sonar запускает программу, когда плагин нужен 
 ### Уведомление `$/progress` (от плагина)
 
 Только для идущего запроса `download`. `id` — номер запроса, `bytes` — сколько байт уже записано, `size` — сколько ждать всего (0, если неизвестно),
-`status` — короткая строка для полоски загрузки (можно пустую). Сообщение только со `status` полоску не сбрасывает.
-Присылайте его не реже чем раз в несколько секунд: иначе через 60 секунд загрузка будет считаться зависшей.
+`status` — короткая строка для полоски загрузки (можно пустую). Сообщение только со `status` (без `bytes` и `size`) полоску не сбрасывает,
+но считается признаком жизни, как и любое другое `$/progress`: каждое такое уведомление обнуляет 60-секундный счётчик зависания.
+Присылайте его не реже чем раз в несколько секунд.
 
 ```json
 {"jsonrpc":"2.0","method":"$/progress","params":{"id":5,"bytes":524288,"size":3145728,"status":""}}
@@ -228,7 +237,8 @@ sonar запускает программу, когда плагин нужен 
 
 ### Уведомление `$/cancel` (от sonar)
 
-Пользователь отменил загрузку или sonar закрывается: прекратите работу над запросом `id` и ответьте на него ошибкой (любой).
+Пользователь отменил загрузку: прекратите работу над запросом `id` и ответьте на него ошибкой (любой). При выходе из sonar, выключении плагина
+и перезапуске `$/cancel` не шлют: процесс просто убивается.
 
 ```json
 {"jsonrpc":"2.0","method":"$/cancel","params":{"id":5}}
@@ -243,7 +253,7 @@ sonar запускает программу, когда плагин нужен 
 {"jsonrpc":"2.0","method":"$/status","params":{"available":true}}
 ```
 
-`needsAction` ставит загрузчик на паузу с кнопкой; `available: true` снимает. Необязательное `reason` — текст для списка плагинов.
+`needsAction` ставит загрузчик на паузу с кнопкой; `available: true` снимает.
 
 ### Метод `action`
 
@@ -312,21 +322,55 @@ sonar запускает программу, когда плагин нужен 
 
 Элемент: `id`, `name`, `type` (`track`, `album`, `artist` или `playlist`), `artists`, `album_name`, `images`, `release_date`, `external_urls`, `duration_ms`, `total_tracks`, `owner`, `is_explicit`.
 
-**`source.searchByType`** `{query, type, limit, offset}` → массив таких элементов того же `type`.
+**`source.searchByType`** `{query, type, limit, offset}` → массив элементов того же вида, что в `source.search`, но одного `type` (`track`, `album`, `artist` или `playlist`):
 
-**`source.parseLink`** `{url}` → `{"kind":"track","id":"1"}` (`kind`: `track`, `album`, `playlist`, `artist`).
+```json
+{"jsonrpc":"2.0","id":4,"method":"source.searchByType","params":{"query":"daft punk","type":"album","limit":50,"offset":50}}
+{"jsonrpc":"2.0","id":4,"result":[{"id":"10","name":"Random Access Memories","type":"album","artists":"Daft Punk","images":"https://…/cover.jpg","release_date":"2013-05-17","external_urls":"https://example.com/album/10","total_tracks":13}]}
+```
 
-**`source.find`** `{query}` → кандидаты для сопоставления с треком другого сервиса: массив
-`{"kind":"track","id":"…","album_id":"…","title":"…","artist":"…","image":"…","url":"…","explicit":false}` (`kind` — `track` или `album`).
+**`source.parseLink`** `{url}` → `{"kind","id"}` (`kind`: `track`, `album`, `playlist`, `artist`):
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"source.parseLink","params":{"url":"https://example.com/track/1"}}
+{"jsonrpc":"2.0","id":5,"result":{"kind":"track","id":"1"}}
+```
+
+**`source.find`** `{query}` → кандидаты для сопоставления с треком другого сервиса: массив элементов `kind` (`track` или `album`), `id`, `album_id`, `title`, `artist`, `image`, `url`, `explicit`.
 Очки и порядок sonar считает сам.
 
-**`source.tracks`** `{ids}` → массив `{"id","title","artist","album","album_id","image","release_date","isrc","duration_ms","track_number","disc_number","explicit"}`.
+```json
+{"jsonrpc":"2.0","id":6,"method":"source.find","params":{"query":"Get Lucky Daft Punk"}}
+{"jsonrpc":"2.0","id":6,"result":[{"kind":"track","id":"B00A3SGXAA","album_id":"B00A3SGX00","title":"Get Lucky","artist":"Daft Punk","image":"https://…/cover.jpg","url":"https://example.com/track/B00A3SGXAA","explicit":false}]}
+```
 
-**`source.album`** `{id}` → `{"id","title","artist","image","release_date","explicit","tracks":[как в source.tracks]}`.
+**`source.tracks`** `{ids}` → массив данных треков (для сопоставления: ISRC и длительность):
 
-**`source.isrc`** `{isrc}` → массив ID треков: `["2Foc5Q5nqNiosCNqttzHof"]`.
+```json
+{"jsonrpc":"2.0","id":7,"method":"source.tracks","params":{"ids":["B00A3SGXAA"]}}
+{"jsonrpc":"2.0","id":7,"result":[{"id":"B00A3SGXAA","title":"Get Lucky","artist":"Daft Punk","album":"Random Access Memories","album_id":"B00A3SGX00","image":"https://…/cover.jpg","release_date":"2013-05-17","isrc":"USQX91300108","duration_ms":369000,"track_number":8,"disc_number":1,"explicit":false}]}
+```
 
-**`source.preview`** `{id}` → адрес фрагмента строкой (`""`, если нет).
+**`source.album`** `{id}` → альбом: `id`, `title`, `artist`, `image`, `release_date`, `explicit` и `tracks` (массив в формате `source.tracks`):
+
+```json
+{"jsonrpc":"2.0","id":8,"method":"source.album","params":{"id":"B00A3SGX00"}}
+{"jsonrpc":"2.0","id":8,"result":{"id":"B00A3SGX00","title":"Random Access Memories","artist":"Daft Punk","image":"https://…/cover.jpg","release_date":"2013-05-17","explicit":false,"tracks":[{"id":"B00A3SGXAA","title":"Get Lucky","artist":"Daft Punk","album":"Random Access Memories","album_id":"B00A3SGX00","isrc":"USQX91300108","duration_ms":369000,"track_number":8,"disc_number":1,"explicit":false}]}}
+```
+
+**`source.isrc`** `{isrc}` → массив ID треков с таким ISRC (пустой массив `[]`, если таких нет):
+
+```json
+{"jsonrpc":"2.0","id":9,"method":"source.isrc","params":{"isrc":"USQX91300108"}}
+{"jsonrpc":"2.0","id":9,"result":["2Foc5Q5nqNiosCNqttzHof"]}
+```
+
+**`source.preview`** `{id}` → адрес фрагмента строкой (`""`, если нет):
+
+```json
+{"jsonrpc":"2.0","id":10,"method":"source.preview","params":{"id":"1"}}
+{"jsonrpc":"2.0","id":10,"result":"https://example.com/preview/1.mp3"}
+```
 
 ### Метод теггера
 
@@ -377,6 +421,9 @@ sonar запускает программу, когда плагин нужен 
 Шаблоны на Go используют тот же SDK (`sonar/internal/plugin/sdk`), что и встроенные плагины. Пакеты `internal` видны только внутри модуля sonar,
 поэтому Go-плагин собирают в репозитории: `go build -o example-go-downloader.exe ./plugins/templates/go/downloader`, затем кладут `.exe` и `plugin.json`
 в одну папку плагина. Вне репозитория проще писать на Python или реализовать протокол из этого файла самому: он короткий.
+
+Служебный код (чтение строк, потоки, `$/cancel`, `$/settings`, ошибки) скопирован в каждый шаблон нарочно: так каждый шаблон самодостаточен,
+его можно взять одним и отдать нейронке без остальных.
 
 Шаблон загрузчика на Python — рабочий «сторонний плагин»: качает `{baseUrl}/{исполнитель} - {название}.flac` через `urllib`, учитывает `effectiveProxy`,
 шлёт `$/progress` каждые 256 КиБ и понимает `$/cancel`. Шаблоны источника и теггера отвечают заготовленными данными, а в комментариях сказано, что заменить.

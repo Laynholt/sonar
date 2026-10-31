@@ -6,6 +6,7 @@ print to stderr lands in sonar's log. Never print anything else to stdout.
 
 What to replace: download(). Everything else is the protocol and can stay.
 """
+import http.client
 import json
 import os
 import sys
@@ -64,32 +65,43 @@ def download(req_id, params, cancel):
     """
     track = params["track"]
     name = "%s - %s.flac" % (track["artist"], track["title"])
-    url = settings.get("baseUrl", "").rstrip("/") + "/" + urllib.parse.quote(name)
+    url = settings.get("baseUrl", "").rstrip("/") + "/" + urllib.parse.quote(name, safe="")
     path = params["pathNoExt"] + ".flac"  # the extension is yours: sonar reads the format from it
+    part = path + ".part"
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    done_ok = False
     try:
-        with opener(url).open(url, timeout=30) as resp, open(path + ".part", "wb") as f:
-            size = int(resp.headers.get("Content-Length") or 0)
-            done = 0
-            while True:
-                if cancel.is_set():
-                    raise RpcError(-32000, "cancelled")
-                chunk = resp.read(CHUNK)
-                if not chunk:
-                    break
-                f.write(chunk)
-                done += len(chunk)
-                send({"method": "$/progress", "params": {"id": req_id, "bytes": done, "size": size, "status": ""}})
-    except urllib.error.HTTPError as e:
-        cleanup(path)
-        raise RpcError(-32001 if e.code >= 500 else -32000, "%s: HTTP %d" % (url, e.code))
-    except (urllib.error.URLError, OSError) as e:
-        cleanup(path)
-        raise RpcError(-32001, "%s: %s" % (url, e))
-    except RpcError:
-        cleanup(path)
-        raise
-    os.replace(path + ".part", path)
+        # The local file is opened and written outside the network try blocks: a disk error is an
+        # ordinary track error (-32000), not "site down" (-32001).
+        with open(part, "wb") as f:
+            try:
+                resp = opener(url).open(url, timeout=30)
+            except urllib.error.HTTPError as e:
+                raise RpcError(-32001 if e.code >= 500 else -32000, "%s: HTTP %d" % (url, e.code))
+            except (urllib.error.URLError, OSError) as e:
+                raise RpcError(-32001, "%s: %s" % (url, e))
+            with resp:
+                size = int(resp.headers.get("Content-Length") or 0)
+                done = 0
+                while True:
+                    if cancel.is_set():
+                        raise RpcError(-32000, "cancelled")
+                    try:
+                        chunk = resp.read(CHUNK)
+                    except (OSError, http.client.HTTPException) as e:
+                        raise RpcError(-32001, "%s: %s" % (url, e))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    done += len(chunk)
+                    send({"method": "$/progress", "params": {"id": req_id, "bytes": done, "size": size, "status": ""}})
+                if size and done != size:  # read(n) does not raise on a body cut short
+                    raise RpcError(-32001, "incomplete download: %d of %d bytes" % (done, size))
+        os.replace(part, path)
+        done_ok = True
+    finally:
+        if not done_ok:
+            cleanup(path)
     return {"path": path}
 
 

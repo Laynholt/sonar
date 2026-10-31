@@ -1,14 +1,19 @@
 package templates_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +35,12 @@ func parseManifest(t *testing.T, dir string) plugin.Manifest {
 	}
 	if m.Contract != plugin.Contract {
 		t.Errorf("%s: contract %d, want %d", dir, m.Contract, plugin.Contract)
+	}
+	if m.Kind == plugin.KindDownloader {
+		i := slices.IndexFunc(m.Settings, func(f plugin.Field) bool { return f.Key == "baseUrl" })
+		if i < 0 || m.Settings[i].Type != "text" {
+			t.Errorf("%s: want a baseUrl setting of type text, got %+v", dir, m.Settings)
+		}
 	}
 	return m
 }
@@ -82,22 +93,28 @@ func TestPythonDownloaderTemplate(t *testing.T) {
 	}
 	checkDownloader(t, func(t *testing.T, dir string) {
 		copyDir(t, filepath.Join("python", "downloader"), dir)
-	}, parseManifest(t, filepath.Join("python", "downloader")).ID)
+	}, parseManifest(t, filepath.Join("python", "downloader")).ID, true)
 }
 
 func TestGoDownloaderTemplate(t *testing.T) {
 	checkDownloader(t, func(t *testing.T, dir string) {
 		copyDir(t, filepath.Join("go", "downloader"), dir)
 		buildGo(t, "downloader", dir)
-	}, parseManifest(t, filepath.Join("go", "downloader")).ID)
+	}, parseManifest(t, filepath.Join("go", "downloader")).ID, false)
 }
 
 // checkDownloader installs a downloader template with put into a fresh user folder, trusts it, points it at a
 // local server and downloads one track and one missing file.
-func checkDownloader(t *testing.T, put func(t *testing.T, dir string), id string) {
+func checkDownloader(t *testing.T, put func(t *testing.T, dir string), id string, cutIsUnavailable bool) {
 	t.Helper()
 	body := bytes.Repeat([]byte("sonar"), 200_000) // 1 MB: several 256 KiB steps
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Cut Artist - Cut Title.flac" { // promises 1000 bytes, sends 100 and drops the connection
+			w.Header().Set("Content-Length", "1000")
+			w.Write(make([]byte, 100))
+			w.(http.Flusher).Flush()
+			panic(http.ErrAbortHandler)
+		}
 		if r.URL.Path != "/Сome Artist - Some Title.flac" { // the C is Cyrillic: names are UTF-8 end to end
 			http.NotFound(w, r)
 			return
@@ -164,6 +181,70 @@ func checkDownloader(t *testing.T, put func(t *testing.T, dir string), id string
 	_, err = d.Download(ctx, source.Request{Track: download.Track{Title: "Nope", Artist: "Nobody"}, PathNoExt: filepath.Join(root, "out", "nope")})
 	if err == nil || !strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "unavailable") {
 		t.Errorf("missing file: %v", err)
+	}
+
+	// A body cut short is not a finished download: no file may be left, and the Python template calls the
+	// site unavailable (-32001) so sonar tries another downloader.
+	cut := filepath.Join(root, "out", "cut")
+	_, err = d.Download(ctx, source.Request{Track: download.Track{Title: "Cut Title", Artist: "Cut Artist"}, PathNoExt: cut})
+	if err == nil {
+		t.Error("a short body counted as success")
+	}
+	if cutIsUnavailable && !errors.Is(err, source.ErrUnavailable) {
+		t.Errorf("short body: %v, want source.ErrUnavailable", err)
+	}
+	for _, left := range []string{cut + ".flac", cut + ".flac.part"} {
+		if _, err := os.Stat(left); err == nil {
+			t.Errorf("%s left behind", left)
+		}
+	}
+}
+
+// The Python source and tagger templates answer initialize and one method each, with canned data.
+func TestPythonSourceAndTaggerTemplates(t *testing.T) {
+	if _, err := exec.LookPath("python"); err != nil {
+		t.Skip("no python on PATH")
+	}
+	for _, tc := range []struct{ kind, method, params, want string }{
+		{"source", "source.search", `{"query":"x","limit":3}`, "tracks"},
+		{"tagger", "tag", `{"track":{"title":"t","artist":"a"},"ids":{}}`, "fields"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "python", "main.py")
+			cmd.Dir = filepath.Join("python", tc.kind)
+			in, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { in.Close(); cmd.Wait() }()
+			fmt.Fprintln(in, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"contract":1,"settings":{}}}`)
+			fmt.Fprintf(in, `{"jsonrpc":"2.0","id":2,"method":%q,"params":%s}`+"\n", tc.method, tc.params)
+			sc := bufio.NewScanner(out) // stdin stays open until both answers are read
+			got := map[int64]plugin.Message{}
+			for len(got) < 2 && sc.Scan() {
+				var m plugin.Message
+				if err := json.Unmarshal(sc.Bytes(), &m); err != nil || m.ID == nil {
+					t.Fatalf("bad line %q: %v", sc.Text(), err)
+				}
+				got[*m.ID] = m
+			}
+			if got[1].Error != nil || got[1].Result == nil {
+				t.Errorf("initialize: %+v", got[1])
+			}
+			var res map[string]json.RawMessage
+			if m := got[2]; m.Error != nil || json.Unmarshal(m.Result, &res) != nil || res[tc.want] == nil {
+				t.Errorf("%s: %+v, want a result with %q", tc.method, m, tc.want)
+			}
+		})
 	}
 }
 
