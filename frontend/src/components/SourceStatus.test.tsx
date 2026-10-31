@@ -6,7 +6,7 @@ import { GetSourceStatus } from "../../wailsjs/go/main/App";
 import { SourceStatus } from "./SourceStatus";
 import { mount } from "../test/render";
 
-vi.mock("../../wailsjs/go/main/App", () => ({ GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn() }));
+vi.mock("../../wailsjs/go/main/App", () => ({ GetSourceStatus: vi.fn(), RunPluginAction: vi.fn() }));
 vi.mock("@/hooks/useDownloads", () => ({ useDownloads: vi.fn() }));
 
 const item = (id: string, status: string, message = "") => ({ id, status, message }) as DownloadItem;

@@ -11,7 +11,7 @@ import { DownloadsPage } from "./DownloadsPage";
 import { TooltipProvider } from "./ui/tooltip";
 import { button, mount } from "../test/render";
 
-vi.mock("../../wailsjs/go/main/App", () => ({ OpenFolder: vi.fn(), GetSourceStatus: vi.fn(), PassDoubleDoubleCheck: vi.fn(), GetDownloadTags: vi.fn() }));
+vi.mock("../../wailsjs/go/main/App", () => ({ OpenFolder: vi.fn(), GetSourceStatus: vi.fn(), RunPluginAction: vi.fn(), GetDownloadTags: vi.fn() }));
 vi.mock("@/hooks/useDownloads", () => ({ useDownloads: vi.fn() }));
 vi.mock("@/lib/downloads", () => ({
     cancelDownload: vi.fn(), cancelAllDownloads: vi.fn(), retryDownload: vi.fn(), retryFailedDownloads: vi.fn(),
