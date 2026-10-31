@@ -164,6 +164,7 @@ func (h *Host) running() (*proc, error) {
 func (h *Host) start() (*proc, error) {
 	cmd := exec.Command(resolveRun(h.f.Dir, h.f.M.Run[0]), h.f.M.Run[1:]...)
 	cmd.Dir = h.f.Dir
+	cmd.Env = append(os.Environ(), "PYTHONDONTWRITEBYTECODE=1") // __pycache__ in the plugin folder would change its checksum and drop its trust
 	hideWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

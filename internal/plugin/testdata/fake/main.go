@@ -52,6 +52,11 @@ func main() {
 	}
 	s.Methods = map[string]sdk.Handler{
 		"echo": func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) { return p, nil },
+		"getenv": func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			var name string
+			json.Unmarshal(p, &name)
+			return os.Getenv(name), nil
+		},
 		"progress": func(_ context.Context, _ json.RawMessage, c *sdk.Call) (any, error) {
 			for i := int64(1); i <= 3; i++ {
 				c.Progress(i, 3, fmt.Sprint("step ", i))

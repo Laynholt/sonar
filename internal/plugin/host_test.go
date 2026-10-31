@@ -119,6 +119,16 @@ func TestHostEcho(t *testing.T) {
 	}
 }
 
+// A Python plugin must not write __pycache__ into its folder: that changes its checksum and drops its trust.
+func TestHostNoBytecode(t *testing.T) {
+	t.Setenv("PYTHONDONTWRITEBYTECODE", "") // sonar's own environment must not decide it
+	h, _ := newFake(t, fakeDir)
+	var got string
+	if err := h.Call(context.Background(), "getenv", "PYTHONDONTWRITEBYTECODE", &got, nil); err != nil || got != "1" {
+		t.Fatalf("PYTHONDONTWRITEBYTECODE = %q, %v", got, err)
+	}
+}
+
 func TestHostInitParams(t *testing.T) {
 	h, _ := newFake(t, fakeDir)
 	var got map[string]any
