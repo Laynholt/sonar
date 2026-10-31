@@ -276,10 +276,11 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, onSaveReq
     return (<div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("nav.settings")}</h1>
-        <Button onClick={handleSave} disabled={isSaving} className="gap-1.5">
+        {/* Plugin settings save themselves. */}
+        {section !== "plugins" && (<Button onClick={handleSave} disabled={isSaving} className="gap-1.5">
           <Save className="h-4 w-4"/>
           {t("settings.save")}
-        </Button>
+        </Button>)}
       </div>
 
       {/* Same tab strip and bordered table as the History page. */}

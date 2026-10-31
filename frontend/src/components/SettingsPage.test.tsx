@@ -8,12 +8,12 @@ import { toastWithSound } from "@/lib/toast-with-sound";
 import { BrowserOpenURL, EventsOn } from "../../wailsjs/runtime/runtime";
 import { SettingsPage } from "./SettingsPage";
 import { mount, button, change } from "../test/render";
-import { GetSourceStatus, SaveSettings, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir } from "../../wailsjs/go/main/App";
+import { GetSourceStatus, SaveSettings, SelectDownloadFolder, FindFFmpeg, SelectFFmpeg, DefaultDownloadDir, ListPlugins, RefreshPlugins } from "../../wailsjs/go/main/App";
 
 vi.mock("@/components/ui/select", () => import("../test/nativeSelect"));
 vi.mock("../../wailsjs/go/main/App", () => ({
     LoadSettings: vi.fn(), SaveSettings: vi.fn(), SelectDownloadFolder: vi.fn(), DefaultDownloadDir: vi.fn(),
-    GetSourceStatus: vi.fn(), RunPluginAction: vi.fn(), FindFFmpeg: vi.fn(), SelectFFmpeg: vi.fn(),
+    GetSourceStatus: vi.fn(), RunPluginAction: vi.fn(), FindFFmpeg: vi.fn(), SelectFFmpeg: vi.fn(), ListPlugins: vi.fn(), RefreshPlugins: vi.fn(),
 }));
 vi.mock("@/lib/ffmpeg-install", () => ({ openFFmpegInstall: vi.fn() }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ BrowserOpenURL: vi.fn(), EventsOn: vi.fn() }));
@@ -44,6 +44,16 @@ describe("SettingsPage", () => {
         await act(async () => button(view.container, "Network").click());
         expect(view.container.querySelector('input[placeholder="Auto (system proxy)"]')).not.toBeNull();
         expect(view.container.textContent).not.toContain("Sound Effects");
+    });
+
+    it("hides Save Changes on the Plugins tab, whose settings save themselves", async () => {
+        vi.mocked(ListPlugins).mockResolvedValue([]);
+        vi.mocked(RefreshPlugins).mockResolvedValue();
+        expect(button(view.container, "Save Changes")).toBeTruthy();
+        await act(async () => button(view.container, "Plugins").click());
+        expect(() => button(view.container, "Save Changes")).toThrow();
+        await act(async () => button(view.container, "General").click());
+        expect(button(view.container, "Save Changes")).toBeTruthy();
     });
 
     it("saves the recent limit and ignores values over the cap", async () => {

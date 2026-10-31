@@ -1,7 +1,8 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Row } from "@/components/SettingsRows";
 import { useI18n, type MessageKey } from "@/lib/i18n";
@@ -17,11 +18,15 @@ export interface PluginSettingsProps {
     lang: string;
     onChange: (key: string, value: unknown) => void;
     onAction: (action: string) => void;
+    /** The action now running, if any: every button waits, and that one shows a spinner. */
+    running?: string;
 }
 
 // Typed as text so it can be cleared while editing; only a number reaches onChange.
 function NumberInput({ id, value, onChange }: { id: string; value: unknown; onChange: (value: number) => void }) {
     const [text, setText] = useState(String(value ?? ""));
+    // A value from outside, e.g. the saved one after a failed save, replaces the text; one the user typed stays as typed ("1.").
+    useEffect(() => { setText((cur) => (cur.trim() !== "" && Number(cur) === Number(value) ? cur : String(value ?? ""))); }, [value]);
     return (<Input id={id} type="number" value={text} className="w-24" onChange={(e) => {
         setText(e.target.value);
         if (e.target.value.trim() !== "" && Number.isFinite(Number(e.target.value))) onChange(Number(e.target.value));
@@ -29,7 +34,7 @@ function NumberInput({ id, value, onChange }: { id: string; value: unknown; onCh
 }
 
 /** A plugin's settings fields: text, number, switch, select, button and note. */
-export function PluginSettings({ fields, values, lang, onChange, onAction }: PluginSettingsProps) {
+export function PluginSettings({ fields, values, lang, onChange, onAction, running }: PluginSettingsProps) {
     const { t } = useI18n();
     const base = useId();
     return (<div>
@@ -43,7 +48,9 @@ export function PluginSettings({ fields, values, lang, onChange, onAction }: Plu
                   return (<p key={field.key} className="px-4 py-4 border-b last:border-b-0 text-xs text-muted-foreground">{label}{hint && <><br/>{hint}</>}</p>);
               case "button":
                   return (<div key={field.key} className="px-4 py-4 border-b last:border-b-0 space-y-1">
-                    <Button type="button" variant="outline" size="sm" onClick={() => onAction(field.action)}>{label}</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!!running} onClick={() => onAction(field.action)}>
+                      {running === field.action && <Spinner/>}{label}
+                    </Button>
                     {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
                   </div>);
           }

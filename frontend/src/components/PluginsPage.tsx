@@ -37,13 +37,18 @@ export function PluginsPage() {
     const draftsRef = useRef(drafts);
     draftsRef.current = drafts;
 
-    const load = useCallback(async () => {
+    // Returns the list it fetched, or the one shown when that fails.
+    const load = useCallback(async (): Promise<main.PluginView[]> => {
         const id = ++latest.current;
         try {
-            const list = await ListPlugins();
-            if (id === latest.current) setPlugins(list ?? []);
+            const list = (await ListPlugins()) ?? [];
+            if (id === latest.current) setPlugins(list);
+            return list;
         }
-        catch (error) { console.error("Failed to load the plugins:", error); }
+        catch (error) {
+            console.error("Failed to load the plugins:", error);
+            return pluginsRef.current;
+        }
     }, []);
     useEffect(() => {
         void (async () => {
@@ -60,7 +65,14 @@ export function PluginsPage() {
         catch (error) { toast.error(errorMessage(error, t("recent.unknownError"))); }
         finally { await load(); }
     };
-    const names = (ids: string[]) => ids.map((id) => pluginsRef.current.find((p) => p.id === id)?.name || id).join(", ");
+    const names = (ids: string[], list = pluginsRef.current) => ids.map((id) => list.find((p) => p.id === id)?.name || id).join(", ");
+    // The action each plugin is running: its buttons wait for it.
+    const [running, setRunning] = useState<Record<string, string>>({});
+    const act = async (id: string, action: string) => {
+        setRunning((r) => ({ ...r, [id]: action }));
+        try { await run(() => RunPluginAction(id, action)); }
+        finally { setRunning(({ [id]: _, ...rest }) => rest); }
+    };
 
     // Settings are saved a moment after the last edit, with the plugin's other values; leaving the page saves at once.
     const pending = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; save: () => void }>());
@@ -70,12 +82,22 @@ export function PluginsPage() {
     }, []);
     const save = (id: string) => {
         pending.current.delete(id);
-        const values = { ...pluginsRef.current.find((p) => p.id === id)?.values, ...draftsRef.current[id] };
-        SetPluginSettings(id, values).catch((error) => {
-            toast.error(errorMessage(error, t("recent.unknownError")));
-            setDrafts(({ [id]: _, ...rest }) => rest); // back to what is saved
-            void load();
-        });
+        const sent = draftsRef.current[id] ?? {};
+        const values = { ...pluginsRef.current.find((p) => p.id === id)?.values, ...sent };
+        // Drops the edits this save sent, saved or failed; one made since stays a draft for its own save.
+        const settle = () => {
+            const left = Object.entries(draftsRef.current[id] ?? {}).filter(([key, value]) => !(key in sent && Object.is(value, sent[key])));
+            const { [id]: _, ...rest } = draftsRef.current;
+            draftsRef.current = left.length ? { ...rest, [id]: Object.fromEntries(left) } : rest;
+            setDrafts(draftsRef.current);
+        };
+        SetPluginSettings(id, values).then(
+            async () => { await load(); settle(); }, // the saved values are in the list before the drafts go
+            async (error) => {
+                toast.error(errorMessage(error, t("recent.unknownError")));
+                settle(); // back to what is saved
+                await load();
+            });
     };
     const edit = (id: string, key: string, value: unknown) => {
         draftsRef.current = { ...draftsRef.current, [id]: { ...draftsRef.current[id], [key]: value } };
@@ -84,8 +106,8 @@ export function PluginsPage() {
         pending.current.set(id, { timer: setTimeout(() => save(id), SAVE_DELAY), save: () => save(id) });
     };
 
-    const trust = (ids: string[]) => setAsk({
-        title: t("plugins.trustTitle", { names: names(ids) }), body: t("plugins.trust"),
+    const trust = (ids: string[], list?: main.PluginView[]) => setAsk({
+        title: t("plugins.trustTitle", { names: names(ids, list) }), body: t("plugins.trust"),
         actions: [{ label: t("plugins.turnOn"), run: async () => { for (const id of ids) await SetPluginEnabled(id, true, true); } }],
     });
     const toggle = (p: main.PluginView, on: boolean) => {
@@ -133,8 +155,8 @@ export function PluginsPage() {
     const importAll = async (choice: string): Promise<void> => {
         try {
             const ids = await ImportPlugins(choice);
-            await load();
-            if (ids?.length) trust(ids);
+            const list = await load(); // the new ones are not in the shown list yet
+            if (ids?.length) trust(ids, list);
         }
         catch (error) {
             const clash = parseConflict(error);
@@ -145,7 +167,8 @@ export function PluginsPage() {
                 ] });
             }
             const partial = parsePartial(error);
-            throw partial ? t("plugins.importPartial", { ids: names(partial.ids), error: partial.error }) : error;
+            if (!partial) throw error;
+            throw t("plugins.importPartial", { ids: names(partial.ids, await load()), error: partial.error });
         }
     };
 
@@ -159,10 +182,12 @@ export function PluginsPage() {
       </div>
 
       {plugins.map((p, i) => (<section key={p.id} data-plugin={p.id} className="rounded-md border overflow-hidden"
-          onDragStart={() => { dragFrom.current = i; }} onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); reorder(dragFrom.current, i); dragFrom.current = -1; }}>
+          onDragOver={(e) => { if (dragFrom.current >= 0) e.preventDefault(); }}
+          onDrop={(e) => { if (dragFrom.current < 0) return; e.preventDefault(); reorder(dragFrom.current, i); dragFrom.current = -1; }}>
         <div className="flex items-center gap-3 px-4 py-3 bg-muted/50">
-          <span draggable className="cursor-grab text-muted-foreground"><GripVertical className="h-4 w-4"/></span>
+          {/* Only the grip starts a move: text dragged out of a settings field must not reorder. */}
+          <span draggable data-drag-handle className="cursor-grab text-muted-foreground"
+              onDragStart={() => { dragFrom.current = i; }} onDragEnd={() => { dragFrom.current = -1; }}><GripVertical className="h-4 w-4"/></span>
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{p.name || p.id}</span>
@@ -183,7 +208,7 @@ export function PluginsPage() {
         </div>
         {(p.fields ?? []).length > 0 && (<div className="border-t">
           <PluginSettings fields={p.fields} values={{ ...p.values, ...drafts[p.id] }} lang={language}
-              onChange={(key, value) => edit(p.id, key, value)} onAction={(action) => void run(() => RunPluginAction(p.id, action))}/>
+              onChange={(key, value) => edit(p.id, key, value)} onAction={(action) => void act(p.id, action)} running={running[p.id]}/>
         </div>)}
       </section>))}
 

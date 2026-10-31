@@ -10,7 +10,7 @@ import {
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { PluginsPage, SAVE_DELAY } from "./PluginsPage";
-import { button, change, mount } from "../test/render";
+import { button, change, deferred, mount } from "../test/render";
 
 vi.mock("@/components/ui/select", () => import("../test/nativeSelect"));
 vi.mock("../../wailsjs/go/main/App", () => ({
@@ -148,13 +148,26 @@ describe("PluginsPage order", () => {
         expect(SetPluginOrder).toHaveBeenLastCalledWith(["lucida", "extra", "amazon", "broken"]);
     });
 
-    it("moves a plugin by dragging its row", async () => {
+    it("moves a plugin by dragging its grip", async () => {
         await open();
         await act(async () => {
-            row("broken").dispatchEvent(new Event("dragstart", { bubbles: true }));
+            row("broken").querySelector("[data-drag-handle]")!.dispatchEvent(new Event("dragstart", { bubbles: true }));
             row("amazon").dispatchEvent(new Event("drop", { bubbles: true }));
         });
         expect(SetPluginOrder).toHaveBeenLastCalledWith(["broken", "amazon", "lucida", "extra"]);
+    });
+
+    it("does not reorder on text dragged out of a settings field, or after a drag ended", async () => {
+        await open();
+        await act(async () => {
+            row("lucida").querySelector('input[type="text"]')!.dispatchEvent(new Event("dragstart", { bubbles: true }));
+            row("amazon").dispatchEvent(new Event("drop", { bubbles: true }));
+            const grip = row("broken").querySelector("[data-drag-handle]")!;
+            grip.dispatchEvent(new Event("dragstart", { bubbles: true }));
+            grip.dispatchEvent(new Event("dragend", { bubbles: true }));
+            row("amazon").dispatchEvent(new Event("drop", { bubbles: true }));
+        });
+        expect(SetPluginOrder).not.toHaveBeenCalled();
     });
 });
 
@@ -197,6 +210,48 @@ describe("PluginsPage settings", () => {
         vi.mocked(RunPluginAction).mockResolvedValue();
         await act(async () => button(row("lucida"), "Check").click());
         expect(RunPluginAction).toHaveBeenCalledWith("lucida", "check");
+    });
+
+    it("keeps the buttons waiting with a spinner while the action runs", async () => {
+        await open();
+        const done = deferred<void>();
+        vi.mocked(RunPluginAction).mockReturnValue(done.promise);
+        await act(async () => button(row("lucida"), "Check").click());
+        expect(button(row("lucida"), "Check").disabled).toBe(true);
+        expect(button(row("lucida"), "Check").querySelector('[role="status"]')).toBeTruthy();
+        expect(rowSwitch("amazon").disabled).toBe(false); // other plugins are not held up
+        await act(async () => done.resolve());
+        expect(button(row("lucida"), "Check").disabled).toBe(false);
+        expect(button(row("lucida"), "Check").querySelector('[role="status"]')).toBeNull();
+    });
+
+    it("keeps an edit made while the last one was saving", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        await open();
+        const saving = deferred<void>();
+        vi.mocked(SetPluginSettings).mockReturnValueOnce(saving.promise);
+        const token = () => row("lucida").querySelector('input[type="text"]') as HTMLInputElement;
+        await act(async () => change(token(), "y"));
+        await act(async () => { await vi.advanceTimersByTimeAsync(SAVE_DELAY); });
+        await act(async () => change(token(), "yz"));
+        vi.mocked(ListPlugins).mockResolvedValue([AMAZON, plug({ ...LUCIDA, values: { ...LUCIDA.values, token: "y" } }), EXTRA, BROKEN]);
+        await act(async () => saving.resolve());
+        expect(token().value).toBe("yz");
+        await act(async () => { await vi.advanceTimersByTimeAsync(SAVE_DELAY); });
+        expect(SetPluginSettings).toHaveBeenLastCalledWith("lucida", { token: "yz", $guardLimit: 50, $guardWait: 30 });
+    });
+
+    it("shows the saved values again when a save fails", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        await open();
+        vi.mocked(SetPluginSettings).mockRejectedValueOnce("disk full");
+        const limit = row("lucida").querySelector('input[type="number"]') as HTMLInputElement;
+        await act(async () => change(row("lucida").querySelector('input[type="text"]') as HTMLInputElement, "y"));
+        await act(async () => change(limit, "7"));
+        await act(async () => { await vi.advanceTimersByTimeAsync(SAVE_DELAY); });
+        expect(toastWithSound.error).toHaveBeenCalledWith("disk full");
+        expect((row("lucida").querySelector('input[type="text"]') as HTMLInputElement).value).toBe("x");
+        expect(limit.value).toBe("50");
     });
 });
 
@@ -245,6 +300,23 @@ describe("PluginsPage top buttons", () => {
         vi.mocked(ImportPlugins).mockRejectedValueOnce('installed:extra:plugin "zz": Access is denied.');
         await act(async () => button(view.container, "Import…").click());
         expect(vi.mocked(toastWithSound.error).mock.lastCall![0]).toBe('Installed Extra, then the import stopped: plugin "zz": Access is denied.');
+    });
+
+    it("names plugins the import just added, which the shown list lacks", async () => {
+        await open([AMAZON, LUCIDA]);
+        const fresh = plug({ id: "fresh", name: "Fresh one", builtin: false, enabled: false, trusted: false });
+        vi.mocked(ImportPlugins).mockImplementationOnce(async () => {
+            vi.mocked(ListPlugins).mockResolvedValue([AMAZON, LUCIDA, fresh]);
+            return ["fresh"];
+        }).mockImplementationOnce(async () => {
+            vi.mocked(ListPlugins).mockResolvedValue([AMAZON, LUCIDA, fresh, plug({ id: "late", name: "Late one" })]);
+            throw "installed:late:boom";
+        });
+        await act(async () => button(view.container, "Import…").click());
+        expect(dialog()!.textContent).toContain("Fresh one");
+        await act(async () => button(dialog()!, "Cancel").click());
+        await act(async () => button(view.container, "Import…").click());
+        expect(vi.mocked(toastWithSound.error).mock.lastCall![0]).toBe("Installed Late one, then the import stopped: boom");
     });
 });
 
