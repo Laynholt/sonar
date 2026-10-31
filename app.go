@@ -95,6 +95,11 @@ func (a *App) init() {
 		builtin = filepath.Join(exe, "plugins")
 	}
 	a.openPlugins(builtin, userPluginsDir(a.dataDir), plugin.ParseSums(plugin.BuiltinSums))
+	if !a.second { // the instance that owns queue.json also owns the old files
+		if err := a.migrate(); err != nil {
+			log.Printf("migrate: %v", err)
+		}
+	}
 	a.startQueue(a.fetch)
 }
 
