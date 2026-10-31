@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 
 CHUNK = 256 * 1024  # a $/progress note per chunk; a download silent for 60 s counts as hung
+HEARTBEAT = 20      # seconds between empty $/progress notes while a request runs, for a slow connect or first byte
 
 settings = {}        # the plugin's settings from plugin.json, as the user set them
 proxy = ""           # effectiveProxy: the proxy sonar itself would use, "" for direct
@@ -118,18 +119,28 @@ METHODS = {"download": download}
 def serve(msg):
     req_id = msg["id"]
     cancel = cancels[req_id]
+    stop = threading.Event()
+
+    def beat():  # zeros with no status leave the bar as it is and only tell sonar the plugin is alive
+        while not stop.wait(HEARTBEAT):
+            send({"method": "$/progress", "params": {"id": req_id, "bytes": 0, "size": 0, "status": ""}})
+
+    beater = threading.Thread(target=beat, daemon=True)
+    beater.start()
     try:
-        result = METHODS[msg["method"]](req_id, msg.get("params") or {}, cancel)
-        send({"id": req_id, "result": result})
+        reply = {"id": req_id, "result": METHODS[msg["method"]](req_id, msg.get("params") or {}, cancel)}
     except RpcError as e:
         err = {"code": e.code, "message": str(e)}
         if e.data is not None:
             err["data"] = e.data
-        send({"id": req_id, "error": err})
+        reply = {"id": req_id, "error": err}
     except Exception as e:  # any other failure is an ordinary track error
-        send({"id": req_id, "error": {"code": -32000, "message": "%s: %s" % (type(e).__name__, e)}})
+        reply = {"id": req_id, "error": {"code": -32000, "message": "%s: %s" % (type(e).__name__, e)}}
     finally:
+        stop.set()
+        beater.join()  # no note may follow the answer
         cancels.pop(req_id, None)
+    send(reply)
 
 
 def main():

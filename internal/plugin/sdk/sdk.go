@@ -10,19 +10,52 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"sonar/internal/plugin"
 )
+
+// heartbeat is how often a running download repeats its last $/progress, so a silent stage (the site's own
+// requests, a queue) does not trip sonar's 60 s no-progress watchdog. A variable for the tests.
+var heartbeat = 20 * time.Second
 
 // Call is the request a handler serves.
 type Call struct {
 	id int64
 	s  *Server
+
+	mu   sync.Mutex // guards last and keeps a repeat from overtaking a newer note
+	last plugin.Progress
 }
 
 // Progress sends a $/progress note for this request.
 func (c *Call) Progress(bytes, size int64, status string) {
-	c.s.note(plugin.MProgress, plugin.ProgressParams{ID: c.id, Progress: plugin.Progress{Bytes: bytes, Size: size, Status: status}})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.last = plugin.Progress{Bytes: bytes, Size: size, Status: status}
+	c.s.note(plugin.MProgress, plugin.ProgressParams{ID: c.id, Progress: c.last})
+}
+
+// beat repeats c's last progress every heartbeat until the stop it returns is called; stop waits for the
+// repeating goroutine to end, so no note follows the answer.
+func (c *Call) beat() (stop func()) {
+	quit := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		t := time.NewTicker(heartbeat)
+		defer t.Stop()
+		for {
+			select {
+			case <-quit:
+				return
+			case <-t.C:
+				c.mu.Lock()
+				c.s.note(plugin.MProgress, plugin.ProgressParams{ID: c.id, Progress: c.last})
+				c.mu.Unlock()
+			}
+		}
+	})
+	return func() { close(quit); wg.Wait() }
 }
 
 // Handler serves one request. ctx is cancelled when sonar sends $/cancel for it.
@@ -90,8 +123,14 @@ func ServeIO(s *Server, in io.Reader, out io.Writer) error {
 			s.cmu.Lock()
 			s.cancels[id] = cancel // before the next line, which may be its $/cancel
 			s.cmu.Unlock()
+			c := &Call{id: id, s: s}
+			stop := func() {}
+			if m.Method == plugin.MDownload { // the one call sonar watches for progress
+				stop = c.beat()
+			}
 			go func() {
-				res, err := h(ctx, m.Params, &Call{id: id, s: s})
+				res, err := h(ctx, m.Params, c)
+				stop()
 				s.cmu.Lock()
 				delete(s.cancels, id)
 				s.cmu.Unlock()
