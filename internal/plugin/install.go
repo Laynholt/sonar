@@ -385,7 +385,8 @@ func (r *Registry) Export(zipPath string) (err error) {
 
 // Import installs the plugins of an export and merges its state for the ids that exist afterwards.
 // choice decides ids that are already installed: "" answers *Conflict, "replace" swaps them, "skip" keeps the old copy.
-// SetState never trusts, so needTrust lists every imported plugin that cannot run until the user confirms it.
+// SetState never trusts, so needTrust lists the imported plugins that are on but cannot run until the user confirms
+// them; with no state.json in the export, that is every imported plugin.
 func (r *Registry) Import(zipPath, choice string) (installed, needTrust []string, err error) {
 	if choice != "" && choice != "replace" && choice != "skip" {
 		return nil, nil, fmt.Errorf("choice %q: want replace or skip", choice)
@@ -507,8 +508,10 @@ func (r *Registry) Import(zipPath, choice string) (installed, needTrust []string
 		}
 	}
 	needTrust = []string{}
+	on := r.State().Enabled
 	for _, id := range installed {
-		if e, ok := r.Get(id); ok && !e.Trusted && e.Err == "" { // a broken copy can't run, so asking is pointless
+		// A broken copy can't run, so asking is pointless; one the export had off stays off, untrusted, until turned on.
+		if e, ok := r.Get(id); ok && !e.Trusted && e.Err == "" && (in == nil || on[id]) {
 			needTrust = append(needTrust, id)
 		}
 	}

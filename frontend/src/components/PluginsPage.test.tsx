@@ -292,6 +292,7 @@ describe("PluginsPage top buttons", () => {
         await act(async () => button(dialog()!, "Turn on").click());
         expect(SetPluginEnabled).toHaveBeenCalledWith("extra", true, true);
         expect(SetPluginEnabled).toHaveBeenCalledWith("broken", true, true);
+        expect(SetPluginEnabled).toHaveBeenCalledTimes(2); // only the returned ids: the export had the rest off
         expect(ImportPlugins).toHaveBeenCalledTimes(2);
     });
 

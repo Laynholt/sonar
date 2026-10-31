@@ -359,7 +359,8 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 	slices.Sort(installed)
 	slices.Sort(needTrust)
-	if !reflect.DeepEqual(installed, []string{"dropped", "mine"}) || !reflect.DeepEqual(needTrust, []string{"dropped", "mine"}) {
+	// dropped was off in the export, so trusting the import must not switch it on
+	if !reflect.DeepEqual(installed, []string{"dropped", "mine"}) || !reflect.DeepEqual(needTrust, []string{"mine"}) {
 		t.Fatalf("installed %v, needTrust %v", installed, needTrust)
 	}
 	if got := readFile(t, filepath.Join(dst.user, "mine", "sub", "f.txt")); got != "f" {
