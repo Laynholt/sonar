@@ -1,0 +1,11 @@
+{
+  "id": "example-tagger",
+  "name": "Example tagger (Python)",
+  "version": "1.0.0",
+  "author": "you",
+  "description": "Template: writes a canned genre. Replace tag() in main.py with your own lookup.",
+  "kind": "tagger",
+  "run": ["python", "main.py"],
+  "contract": 1,
+  "tagger": { "fields": ["genre"], "needs": "" }
+}

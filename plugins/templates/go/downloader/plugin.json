@@ -1,0 +1,23 @@
+{
+  "id": "example-go-downloader",
+  "name": "Example downloader (Go)",
+  "version": "1.0.0",
+  "author": "you",
+  "description": "Template: downloads {baseUrl}/{artist} - {title}.flac. Replace download() with your own site or script.",
+  "kind": "downloader",
+  "run": ["example-go-downloader"],
+  "contract": 1,
+  "settings": [
+    {
+      "key": "baseUrl",
+      "type": "text",
+      "default": "http://localhost:8000",
+      "label": { "en": "Base URL", "ru": "Базовый адрес" },
+      "hint": {
+        "en": "Files are fetched from <base URL>/<artist> - <title>.flac",
+        "ru": "Файлы берутся с <адрес>/<исполнитель> - <название>.flac"
+      }
+    }
+  ],
+  "downloader": { "accepts": "any", "parallel": 1 }
+}

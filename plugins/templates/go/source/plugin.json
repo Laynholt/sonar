@@ -1,0 +1,17 @@
+{
+  "id": "example-go-source",
+  "name": "Example source (Go)",
+  "version": "1.0.0",
+  "author": "you",
+  "description": "Template: answers with canned data. Replace the handlers in main.go with your site.",
+  "kind": "source",
+  "run": ["example-go-source"],
+  "contract": 1,
+  "source": {
+    "service": "examplego",
+    "label": "Example (Go)",
+    "icon": "",
+    "links": ["https://examplego\\.com/track/[0-9]+"],
+    "can": ["metadata", "search", "parseLink"]
+  }
+}

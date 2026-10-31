@@ -45,6 +45,12 @@ Limits:
 - At most 2 tracks download at once (one per site).
 - Matching uses titles and artists; compilations and re-recordings may need your choice.
 
+## Plugins
+
+Everything that talks to a site is a plugin, a folder with a `plugin.json` and a program: Spotify and Amazon Music are sources, lucida and doubledouble are downloaders, chosic is a genre tagger. They ship with sonar and can be turned off. Settings > Plugins lists them, turns them on and off, orders them, edits their settings, installs a plugin from a zip, and exports or imports all your plugins with their settings.
+
+Third-party plugins run with your rights, so sonar asks for confirmation before turning one on. Anyone can write one, in any language, by following [docs/plugins.md](docs/plugins.md) (in Russian); `plugins/templates/` has a Python (standard library only) and a Go template for a source, a downloader and a tagger.
+
 ## Proxy
 
 Settings has a Proxy field (`host:port` or a full `http://`, `https://`, `socks5://` URL). If it is empty, sonar reads the environment: for https requests `HTTPS_PROXY`, else `HTTP_PROXY`, else `ALL_PROXY` (lowercase names work too). If any of those is set, the OS proxy is not consulted, and hosts matching `NO_PROXY` go direct. With none set, sonar uses the OS system proxy (Windows, macOS, Linux/GNOME). Loopback addresses always go direct.
@@ -61,7 +67,7 @@ Go error texts and Spotify and Amazon data (titles, playlist descriptions) are n
 
 ## Roadmap
 
-All three planned stages are done. Deferred: the SpotiDownloader utilities (audio converter, audio analysis, file manager).
+The three planned stages and the plugin core are done. Next: a platform for utility plugins (pages built from sonar blocks or the plugin's own, shared services), then moving the SpotiFLAC utilities over one by one (spectrogram, converter, resampler, ReplayGain, lyrics, tempo and key, file explorer with bulk rename). Deferred: the SpotiDownloader utilities (audio converter, audio analysis, file manager).
 
 ## Requirements
 
@@ -72,9 +78,11 @@ All three planned stages are done. Deferred: the SpotiDownloader utilities (audi
 ## Run and build
 
 ```powershell
-go tool wails dev      # hot reload
-go tool wails build    # output: build/bin/sonar.exe
+go run ./cmd/build        # builds the plugins, then sonar; output: build/bin/sonar.exe and build/bin/plugins/
+go run ./cmd/build -dev   # the same with hot reload (wails dev)
 ```
+
+Do not call `go tool wails build` directly: it skips the plugins, and the built-in ones then show up as third-party.
 
 ## Tests
 

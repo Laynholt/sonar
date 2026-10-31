@@ -1,0 +1,17 @@
+{
+  "id": "example-source",
+  "name": "Example source (Python)",
+  "version": "1.0.0",
+  "author": "you",
+  "description": "Template: answers with canned data. Replace the handlers in main.py with your site.",
+  "kind": "source",
+  "run": ["python", "main.py"],
+  "contract": 1,
+  "source": {
+    "service": "example",
+    "label": "Example",
+    "icon": "",
+    "links": ["https://example\\.com/track/[0-9]+"],
+    "can": ["metadata", "search", "parseLink"]
+  }
+}

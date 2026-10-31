@@ -1,0 +1,11 @@
+{
+  "id": "example-go-tagger",
+  "name": "Example tagger (Go)",
+  "version": "1.0.0",
+  "author": "you",
+  "description": "Template: writes a canned genre. Replace the tag handler in main.go with your own lookup.",
+  "kind": "tagger",
+  "run": ["example-go-tagger"],
+  "contract": 1,
+  "tagger": { "fields": ["genre"], "needs": "" }
+}
