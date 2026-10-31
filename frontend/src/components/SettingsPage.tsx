@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
-import { Save, Settings2, Palette, Globe, Download } from "lucide-react";
+import { Save, Settings2, Palette, Globe, Download, Puzzle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -14,6 +13,8 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { openFFmpegInstall } from "@/lib/ffmpeg-install";
 import { FILENAME_PRESETS, FOLDER_PRESETS } from "@/lib/downloadPresets";
 import { SourceStatus } from "@/components/SourceStatus";
+import { PluginsPage } from "@/components/PluginsPage";
+import { Block, Row } from "@/components/SettingsRows";
 import { siteName } from "@/lib/download-format";
 import { DefaultDownloadDir, FindFFmpeg, GetSourceStatus, SelectDownloadFolder, SelectFFmpeg } from "../../wailsjs/go/main/App";
 import { BrowserOpenURL, EventsOn } from "../../wailsjs/runtime/runtime";
@@ -23,6 +24,7 @@ const SECTIONS = [
     { id: "downloads", label: "settings.downloads", Icon: Download },
     { id: "appearance", label: "settings.appearance", Icon: Palette },
     { id: "network", label: "settings.network", Icon: Globe },
+    { id: "plugins", label: "settings.plugins", Icon: Puzzle },
 ] as const satisfies readonly { id: string; label: MessageKey; Icon: unknown }[];
 // Accent names are plain colour words, so they follow the language; unknown themes keep their own label.
 const THEME_LABELS: Record<string, MessageKey> = {
@@ -46,24 +48,6 @@ const THEME_LABELS: Record<string, MessageKey> = {
     yellow: "theme.yellow",
 };
 type SectionId = typeof SECTIONS[number]["id"];
-
-// Every control sits in one right-hand column of the same width, so their edges line up.
-function Row({ id, label, description, children }: { id: string; label: string; description?: string; children: ReactNode }) {
-    return (<div className="flex items-center justify-between gap-6 px-4 py-4 border-b last:border-b-0">
-      <div className="space-y-1 min-w-0">
-        <Label htmlFor={id}>{label}</Label>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
-      </div>
-      <div className="w-72 shrink-0 flex flex-col items-end [&_[data-slot=select-trigger]]:w-full">{children}</div>
-    </div>);
-}
-
-function Block({ title, children }: { title: string; children: ReactNode }) {
-    return (<section className="rounded-md border overflow-hidden">
-      <h2 className="h-10 px-4 flex items-center border-b bg-muted/50 text-xs font-medium uppercase text-muted-foreground">{title}</h2>
-      <div>{children}</div>
-    </section>);
-}
 
 // Radix Select rejects an empty item value, so the "no subfolder" preset gets a stand-in.
 const NONE = "none";
@@ -306,7 +290,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, onSaveReq
         </Button>))}
       </div>
 
-      {section === "downloads" ? <DownloadsSection key={resetCount} settings={tempSettings} set={set}/> : (
+      {section === "downloads" ? <DownloadsSection key={resetCount} settings={tempSettings} set={set}/> : section === "plugins" ? <PluginsPage/> : (
         <Block title={t(SECTIONS.find((s) => s.id === section)!.label)}>
           {section === "general" && (<>
             <Row id="language" label={t("settings.language")} description={t("settings.languageDesc")}>

@@ -46,7 +46,7 @@ export function SourceStatus({ compact, withAction = true, onlyNeeding }: { comp
         {withAction && status.needs_action && status.action && (<Button type="button" variant="outline" size="sm" disabled={!!checking} onClick={() => void passCheck(status)}>
           {checking === status.name ? t("download.checkWaiting") : t("download.passCheck")}
         </Button>)}
-        {withAction && checking === status.name && (<p className="basis-full text-muted-foreground">{t("download.checkHint")}</p>)}
+        {withAction && checking === status.name && status.reason && (<p className="basis-full text-muted-foreground">{status.reason}</p>)}
       </li>))}
     </ul>);
     return onlyNeeding ? <div className="rounded-md border p-4">{list}</div> : list;

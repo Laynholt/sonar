@@ -36,7 +36,7 @@ afterEach(async () => { await view.unmount(); setLanguage("en"); vi.unstubAllGlo
 
 describe("SettingsPage", () => {
     it("shows a section per nav button, starting with General", async () => {
-        expect([...view.container.querySelectorAll(".border-b.shrink-0 button")].map((item) => item.textContent)).toEqual(["General", "Downloads", "Appearance", "Network"]);
+        expect([...view.container.querySelectorAll(".border-b.shrink-0 button")].map((item) => item.textContent)).toEqual(["General", "Downloads", "Appearance", "Network", "Plugins"]);
         expect(view.container.textContent).toContain("Language");
         expect(view.container.textContent).toContain("Sound Effects");
         expect(view.container.querySelector('input[placeholder="Auto (system proxy)"]')).toBeNull();
