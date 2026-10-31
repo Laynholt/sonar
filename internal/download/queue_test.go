@@ -1475,6 +1475,40 @@ func TestAddSiteLater(t *testing.T) {
 	}
 }
 
+// AddSite on a known site sets its worker count: up to three downloads at once, then back to one.
+func TestAddSiteChangesWorkers(t *testing.T) {
+	var cur, peak atomic.Int32
+	gate := make(chan struct{})
+	f := &fakeFetch{fn: func(_ context.Context, _, pathNoExt string) (string, error) {
+		n := cur.Add(1)
+		defer cur.Add(-1)
+		for old := peak.Load(); n > old && !peak.CompareAndSwap(old, n); old = peak.Load() {
+		}
+		<-gate
+		time.Sleep(2 * time.Millisecond)
+		return pathNoExt + ".flac", nil
+	}}
+	q := newQ(t, f, 1)
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release) // before q.Close, so a failed test does not hang on blocked workers
+	q.AddSite("a", 3)
+	o := testOpts(t)
+	q.Enqueue(album, o, tracks("1", "2", "3"))
+	waitFor(t, q, allIn(Downloading, "1", "2", "3"))
+	q.AddSite("a", 1)
+	release()
+	waitFor(t, q, allIn(Completed, "1", "2", "3"))
+	if peak.Load() != 3 {
+		t.Fatalf("peak in flight with 3 workers = %d", peak.Load())
+	}
+	peak.Store(0)
+	q.Enqueue(Collection{Kind: "album", ID: "al2"}, o, []Track{{ID: "4", Title: "t4"}, {ID: "5", Title: "t5"}, {ID: "6", Title: "t6"}})
+	waitFor(t, q, allIn(Completed, "4", "5", "6"))
+	if peak.Load() != 1 {
+		t.Errorf("peak in flight after going back to 1 worker = %d", peak.Load())
+	}
+}
+
 // Every site waits for a check: the track is matched now, so it is ready once a site is back.
 func TestMatchWhileEverySiteNeedsCheck(t *testing.T) {
 	s := newSites("a", "b")

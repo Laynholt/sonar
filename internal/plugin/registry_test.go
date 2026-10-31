@@ -190,6 +190,32 @@ func TestRegistryOrder(t *testing.T) {
 	}
 }
 
+// DefaultOrder places the ids the saved Order leaves out, before the rest in Discover order.
+func TestRegistryDefaultOrder(t *testing.T) {
+	e := newEnv(t)
+	for _, id := range []string{"a", "b", "c"} {
+		putSettings(t, e.user, id, "1.0.0", `[]`)
+	}
+	r := e.open(t)
+	r.DefaultOrder = []string{"c", "gone", "b"}
+	ids := func() string {
+		var s []string
+		for _, en := range r.List() {
+			s = append(s, en.M.ID)
+		}
+		return strings.Join(s, ",")
+	}
+	if got := ids(); got != "c,b,a" {
+		t.Fatalf("default order: %s", got)
+	}
+	if err := r.SetOrder([]string{"b"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(); got != "b,c,a" {
+		t.Fatalf("saved order first: %s", got)
+	}
+}
+
 func TestRegistrySettingsNotify(t *testing.T) {
 	e := newEnv(t)
 	e.bless(t, "fake1", putFake(t, e.builtin, "fake1", "1.0.0"))

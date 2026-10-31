@@ -64,6 +64,8 @@ type Registry struct {
 	OnChange func() // called after every state change and Refresh, never under the lock
 	// OnStatus gets the $/status notes of every plugin. Like OnChange, set it before the first Host call.
 	OnStatus func(id string, st PluginStatus)
+	// DefaultOrder is where List puts the ids the saved Order leaves out, before the rest. Set it before use.
+	DefaultOrder []string
 
 	dataDir, builtinDir, userDir string
 	sums                         map[string]string
@@ -201,7 +203,7 @@ func (r *Registry) entry(f Found) Entry {
 	return e
 }
 
-// List returns every plugin: the saved order first, then new ones in Discover order.
+// List returns every plugin: the saved order first, then DefaultOrder, then new ones in Discover order.
 func (r *Registry) List() []Entry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -213,7 +215,7 @@ func (r *Registry) List() []Entry {
 			out = append(out, r.entry(f))
 		}
 	}
-	for _, id := range r.st.Order {
+	for _, id := range slices.Concat(r.st.Order, r.DefaultOrder) {
 		if f, ok := r.find(id); ok {
 			add(f)
 		}

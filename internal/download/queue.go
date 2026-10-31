@@ -135,6 +135,8 @@ type Queue struct {
 	resolve    Resolve
 	sites      Sites
 	started    map[string]bool // sites with workers
+	want       map[string]int  // workers each started site should have
+	running    map[string]int  // workers each site has; a surplus one leaves when it next looks for work
 	base       context.Context // parent of every Resolve call; cancelled by Close
 	cancelBase context.CancelFunc
 	mu         sync.Mutex
@@ -158,7 +160,7 @@ type Queue struct {
 
 // NewQueue starts one worker per site and the matcher. A nil resolve fails every track that needs matching with "no match result".
 func NewQueue(fetch Fetch, resolve Resolve, sites Sites) *Queue {
-	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, started: map[string]bool{}, byID: map[string]*entry{}, busy: map[string]bool{}}
+	q := &Queue{fetch: fetch, resolve: resolve, sites: sites, started: map[string]bool{}, want: map[string]int{}, running: map[string]int{}, byID: map[string]*entry{}, busy: map[string]bool{}}
 	q.base, q.cancelBase = context.WithCancel(context.Background())
 	q.cond = sync.NewCond(&q.mu)
 	q.wg.Add(1)
@@ -170,22 +172,25 @@ func NewQueue(fetch Fetch, resolve Resolve, sites Sites) *Queue {
 }
 
 // AddSite starts workers for name, which Sites.Names must list, and sends queued tracks that no site
-// can take as they are to matching. A second call for the same name, or one after Close, does nothing.
+// can take as they are to matching. A second call for the same name sets its worker count: extra workers
+// start now, surplus ones leave once their download is done. A call after Close does nothing.
 func (q *Queue) AddSite(name string, workers int) {
 	defer q.notify()
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed || q.started[name] {
+	if q.closed {
 		return
 	}
-	q.started[name] = true
-	workers = max(workers, 1) // a started site without a worker would hold its tracks forever
-	q.wg.Add(workers)
-	for range workers {
+	q.want[name] = max(workers, 1) // a started site without a worker would hold its tracks forever
+	for ; q.running[name] < q.want[name]; q.running[name]++ {
+		q.wg.Add(1)
 		go q.worker(name)
 	}
-	q.replaceLocked()
-	q.cond.Broadcast()
+	if !q.started[name] {
+		q.started[name] = true
+		q.replaceLocked()
+	}
+	q.cond.Broadcast() // surplus workers look again and leave
 }
 
 // Wake makes idle workers look again, e.g. after a site became ready, and sends queued tracks that no usable
@@ -566,7 +571,14 @@ func (q *Queue) worker(site string) {
 	for {
 		q.mu.Lock()
 		var e *entry
-		if !q.waitLocked(func() bool { e = q.takeLocked(site); return e != nil }) {
+		if !q.waitLocked(func() bool {
+			if q.running[site] > q.want[site] {
+				return true // surplus: leave with e nil
+			}
+			e = q.takeLocked(site)
+			return e != nil
+		}) || e == nil {
+			q.running[site]--
 			q.mu.Unlock()
 			return
 		}

@@ -49,7 +49,7 @@ type Balancer struct {
 	OnChange func()
 
 	mu    sync.Mutex // guards the fields below and every site's
-	names []string   // in Add order
+	names []string   // in Add order, or as SetOrder put them
 	sites map[string]*site
 }
 
@@ -121,7 +121,25 @@ func (b *Balancer) SetEnabled(name string, on bool) {
 	b.changed()
 }
 
-// Names lists the sites, switched off or not, in Add order.
+// SetOrder puts the named sites first, in that order; the others follow in their current order.
+// Unknown names are ignored.
+func (b *Balancer) SetOrder(names []string) {
+	b.mu.Lock()
+	out := make([]string, 0, len(b.names))
+	for _, n := range slices.Concat(names, b.names) {
+		if b.sites[n] != nil && !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	same := slices.Equal(out, b.names)
+	b.names = out
+	b.mu.Unlock()
+	if !same {
+		b.changed()
+	}
+}
+
+// Names lists the sites, switched off or not, in Add order or the one SetOrder set.
 func (b *Balancer) Names() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -356,7 +374,7 @@ func (b *Balancer) RestoreGuardPauses(p map[string]time.Time) {
 	}
 }
 
-// Status lists the sites that are on, in Add order.
+// Status lists the sites that are on, in Names order.
 func (b *Balancer) Status() []Status {
 	b.mu.Lock()
 	defer b.mu.Unlock()

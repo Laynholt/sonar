@@ -114,6 +114,25 @@ func TestNames(t *testing.T) {
 	}
 }
 
+func TestSetOrder(t *testing.T) {
+	b, _ := newTest(&fake{name: "a"}, &fake{name: "b"}, &fake{name: "c"})
+	ch := changes(b)
+	b.SetOrder([]string{"c", "gone", "a"})
+	waitChange(t, ch)
+	if got := b.Names(); !slices.Equal(got, []string{"c", "a", "b"}) {
+		t.Fatalf("Names = %v", got)
+	}
+	if st := b.Status(); st[0].Name != "c" {
+		t.Fatalf("Status order = %+v", st)
+	}
+	b.SetOrder([]string{"c"}) // the same order: no change
+	noChange(t, ch)
+	b.Add(&fake{name: "a"}, "amazon", Guard{}) // a known name keeps its place
+	if got := b.Names(); !slices.Equal(got, []string{"c", "a", "b"}) {
+		t.Fatalf("Names after Add = %v", got)
+	}
+}
+
 // Add on a known name swaps its Source, accepts and guard, but keeps its place and its count.
 func TestAddReplacesKeepsCounters(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a"}, &fake{name: "b"})

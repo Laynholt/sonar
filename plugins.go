@@ -64,7 +64,7 @@ type PluginView struct {
 	Fields     []plugin.Field `json:"fields"` // with the two guard fields for a downloader with a guard
 	Values     map[string]any `json:"values"`
 	Dependents []string       `json:"dependents"` // ids of enabled plugins that need this source
-	Blocked    string         `json:"blocked"`    // "needs source Amazon Music" when a source it needs is off or missing
+	Blocked    string         `json:"blocked"`    // the label of a source it needs that is off or missing, e.g. "Amazon Music"
 }
 
 // userPluginsDir is where the user's plugins go: %LOCALAPPDATA%\Sonar\plugins, else <dataDir>/plugins.
@@ -75,9 +75,13 @@ func userPluginsDir(dataDir string) string {
 	return filepath.Join(dataDir, "plugins")
 }
 
+// builtinOrder is the built-in downloaders' order until the user sets one: lucida before doubledouble.
+var builtinOrder = []string{"lucida", "doubledouble"}
+
 func (a *App) openPlugins(builtinDir, userDir string, sums map[string]string) {
 	a.pluginsDir = userDir
 	a.reg = plugin.OpenRegistry(a.dataDir, builtinDir, userDir, sums, a.pluginInit, log.Printf)
+	a.reg.DefaultOrder = builtinOrder
 }
 
 // pluginInit is what the app adds to a plugin's initialize and $/settings: the language and the proxy.
@@ -156,17 +160,19 @@ func guardWaitErr(waits []int) error {
 }
 
 // syncDownloaders makes the Balancer and the queue match the downloader plugins: new ones are added with workers,
-// known ones get their switch and guard, and sites whose plugin is gone are switched off.
+// known ones get their switch, guard and worker count, sites whose plugin is gone are switched off,
+// and the sites follow the plugins' order.
 func (a *App) syncDownloaders() {
 	a.syncMu.Lock()
 	defer a.syncMu.Unlock()
-	seen := map[string]bool{}
+	seen, order := map[string]bool{}, []string{}
 	for _, d := range a.reg.Downloaders() {
 		e, ok := a.reg.Get(d.ID)
 		if !ok {
 			continue
 		}
 		seen[d.ID] = true
+		order = append(order, d.ID)
 		a.sources.Add(d, d.Info.Accepts, guardOf(e))
 		a.sources.SetEnabled(d.ID, e.Enabled)
 		a.dl.AddSite(d.ID, d.Info.Parallel)
@@ -176,6 +182,7 @@ func (a *App) syncDownloaders() {
 			a.sources.SetEnabled(name, false)
 		}
 	}
+	a.sources.SetOrder(order)
 }
 
 // startDownloaders starts every enabled downloader in the background, so a status it reports from Init, such as
@@ -342,24 +349,22 @@ func (a *App) ListPlugins() []PluginView {
 			}
 		}
 		if svc := needs(e); svc != "" && !on[svc] {
-			v.Blocked = "needs source " + a.serviceLabel(svc)
+			v.Blocked = a.serviceLabel(svc)
 		}
 		out = append(out, v)
 	}
 	return out
 }
 
+// guardFields are the two guard fields; they carry no labels, since the UI names them from its own locales.
 func guardFields(g plugin.Guard) []plugin.Field {
 	opts := make([]plugin.Option, len(g.Waits))
 	for i, w := range g.Waits {
-		opts[i] = plugin.Option{Value: w, Label: plugin.Text{"en": fmt.Sprintf("%d min", w), "ru": fmt.Sprintf("%d мин", w)}}
+		opts[i] = plugin.Option{Value: w}
 	}
 	return []plugin.Field{
-		{Key: guardLimitKey, Type: "number", Default: g.Limit,
-			Label: plugin.Text{"en": "Downloads before asking", "ru": "Загрузок до вопроса"},
-			Hint:  plugin.Text{"en": "0 turns the guard off", "ru": "0 — не спрашивать"}},
-		{Key: guardWaitKey, Type: "select", Default: g.Wait, Options: opts,
-			Label: plugin.Text{"en": "Pause after “Wait”", "ru": "Пауза после «Подождать»"}},
+		{Key: guardLimitKey, Type: "number", Default: g.Limit},
+		{Key: guardWaitKey, Type: "select", Default: g.Wait, Options: opts},
 	}
 }
 
@@ -463,14 +468,18 @@ func (a *App) ImportPlugins(choice string) ([]string, error) {
 	return a.importFrom(path, choice)
 }
 
+// An import that fails after installing some plugins answers "installed:<id,id>:<error>", since it is not undone.
 func (a *App) importFrom(path, choice string) ([]string, error) {
-	_, need, err := a.reg.Import(path, choice)
+	installed, need, err := a.reg.Import(path, choice)
 	var c *plugin.Conflict
 	if errors.As(err, &c) {
 		a.keepZip(&a.importZip, path)
 		return []string{}, errors.New("conflict:" + strings.Join(c.IDs, ","))
 	}
 	a.keepZip(&a.importZip, "")
+	if err != nil && len(installed) > 0 {
+		return []string{}, fmt.Errorf("installed:%s:%w", strings.Join(installed, ","), err)
+	}
 	return append([]string{}, need...), err
 }
 

@@ -359,7 +359,7 @@ func TestDisableSourceDependents(t *testing.T) {
 	if err := a.SetPluginEnabled("amazon", false, false); err != nil {
 		t.Fatal(err)
 	}
-	if v := view(t, a, "lucida"); v.Blocked != "needs source Amazon Music" {
+	if v := view(t, a, "lucida"); v.Blocked != "Amazon Music" {
 		t.Fatalf("lucida with amazon off = %+v", v)
 	}
 	if err := a.SetPluginEnabled("chosic", false, false); err != nil {
@@ -367,6 +367,26 @@ func TestDisableSourceDependents(t *testing.T) {
 	}
 	if v := view(t, a, "spotify"); len(v.Dependents) != 0 {
 		t.Fatalf("a disabled tagger is still a dependent: %+v", v)
+	}
+}
+
+// lucida comes before doubledouble until the user orders the plugins, and a new order reaches the sites at once.
+func TestDownloaderOrder(t *testing.T) {
+	a := newPluginApp(t, t.TempDir(), nil, stdPlugs("")...)
+	idx := func(id string) int {
+		return slices.IndexFunc(a.ListPlugins(), func(v PluginView) bool { return v.ID == id })
+	}
+	if idx("lucida") > idx("doubledouble") {
+		t.Fatalf("plugins = %+v", a.ListPlugins())
+	}
+	if got := a.sources.Names(); !slices.Equal(got, []string{"lucida", "doubledouble"}) {
+		t.Fatalf("sites = %v", got)
+	}
+	if err := a.SetPluginOrder([]string{"doubledouble"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.sources.Names(); !slices.Equal(got, []string{"doubledouble", "lucida"}) {
+		t.Fatalf("sites after SetPluginOrder = %v", got)
 	}
 }
 
@@ -629,6 +649,47 @@ func TestInstallAndImportAnswers(t *testing.T) {
 	}
 	if need, err := a.importFrom(exp, "skip"); err != nil || need == nil || a.importZip != "" {
 		t.Fatalf("skip: %v, %v, kept %q", need, err, a.importZip)
+	}
+}
+
+// An import that fails part-way names the plugins it installed before the error: "installed:<id,id>:<error>".
+func TestImportPartialNamesInstalled(t *testing.T) {
+	a := newPluginApp(t, t.TempDir(), nil)
+	for _, id := range []string{"aa", "bb"} {
+		zp := filepath.Join(t.TempDir(), id+".zip")
+		f, err := os.Create(zp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		zw := zip.NewWriter(f)
+		w, _ := zw.Create("plugin.json")
+		w.Write([]byte(`{"id":"` + id + `","name":"X","version":"1.0.0","kind":"tool","run":["x.exe"]}`))
+		if err := errors.Join(zw.Close(), f.Close()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.installFrom(zp, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exp := filepath.Join(t.TempDir(), "export.zip")
+	if err := a.reg.Export(exp); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"aa", "bb"} {
+		if err := a.RemovePlugin(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Another plugin's folder is named bb, so bb's own folder cannot be moved in.
+	if err := os.MkdirAll(filepath.Join(a.pluginsDir, "bb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(a.pluginsDir, "bb", "plugin.json"), []byte(`{"id":"zz","name":"Z","version":"1.0.0","kind":"tool","run":["z.exe"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := a.importFrom(exp, "")
+	if err == nil || !strings.HasPrefix(err.Error(), `installed:aa:plugin "bb": `) {
+		t.Fatalf("import: %v", err)
 	}
 }
 
