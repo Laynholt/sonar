@@ -177,7 +177,8 @@ export function useMetadata() {
             return;
         }
         let urlToFetch = url.trim();
-        const isArtistUrl = urlToFetch.includes("/artist/") || urlToFetch.startsWith("spotify:artist:");
+        // Only Spotify artist links get the discography rewrite; other sources' artist links go to their plugin as-is.
+        const isArtistUrl = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?artist\//i.test(urlToFetch) || urlToFetch.startsWith("spotify:artist:");
         if (isArtistUrl) {
             const artistID = extractArtistID(urlToFetch);
             if (!artistID) {

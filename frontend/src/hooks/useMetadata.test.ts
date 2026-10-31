@@ -242,6 +242,18 @@ describe("useMetadata async source identity", () => {
         expect(doubles.toastError).toHaveBeenCalledWith(regionBlock);
     });
 
+    it("rewrites only Spotify artist links to the discography", async () => {
+        doubles.fetchMetadata.mockResolvedValue(albumMetadata("A"));
+        const hook = MetadataHookHarness();
+
+        await hook.handleFetchMetadata("https://open.spotify.com/artist/0OdUWJ0sBjDrqHygGUXeCF");
+        expect(doubles.fetchMetadata).toHaveBeenLastCalledWith("https://open.spotify.com/artist/0OdUWJ0sBjDrqHygGUXeCF/discography/all");
+
+        await hook.handleFetchMetadata("https://www.deezer.com/en/artist/27");
+        expect(doubles.fetchMetadata).toHaveBeenLastCalledWith("https://www.deezer.com/en/artist/27");
+        expect(doubles.toastError).not.toHaveBeenCalled();
+    });
+
     it("stores the canonical link in history for a pasted spotify: URI", async () => {
         const canonical = "https://open.spotify.com/album/6N9PS4QXF1D0OWPk0Sxtb4";
         const data = albumMetadata("A");
