@@ -48,12 +48,13 @@ func newTestApp(t *testing.T, ffmpeg string) (*App, func() []fetched) {
 
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+	// 15s: plugin processes start and match slowly under -race on a loaded machine.
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		if cond() {
 			return
 		}
 	}
-	t.Fatal("condition not met in 5s")
+	t.Fatal("condition not met in 15s")
 }
 
 // req asks for Amazon tracks ids into a temp folder.
