@@ -106,7 +106,11 @@ func (a *App) pluginStatus(id string, st plugin.PluginStatus) {
 	if a.sources.Has(id) {
 		switch {
 		case st.NeedsAction != nil:
-			a.sources.NeedAction(id, id+": "+st.NeedsAction.Message, st.NeedsAction.Action)
+			label := id
+			if e, ok := a.reg.Get(id); ok {
+				label = e.M.Name
+			}
+			a.sources.NeedAction(id, label+": "+st.NeedsAction.Message, st.NeedsAction.Action)
 		case st.Available:
 			a.sources.Reset(id)
 		}
@@ -458,7 +462,7 @@ func (a *App) installFrom(path string, replace bool) (string, error) {
 	return id, err
 }
 
-// ImportPlugins imports an export the user picks and returns the ids that need the user's trust.
+// ImportPlugins imports an export the user picks and returns the ids to trust and turn on: those the export had on.
 // Ids already installed answer "conflict:<id,id>"; ImportPlugins("replace" or "skip") then decides from the same zip.
 func (a *App) ImportPlugins(choice string) ([]string, error) {
 	path, err := a.pickZip(&a.importZip, choice != "", "Import plugins")

@@ -353,7 +353,7 @@ func TestDownloadTracksFixedSourceNeedsAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := a.DownloadTracks(req(t, "", "doubledouble", "B00A3SGXAA"))
-	if err == nil || err.Error() != "doubledouble: Log in" {
+	if err == nil || err.Error() != "DoubleDouble: Log in" { // the site's label, as the user knows it
 		t.Fatalf("err = %v", err)
 	}
 	if n := len(a.GetDownloadState().Items); n != 0 || len(fetches()) != 0 {

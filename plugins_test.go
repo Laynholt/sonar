@@ -418,7 +418,7 @@ func TestPluginActionReset(t *testing.T) {
 	if err := a.RunPluginAction("doubledouble", "lock"); err != nil { // the fake reports it needs the check
 		t.Fatal(err)
 	}
-	if s := site(a, "doubledouble"); !s.NeedsAction || s.Action != "check" || s.Reason != "doubledouble: Log in" {
+	if s := site(a, "doubledouble"); !s.NeedsAction || s.Action != "check" || s.Reason != "DoubleDouble: Log in" {
 		t.Fatalf("after lock: %+v", s)
 	}
 	if err := a.RunPluginAction("doubledouble", "check"); err != nil {
@@ -707,10 +707,10 @@ func TestFirstRunCheckShowsAtStartup(t *testing.T) {
 		return source.Status{}
 	}
 	waitFor(t, func() bool { return dd().NeedsAction })
-	if s := dd(); s.Action != "check" || s.Reason != "doubledouble: Needs the browser check" {
+	if s := dd(); s.Action != "check" || s.Reason != "DoubleDouble: Needs the browser check" {
 		t.Fatalf("status %+v", s)
 	}
-	if err := a.DownloadTracks(req(t, "", "doubledouble", "B00A3SGXAA")); err == nil || err.Error() != "doubledouble: Needs the browser check" {
+	if err := a.DownloadTracks(req(t, "", "doubledouble", "B00A3SGXAA")); err == nil || err.Error() != "DoubleDouble: Needs the browser check" {
 		t.Fatalf("err = %v", err)
 	}
 }

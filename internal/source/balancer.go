@@ -246,30 +246,30 @@ func actionOf(err error) string {
 }
 
 // needsReason is what a needs-action error asks of the user: its NeedsMessage, such as a plugin's
-// instructions, prefixed with the site, else its text.
-func needsReason(name string, err error) string {
+// instructions, prefixed with the site's label, else its text.
+func needsReason(label string, err error) string {
 	var m interface{ NeedsMessage() string }
 	if errors.As(err, &m) && m.NeedsMessage() != "" {
-		return name + ": " + m.NeedsMessage()
+		return label + ": " + m.NeedsMessage()
 	}
 	return err.Error()
 }
 
 func (b *Balancer) punish(name string, err error) {
-	var p pause
-	switch {
-	case errors.Is(err, ErrNeedsCheck):
-		p = pause{needsAction: true, reason: needsReason(name, err), action: actionOf(err)}
-	case errors.Is(err, ErrUnavailable) || errors.Is(err, download.ErrSiteOff): // off before SetEnabled: no instant retake
-		p = pause{until: b.now().Add(b.cooldown), reason: err.Error()}
-	default:
-		return
-	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	s := b.sites[name]
 	if s == nil || s.pause.needsAction {
 		return // only Reset lifts a needed action, not a cooldown
+	}
+	var p pause
+	switch {
+	case errors.Is(err, ErrNeedsCheck):
+		p = pause{needsAction: true, reason: needsReason(s.label, err), action: actionOf(err)}
+	case errors.Is(err, ErrUnavailable) || errors.Is(err, download.ErrSiteOff): // off before SetEnabled: no instant retake
+		p = pause{until: b.now().Add(b.cooldown), reason: err.Error()}
+	default:
+		return
 	}
 	s.pause = p
 	stopTimer(&s.coolTimer)
@@ -407,7 +407,8 @@ func (b *Balancer) Status() []Status {
 	return out
 }
 
-// NeedAction pauses a site until Reset, e.g. doubledouble before its first browser check.
+// NeedAction pauses a site until Reset, e.g. doubledouble before its first browser check. reason starts with
+// the site's label, as a needs-action error's does.
 // action is the settings action that lifts it, "" for none; a newer call replaces the reason and action.
 func (b *Balancer) NeedAction(name, reason, action string) {
 	b.mu.Lock()

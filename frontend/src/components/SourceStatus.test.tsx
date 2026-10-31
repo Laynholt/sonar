@@ -62,9 +62,9 @@ describe("SourceStatus", () => {
         expect(toast.success).toHaveBeenCalledWith("Check passed, ALPHA is back");
     });
 
-    it("shows the plugin's instructions while checking, without the site id the reason starts with", async () => {
+    it("shows the plugin's instructions while checking, without the site label the reason starts with", async () => {
         store([]);
-        vi.mocked(GetSourceStatus).mockResolvedValue([{ ...needing[0], reason: "alpha: In that window: untick it" }] as never);
+        vi.mocked(GetSourceStatus).mockResolvedValue([{ ...needing[0], reason: "ALPHA: In that window: untick it" }] as never);
         vi.mocked(RunPluginAction).mockReturnValue(deferred<void>().promise);
         view = await mount(<SourceStatus/>);
         await act(async () => button(view.container, "Pass check").click());

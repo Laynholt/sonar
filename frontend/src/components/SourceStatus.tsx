@@ -33,8 +33,8 @@ export function SourceStatus({ compact, withAction = true, onlyNeeding }: { comp
             await load();
         }
     };
-    // The balancer prefixes the reason with the site id, which this list already names.
-    const why = (status: source.Status) => (status.reason.startsWith(`${status.name}: `) ? status.reason.slice(status.name.length + 2) : status.reason);
+    // The balancer prefixes the reason with the site's label, which this list already names.
+    const why = (status: source.Status) => (status.reason.startsWith(`${status.label}: `) ? status.reason.slice(status.label.length + 2) : status.reason);
     const shown = onlyNeeding ? statuses.filter((status) => status.needs_action) : statuses;
     if (onlyNeeding && !shown.length) return null;
     const list = (<ul className={compact ? "flex flex-wrap gap-x-4 gap-y-1 text-xs" : "space-y-1 text-xs"}>
