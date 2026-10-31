@@ -218,17 +218,21 @@ func TestMigrateOnce(t *testing.T) {
 	}
 }
 
-// An old queue.json with amazon_id items and a guard pause still resumes once the settings are migrated.
-func TestMigrationKeepsQueueAndPauses(t *testing.T) {
-	dir := t.TempDir()
-	until := time.Now().Add(time.Hour).UnixMilli()
+// startOldApp starts an App on dir holding an old queue.json with an amazon_id item and a lucida guard pause,
+// and returns the pause's end.
+func startOldApp(t *testing.T, dir string, until int64) *App {
+	t.Helper()
 	out, _ := json.Marshal(t.TempDir())
 	writeFile(t, filepath.Join(dir, "config.json"), oldConfig)
 	writeFile(t, filepath.Join(dir, "queue.json"), `{"version":1,"items":[{"item":{"id":"1","track":{"id":"1","service":"spotify","title":"T"},
 		"amazon_id":"B00A3SGXA1","status":"queued"},"collection":{"kind":"track","id":"1","name":"T"},
 		"options":{"dir":`+string(out)+`,"format":"original","source":"lucida","filename_template":"{title}"}}],
 		"pauses":{"lucida":`+strconv.FormatInt(until, 10)+`}}`)
-	a := newPluginApp(t, dir, nil, stdPlugs("")...)
+	return newPluginApp(t, dir, nil, stdPlugs("")...)
+}
+
+func checkOldQueue(t *testing.T, a *App, until int64) {
+	t.Helper()
 	items := a.GetDownloadState().Items
 	if len(items) != 1 || items[0].IDs["amazon"] != "B00A3SGXA1" {
 		t.Fatalf("restored items = %+v, want one with the amazon id", items)
@@ -236,7 +240,48 @@ func TestMigrationKeepsQueueAndPauses(t *testing.T) {
 	if got := site(a, "lucida"); got.PausedUntil != until {
 		t.Fatalf("lucida PausedUntil = %d, want %d", got.PausedUntil, until)
 	}
+}
+
+// An old queue.json with amazon_id items and a guard pause resumes once the settings are migrated.
+func TestMigrationKeepsQueueAndPauses(t *testing.T) {
+	until := time.Now().Add(time.Hour).UnixMilli()
+	a := startOldApp(t, t.TempDir(), until)
+	checkOldQueue(t, a, until)
 	if st := a.reg.State(); !st.Migrated || st.Settings["lucida"][guardLimitKey] != 0 {
 		t.Errorf("state after startup = %+v", st)
+	}
+}
+
+// A migration that fails does not stop startup: the queue and its pause still come back, and the next launch retries.
+func TestMigrationErrorDoesNotStopStartup(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "genres.json"), "g")
+	writeFile(t, filepath.Join(dir, "plugins-data", "chosic"), "in the way") // chosic's copy cannot be written
+	until := time.Now().Add(time.Hour).UnixMilli()
+	a := startOldApp(t, dir, until)
+	checkOldQueue(t, a, until)
+	if a.reg.State().Migrated {
+		t.Error("Migrated after a failed move")
+	}
+}
+
+func TestMigrateDropsIdenticalLeftover(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "doubledouble-token"), "same")
+	writeFile(t, filepath.Join(dir, "plugins-data", "doubledouble", "token"), "same")
+	writeFile(t, filepath.Join(dir, "genres.json"), "old")
+	writeFile(t, filepath.Join(dir, "plugins-data", "chosic", "genres.json"), "new")
+	a := oldApp(t, dir)
+	if err := a.migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(dir, "doubledouble-token")) {
+		t.Error("the leftover token with the same bytes stayed")
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "plugins-data", "doubledouble", "token")); string(got) != "same" {
+		t.Errorf("live token = %q", got)
+	}
+	if !exists(filepath.Join(dir, "genres.json")) {
+		t.Error("an old file that differs from the live one was removed")
 	}
 }

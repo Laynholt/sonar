@@ -71,7 +71,7 @@ func (a *App) migrate() error {
 }
 
 // moveFile copies from to to, reads the copy back, then removes from. A missing from is nothing to do,
-// and an existing to is kept as it is, with from left in place.
+// and an existing to is kept as it is, with from left in place unless it holds the same bytes.
 func moveFile(from, to string) error {
 	raw, err := os.ReadFile(from)
 	if errors.Is(err, os.ErrNotExist) {
@@ -81,6 +81,10 @@ func moveFile(from, to string) error {
 		return err
 	}
 	if _, err := os.Lstat(to); err == nil {
+		// An existing copy stays. Identical bytes make from a leftover; different ones keep both.
+		if have, err := os.ReadFile(to); err == nil && bytes.Equal(have, raw) {
+			return os.Remove(from)
+		}
 		return nil
 	}
 	mode := os.FileMode(0o600) // the token is a secret; the cache does not mind

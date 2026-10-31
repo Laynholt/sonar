@@ -124,9 +124,7 @@ func newPluginApp(t *testing.T, dir string, fetch download.Fetch, plugs ...plug)
 	}
 	a := &App{dataDir: dir, findFFmpeg: func(string) string { return "" }}
 	a.openPlugins(builtin, filepath.Join(t.TempDir(), "user"), sums)
-	if err := a.migrate(); err != nil {
-		t.Fatal(err)
-	}
+	a.migrateAtStartup() // as init does
 	if fetch == nil {
 		fetch = a.fetch
 	}

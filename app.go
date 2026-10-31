@@ -95,12 +95,19 @@ func (a *App) init() {
 		builtin = filepath.Join(exe, "plugins")
 	}
 	a.openPlugins(builtin, userPluginsDir(a.dataDir), plugin.ParseSums(plugin.BuiltinSums))
-	if !a.second { // the instance that owns queue.json also owns the old files
-		if err := a.migrate(); err != nil {
-			log.Printf("migrate: %v", err)
-		}
-	}
+	a.migrateAtStartup()
 	a.startQueue(a.fetch)
+}
+
+// migrateAtStartup runs migrate before the queue restores. Only the instance that owns queue.json owns the old
+// files, and a migration error is logged, never fatal: the next launch retries.
+func (a *App) migrateAtStartup() {
+	if a.second {
+		return
+	}
+	if err := a.migrate(); err != nil {
+		log.Printf("migrate: %v", err)
+	}
 }
 
 func (a *App) startup(ctx context.Context) {
