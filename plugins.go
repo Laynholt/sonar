@@ -120,7 +120,7 @@ func (a *App) pluginStatus(id string, st plugin.PluginStatus) {
 		case st.NeedsAction != nil:
 			label := id
 			if e, ok := a.reg.Get(id); ok {
-				label = e.M.Name
+				label = cmp.Or(e.M.Name, id) // name is optional in plugin.json
 			}
 			a.sources.NeedAction(id, label+": "+st.NeedsAction.Message, st.NeedsAction.Action)
 		case st.Available:

@@ -245,7 +245,7 @@ func (d *Downloader) Name() string { return d.ID }
 
 // Label is the plugin's name, which source.Balancer shows in its Status.
 func (d *Downloader) Label() string {
-	if e, ok := d.r.Get(d.ID); ok {
+	if e, ok := d.r.Get(d.ID); ok && e.M.Name != "" { // name is optional in plugin.json
 		return e.M.Name
 	}
 	return d.ID
