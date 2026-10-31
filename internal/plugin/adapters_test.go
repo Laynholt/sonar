@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -94,13 +96,55 @@ func TestDownloaderAdapterProgress(t *testing.T) {
 	var got [][2]int64
 	var statuses []string
 	ctx := download.WithProgress(context.Background(), func(done, total int64) { got = append(got, [2]int64{done, total}) })
-	path, err := d.Download(ctx, source.Request{Track: download.Track{Title: "T"}, IDs: map[string]string{"amazon": "B1"}, PathNoExt: "p",
+	base := filepath.Join(t.TempDir(), "p")
+	path, err := d.Download(ctx, source.Request{Track: download.Track{Title: "T"}, IDs: map[string]string{"amazon": "B1"}, PathNoExt: base,
 		OnStatus: func(s string) { statuses = append(statuses, s) }})
-	if err != nil || path != "p-T-B1.flac" {
+	if err != nil || path != base+"-T-B1.flac" {
 		t.Fatalf("path %q, err %v", path, err)
 	}
 	if !reflect.DeepEqual(got, [][2]int64{{1, 3}, {3, 3}}) || !slices.Equal(statuses, []string{"Ripping"}) {
 		t.Fatalf("progress %v, statuses %q", got, statuses)
+	}
+}
+
+// A downloader's path must be an absolute regular file in pathNoExt's folder; anything else fails the track
+// as an ordinary error, never one that pauses the site.
+func TestDownloaderAdapterBadPath(t *testing.T) {
+	e := newEnv(t)
+	putDownloader(t, e, "dl")
+	d := e.open(t).Downloaders()[0]
+	_, err := d.Download(context.Background(), source.Request{Track: download.Track{Title: "T"}, PathNoExt: "p"}) // the fake answers p-T-.flac
+	if err == nil || !strings.Contains(err.Error(), "not an absolute path") || errors.Is(err, source.ErrUnavailable) ||
+		errors.Is(err, source.ErrNeedsCheck) || errors.Is(err, download.ErrSiteOff) {
+		t.Fatalf("relative path: %v", err)
+	}
+}
+
+func TestCheckPath(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "a")
+	file := base + ".flac"
+	other := filepath.Join(dir, "sub")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "a.flac"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ path, want string }{
+		{file, ""},
+		{"a.flac", "not an absolute path"},
+		{base + ".mp3", "not a file"},
+		{other, "not a file"},
+		{filepath.Join(other, "a.flac"), "not in the folder"},
+	} {
+		err := checkPath(tc.path, base)
+		if (tc.want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("checkPath(%q) = %v, want %q", tc.path, err, tc.want)
+		}
 	}
 }
 

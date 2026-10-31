@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -271,6 +273,9 @@ func (d *Downloader) Download(ctx context.Context, r source.Request) (string, er
 	var pe *Error
 	switch {
 	case err == nil:
+		if err := checkPath(out.Path, r.PathNoExt); err != nil {
+			return "", err // the plugin's bug for this track: an ordinary track error, the site stays on
+		}
 		return out.Path, nil
 	case ctx.Err() != nil:
 		return "", ctx.Err()
@@ -289,6 +294,22 @@ func (d *Downloader) Download(ctx context.Context, r source.Request) (string, er
 	default:
 		return "", fmt.Errorf("%w: %w", err, source.ErrUnavailable)
 	}
+}
+
+// checkPath holds a downloader's answer to the contract: an absolute path to a regular file in the folder of pathNoExt.
+func checkPath(path, pathNoExt string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("the plugin gave %q, which is not an absolute path", path)
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+		return fmt.Errorf("the plugin gave %q, which is not a file", path)
+	}
+	got, err1 := os.Stat(filepath.Dir(path))
+	want, err2 := os.Stat(filepath.Dir(pathNoExt))
+	if err1 != nil || err2 != nil || !os.SameFile(got, want) { // SameFile: the folder's case may differ on Windows
+		return fmt.Errorf("the plugin gave %q, which is not in the folder of %q", path, pathNoExt)
+	}
+	return nil
 }
 
 // siteError keeps a plugin's message while matching the source error its code stands for.

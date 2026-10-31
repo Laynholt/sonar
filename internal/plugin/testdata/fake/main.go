@@ -76,7 +76,7 @@ func main() {
 			return nil, sdk.Fail(plugin.CodeUnavailable, "down", nil)
 		},
 		// download picks its outcome by pathNoExt, or by the "fail" setting: "unavailable", "needs" or "boom" fail with that code,
-		// "crash" exits; anything else reports progress and saves to pathNoExt-<title>-<amazon id>.flac, or, with the
+		// "crash" exits; anything else reports progress and saves an empty pathNoExt-<title>-<amazon id>.flac, or, with the
 		// "copyFrom" setting, copies that file to pathNoExt plus its extension. The "waitFor" setting holds it until that file exists, then "downloadSleep" delays it.
 		plugin.MDownload: func(ctx context.Context, raw json.RawMessage, c *sdk.Call) (any, error) {
 			var p plugin.DownloadParams
@@ -118,7 +118,11 @@ func main() {
 				}
 				return plugin.DownloadResult{Path: out}, os.WriteFile(out, b, 0o644)
 			}
-			return plugin.DownloadResult{Path: p.PathNoExt + "-" + p.Track.Title + "-" + p.IDs["amazon"] + ".flac"}, nil
+			out := p.PathNoExt + "-" + p.Track.Title + "-" + p.IDs["amazon"] + ".flac"
+			if filepath.IsAbs(out) { // a relative pathNoExt gets a path and no file, which the host must refuse
+				return plugin.DownloadResult{Path: out}, os.WriteFile(out, nil, 0o644)
+			}
+			return plugin.DownloadResult{Path: out}, nil
 		},
 		"junk": func(context.Context, json.RawMessage, *sdk.Call) (any, error) {
 			fmt.Println("not json")
