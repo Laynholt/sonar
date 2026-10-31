@@ -93,6 +93,31 @@ func TestDiscoverContractMismatch(t *testing.T) {
 	}
 }
 
+// A copy that cannot run never hides one that can, whatever its version and folder.
+func TestDiscoverBrokenNeverShadowsWorking(t *testing.T) {
+	root := t.TempDir()
+	bdir, udir := filepath.Join(root, "b"), filepath.Join(root, "u")
+	broken := func(dir string) {
+		writeFile(t, filepath.Join(dir, "lucida", "plugin.json"),
+			`{"id":"lucida","name":"L","version":"9.0.0","kind":"tool","run":["a"],"contract":2}`)
+	}
+	ok := put(t, bdir, "lucida", "1.0.0")
+	broken(udir) // read after the working one
+	got := Discover(bdir, udir, nil)
+	if len(got) != 1 || got[0].Dir != ok || got[0].Err != "" || len(got[0].Shadowed) != 1 {
+		t.Errorf("broken newer user copy: %+v", got)
+	}
+
+	root = t.TempDir()
+	bdir, udir = filepath.Join(root, "b"), filepath.Join(root, "u")
+	broken(bdir) // read before the working one
+	ok = put(t, udir, "lucida", "1.0.0")
+	got = Discover(bdir, udir, nil)
+	if len(got) != 1 || got[0].Dir != ok || got[0].Err != "" || len(got[0].Shadowed) != 1 {
+		t.Errorf("broken newer built-in copy: %+v", got)
+	}
+}
+
 func TestDiscoverUnicodeDir(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "Михаил Иванов")
 	bdir, udir := filepath.Join(root, "b"), filepath.Join(root, "u")

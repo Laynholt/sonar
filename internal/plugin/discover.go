@@ -70,7 +70,8 @@ func Checksum(dir string) (string, error) {
 }
 
 // Discover reads one level of subfolders in each dir and returns one Found per id, sorted by id.
-// The higher version wins; on a tie userDir beats builtinDir. A missing dir is fine.
+// A copy without an error beats one with; then the higher version wins; on a tie userDir beats builtinDir.
+// A missing dir is fine.
 func Discover(builtinDir, userDir string, sums map[string]string) []Found {
 	byID := map[string]Found{}
 	for _, src := range []struct {
@@ -87,10 +88,14 @@ func Discover(builtinDir, userDir string, sums map[string]string) []Found {
 			}
 			f := load(filepath.Join(src.dir, e.Name()), e.Name(), src.builtin, sums)
 			old, dup := byID[f.M.ID]
+			wins := CompareVersions(f.M.Version, old.M.Version) >= 0
+			if (f.Err == "") != (old.Err == "") {
+				wins = f.Err == "" // a copy that cannot run never hides one that can
+			}
 			switch {
 			case !dup:
 				byID[f.M.ID] = f
-			case CompareVersions(f.M.Version, old.M.Version) >= 0:
+			case wins:
 				f.Shadowed = append(old.Shadowed, label(old))
 				byID[f.M.ID] = f
 			default:
