@@ -166,6 +166,18 @@ describe("CandidatePicker", () => {
         expect(buttons("next →")).toHaveLength(0);
     });
 
+    it("labels the link field with the review service", async () => {
+        setSources([SPOTIFY, { ...AMAZON, label: "Qobuz" }]);
+        await show([item("a", "review", [])]);
+        expect(document.body.querySelector("input")!.getAttribute("aria-label")).toBe("Qobuz track link");
+    });
+
+    it("hides the Found on caption when the item has no review service", async () => {
+        await show([{ ...item("a"), review_service: undefined } as DownloadItem]);
+        expect(text()).not.toContain("Found on");
+        expect(text()).toContain("Found B1");
+    });
+
     it("names the services from the sources and offers a preview only where the source can preview", async () => {
         setSources([{ ...SPOTIFY, label: "Tidal" }, { ...AMAZON, label: "Qobuz", can: [] }]);
         await show([item("a")]);

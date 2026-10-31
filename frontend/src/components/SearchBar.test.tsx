@@ -173,15 +173,15 @@ describe("modes and recent fetches", () => {
     });
 
     it.each([
-        ["https://music.amazon.com/albums/B00A3SGWYC", true],
-        ["https://open.spotify.com/track/1", true],
-        ["https://example.com/x", false],
-    ])("validates %s on Enter in link mode", async (link, accepted) => {
+        ["https://music.amazon.com/albums/B00A3SGWYC"],
+        ["https://open.spotify.com/track/1"],
+        ["https://example.com/x"],
+    ])("sends %s to the backend on Enter in link mode, which decides if a source takes it", async (link) => {
         const onFetch = vi.fn();
         await view.render(<TooltipProvider><SearchBar {...props} searchMode={false} url={link} onFetch={onFetch}/></TooltipProvider>);
         await act(async () => view.container.querySelector("#spotify-url")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-        expect(onFetch).toHaveBeenCalledTimes(accepted ? 1 : 0);
-        expect(document.body.textContent?.includes("Only Spotify / Amazon Music links")).toBe(!accepted);
+        expect(onFetch).toHaveBeenCalledTimes(1);
+        expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     });
 
     it("lists recent fetches in link mode and routes select and remove", async () => {

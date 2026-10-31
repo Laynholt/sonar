@@ -42,7 +42,7 @@ describe("GuardDialog", () => {
             ...Array(3).fill({ status: "completed" }), { status: "skipped" }, { status: "ignored" }, { status: "not_found" },
             { status: "matching" }, { status: "queued" }, { status: "downloading" }, { status: "review" }, { status: "failed" },
         ]);
-        expect(text()).toContain("Lucida will rest for 30 min, then downloading resumes");
+        expect(text()).toContain("Lucida will rest, then downloading resumes");
         expect(text()).toContain("DoubleDouble keeps downloading (12 of 50)");
         expect(text()).toContain("Queue saved: 6 done, 4 left");
     });
@@ -66,7 +66,7 @@ describe("GuardDialog", () => {
     it("offers each wait the site lists, the default first and primary, and passes the chosen one", async () => {
         vi.mocked(guardWait).mockResolvedValue(undefined);
         await show([{ ...lucida, waits: [10, 20, 40], wait: 20 }, double]);
-        expect(text()).toContain("Lucida will rest for 20 min");
+        expect(text()).toContain("Lucida will rest, then downloading resumes");
         // The default is first in the DOM (focused); flex-row-reverse puts it on the right.
         const waits = [...document.body.querySelectorAll("button")].map((b) => b.textContent).filter((x) => x?.startsWith("Wait"));
         expect(waits).toEqual(["Wait 20 min", "Wait 10 min", "Wait 40 min"]);
@@ -93,7 +93,7 @@ describe("GuardDialog", () => {
         setLanguage("ru");
         await show([lucida, double], [{ status: "completed" }, { status: "queued" }]);
         expect(text()).toContain("Lucida: 50 треков за сессию");
-        expect(text()).toContain("Lucida отдохнёт 30 мин, потом загрузка продолжится");
+        expect(text()).toContain("Lucida отдохнёт, потом загрузка продолжится");
         expect(text()).toContain("DoubleDouble продолжает качать (12 из 50)");
         expect(text()).toContain("Очередь сохранена: 1 готово, 1 осталось");
         expect(button(document.body, "Подождать 30 мин")).toBeTruthy();
@@ -156,7 +156,7 @@ describe("GuardDialog", () => {
         const dialog = document.querySelector('[role="dialog"]')!;
         expect(dialog.getAttribute("data-state")).toBe("closed");
         expect(dialog.textContent).toContain("Lucida: 50 tracks this session");
-        expect(dialog.textContent).toContain("Lucida will rest for 30 min");
+        expect(dialog.textContent).toContain("Lucida will rest, then downloading resumes");
     });
 
     it("says the other site is also waiting when both are at their limit", async () => {

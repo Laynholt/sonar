@@ -13,7 +13,6 @@ import { useTypingEffect } from "@/hooks/useTypingEffect";
 import { t as translate, useI18n } from "@/lib/i18n";
 import { SourceIcon } from "@/components/ServiceBadge";
 import { linkLabels, useSources } from "@/hooks/useSources";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 const FETCH_LINKS = [
     "https://open.spotify.com/track/...",
     "https://open.spotify.com/album/...",
@@ -87,8 +86,6 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         artists: false,
         playlists: false,
     });
-    const [showInvalidUrlDialog, setShowInvalidUrlDialog] = useState(false);
-    const [invalidUrl, setInvalidUrl] = useState("");
     const searchGeneration = useRef(0);
     const pageGeneration = useRef(0);
     // Items received from the API per tab (before dedupe): the real position of the next page.
@@ -273,36 +270,6 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
             if (isCurrent()) setIsLoadingMore(false);
         }
     };
-    const isSupportedUrl = (text: string) => {
-        const trimmed = text.trim();
-        if (!trimmed)
-            return true;
-        const isUrl = /^(https?:\/\/|www\.)/i.test(trimmed) || /^spotify:/i.test(trimmed);
-        if (!isUrl)
-            return true;
-        return trimmed.includes("spotify.com") ||
-            /^(https?:\/\/|www\.)[^/]*music\.amazon\./i.test(trimmed) ||
-            trimmed.includes("spotify.link") ||
-            trimmed.startsWith("spotify:");
-    };
-    const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-        if (searchMode)
-            return;
-        const pastedText = e.clipboardData.getData("text");
-        if (pastedText && !isSupportedUrl(pastedText)) {
-            e.preventDefault();
-            setInvalidUrl(pastedText);
-            setShowInvalidUrlDialog(true);
-        }
-    };
-    const handleFetchWithValidation = () => {
-        if (!isSupportedUrl(url)) {
-            setInvalidUrl(url);
-            setShowInvalidUrlDialog(true);
-            return;
-        }
-        onFetch();
-    };
     const handleResultClick = (externalUrl: string) => {
         changeMode(false);
         onFetchUrl(externalUrl);
@@ -353,7 +320,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
 
                 <div className="relative flex-1">
                     {!searchMode ? (<>
-                            <InputWithContext id="spotify-url" placeholder={placeholderText} value={url} onChange={(e) => onUrlChange(e.target.value)} onPaste={handlePaste} onKeyDown={(e) => e.key === "Enter" && handleFetchWithValidation()} className="pr-8"/>
+                            <InputWithContext id="spotify-url" placeholder={placeholderText} value={url} onChange={(e) => onUrlChange(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onFetch()} className="pr-8"/>
                             {url && (<button type="button" aria-label={t("search.clear")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" onClick={() => onUrlChange("")}>
                                     <XCircle className="h-4 w-4"/>
                                 </button>)}
@@ -372,7 +339,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                             </Button>))}
                     </div>)}
 
-                {!searchMode && (<Button onClick={handleFetchWithValidation} disabled={loading}>
+                {!searchMode && (<Button onClick={onFetch} disabled={loading}>
                         {loading ? (<>
                                 <Spinner />
                                 {t("search.fetching")}
@@ -497,36 +464,5 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                                 </div>)}
                         </>)}
                 </div>)}
-
-            <Dialog open={showInvalidUrlDialog} onOpenChange={setShowInvalidUrlDialog}>
-                <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                        <DialogTitle>{t("search.invalidTitle")}</DialogTitle>
-                        <DialogDescription>
-                            {t("search.invalidBody", { service: linkServices })}
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {invalidUrl && (<div className="p-3 bg-muted rounded-md border text-xs font-mono break-all opacity-70">
-                            {invalidUrl}
-                        </div>)}
-
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => {
-            setShowInvalidUrlDialog(false);
-            setInvalidUrl("");
-        }}>
-                            {t("common.cancel")}
-                        </Button>
-                        <Button onClick={() => {
-            changeMode(true);
-            setShowInvalidUrlDialog(false);
-            setInvalidUrl("");
-        }}>
-                            {t("search.switchToSearch")}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>);
 }

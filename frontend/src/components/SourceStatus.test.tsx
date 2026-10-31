@@ -59,7 +59,7 @@ describe("SourceStatus", () => {
         const calls = vi.mocked(GetSourceStatus).mock.calls.length;
         await act(async () => run.resolve());
         expect(vi.mocked(GetSourceStatus).mock.calls.length).toBeGreaterThan(calls);
-        expect(toast.success).toHaveBeenCalled();
+        expect(toast.success).toHaveBeenCalledWith("Check passed, ALPHA is back");
     });
 
     it("shows a failed action's error and re-enables the button", async () => {

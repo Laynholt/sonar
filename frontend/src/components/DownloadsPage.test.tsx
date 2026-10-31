@@ -126,14 +126,20 @@ describe("DownloadsPage", () => {
         expect(button(view.container, "Retry failed").disabled).toBe(false);
     });
 
-    it("offers the check only in doubledouble mode", async () => {
-        vi.mocked(getSettings).mockReturnValue({ downloadSource: "doubledouble" } as ReturnType<typeof getSettings>);
-        await show(all);
-        expect(button(view.container, "Pass check")).toBeTruthy();
-        await view.unmount();
-        vi.mocked(getSettings).mockReturnValue({ downloadSource: "auto" } as ReturnType<typeof getSettings>);
+    it("offers the check for a site that needs it, whatever the source choice", async () => {
+        for (const downloadSource of ["auto", "doubledouble", "lucida"]) {
+            vi.mocked(getSettings).mockReturnValue({ downloadSource } as ReturnType<typeof getSettings>);
+            await show(all);
+            expect(button(view.container, "Pass check")).toBeTruthy();
+            await view.unmount();
+        }
+    });
+
+    it("shows no status box when no site needs an action", async () => {
+        vi.mocked(GetSourceStatus).mockResolvedValue([{ name: "lucida", label: "Lucida", accepts: "amazon", available: true, needs_action: false, action: "", reason: "", count: 0, limit: 0, waits: [], wait: 0, asking: false, paused_until: 0 }]);
         await show(all);
         expect([...view.container.querySelectorAll("button")].some((b) => b.textContent === "Pass check")).toBe(false);
+        expect(view.container.textContent).not.toContain("needs the check");
     });
 
     it("shows the empty state", async () => {
@@ -164,7 +170,7 @@ describe("DownloadsPage", () => {
 
     it("labels the matching, review, not found and ignored rows", async () => {
         await show([item("m", "matching"), item("r", "review"), item("n", "not_found"), item("i", "ignored")]);
-        expect(row("m").textContent).toContain("Searching Amazon…");
+        expect(row("m").textContent).toContain("Looking for a match…");
         expect(row("r").textContent).toContain("Needs a decision");
         expect(row("n").textContent).toContain("Not found");
         expect(row("i").textContent).toContain("Skipped manually");

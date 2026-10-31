@@ -13,7 +13,6 @@ import { eta, mb } from "@/lib/download-format";
 import { cancelAllDownloads, cancelDownload, clearFinishedDownloads, refreshDownloads, resumeQueue, retryDownload, retryFailedDownloads, type DownloadItem } from "@/lib/downloads";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { openPicker } from "@/lib/picker";
-import { getSettings } from "@/lib/settings";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { errorMessage } from "@/lib/utils";
 import { OpenFolder } from "../../wailsjs/go/main/App";
@@ -116,7 +115,7 @@ export function DownloadsPage() {
             </div>
         </div>)}
 
-        {getSettings().downloadSource === "doubledouble" && (<div className="rounded-md border p-4"><SourceStatus compact/></div>)}
+        <SourceStatus compact onlyNeeding/>
 
         <div className="rounded-md border overflow-hidden">
             {shown.length === 0 ? (<div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-3">

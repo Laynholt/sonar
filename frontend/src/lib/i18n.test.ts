@@ -80,7 +80,7 @@ it("keeps the Russian copy the mockups approved", () => {
     expect(ru("download.status.review")).toBe("Нужно решение");
     expect(ru("download.choose")).toBe("Выбрать…");
     expect(ru("download.tabReview")).toBe("Ждут решения");
-    expect(ru("download.status.matching")).toBe("Поиск на Amazon…");
+    expect(ru("download.status.matching")).toBe("Ищем совпадение…");
     expect(ru("widget.review", { count: 1 })).toBe("⚠ 1 трек ждёт твоего решения");
     expect(ru("widget.review", { count: 3 })).toBe("⚠ 3 трека ждут твоего решения");
     expect(ru("widget.review", { count: 5 })).toBe("⚠ 5 треков ждут твоего решения");

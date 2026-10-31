@@ -53,7 +53,7 @@ function TrackRow({ service, id, title, sub, image, ms, className, badge, childr
 }
 
 /** The "paste a link" way out. A fresh copy per item, so the typed text and the error never carry over. */
-function LinkSection({ itemId, alone, onUsed }: { itemId: string; alone: boolean; onUsed: () => void }) {
+function LinkSection({ itemId, service, alone, onUsed }: { itemId: string; service: string; alone: boolean; onUsed: () => void }) {
     const { t } = useI18n();
     const [open, setOpen] = useState(alone);
     const [link, setLink] = useState("");
@@ -72,7 +72,7 @@ function LinkSection({ itemId, alone, onUsed }: { itemId: string; alone: boolean
     if (!open) return (<button type="button" className="w-fit cursor-pointer text-sm text-muted-foreground underline hover:text-foreground" onClick={() => setOpen(true)}>{t("picker.pasteLink")}</button>);
     return (<form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <div className="flex gap-2">
-        <Input value={link} onChange={(e) => setLink(e.target.value)} aria-label={t("picker.linkLabel")} placeholder="https://…" disabled={busy}/>
+        <Input value={link} onChange={(e) => setLink(e.target.value)} aria-label={t("picker.linkLabel", { service })} placeholder="https://…" disabled={busy}/>
         <Button type="submit" disabled={busy || !link.trim()}>{t("picker.linkUse")}</Button>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -123,7 +123,7 @@ export function CandidatePicker({ itemId, onClose }: { itemId: string; onClose: 
           </div>
         </div>
         <div>
-          <p className={caption}>{t("picker.found", { service: label(item.review_service ?? "") })}</p>
+          {item.review_service && <p className={caption}>{t("picker.found", { service: label(item.review_service) })}</p>}
           {candidates.length > 0 ? (<div className="divide-y overflow-hidden rounded-lg border">
             {candidates.map((c) => (<TrackRow key={c.id} service={item.review_service ?? ""} id={c.id} title={c.title} sub={meta(c.artist, c.album, c.release_date?.slice(0, 4))} image={c.image} ms={c.duration_ms}
                 className={c.recommended ? "bg-green-500/10" : undefined}
@@ -133,7 +133,7 @@ export function CandidatePicker({ itemId, onClose }: { itemId: string; onClose: 
             </TrackRow>))}
           </div>) : (<p className="text-sm text-muted-foreground">{t("picker.none")}</p>)}
         </div>
-        <LinkSection key={item.id} itemId={item.id} alone={candidates.length === 0} onUsed={() => goNext(item.id)}/>
+        <LinkSection key={item.id} itemId={item.id} service={label(item.review_service ?? "")} alone={candidates.length === 0} onUsed={() => goNext(item.id)}/>
         <div className="flex items-center justify-between gap-3">
           <Button variant="outline" disabled={busy} onClick={() => void decide(() => skipReview(item.id))}>{t("picker.skip")}</Button>
           <span className="text-sm text-muted-foreground">

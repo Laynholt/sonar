@@ -64,7 +64,7 @@ export function GuardDialog() {
         <div className="rounded-md border p-3 text-sm space-y-1">
           <div>{t("download.guardIf")}</div>
           <ul className="text-muted-foreground list-disc pl-5">
-            {waits.length > 0 && <li>{t("download.guardRest", { site: siteName(shown.site), minutes: shown.site.wait })}</li>}
+            {waits.length > 0 && <li>{t("download.guardRest", { site: siteName(shown.site) })}</li>}
             {shown.others.map((site) => <li key={site.name}>{otherLine(site)}</li>)}
             <li>{t("download.guardQueue", { done: shown.done, left: shown.left })}</li>
           </ul>

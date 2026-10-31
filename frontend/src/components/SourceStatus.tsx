@@ -7,8 +7,8 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { GetSourceStatus, RunPluginAction } from "../../wailsjs/go/main/App";
 import type { source } from "../../wailsjs/go/models";
 
-/** One line per download site; compact packs them side by side. A site that needs an action offers it unless withAction is false. */
-export function SourceStatus({ compact, withAction = true }: { compact?: boolean; withAction?: boolean }) {
+/** One line per download site; compact packs them side by side. A site that needs an action offers it unless withAction is false; onlyNeeding lists just those sites, in a box, and nothing when there are none. */
+export function SourceStatus({ compact, withAction = true, onlyNeeding }: { compact?: boolean; withAction?: boolean; onlyNeeding?: boolean }) {
     const { t } = useI18n();
     const [statuses, setStatuses] = useState<source.Status[]>([]);
     const [checking, setChecking] = useState("");
@@ -20,11 +20,12 @@ export function SourceStatus({ compact, withAction = true }: { compact?: boolean
     const { items } = useDownloads();
     const statusKey = items.map((item) => item.status).join();
     useEffect(() => { void load(); }, [load, statusKey]);
-    const passCheck = async (site: string, action: string) => {
+    const passCheck = async (status: source.Status) => {
+        const site = status.name;
         setChecking(site);
         try {
-            await RunPluginAction(site, action);
-            toast.success(t("download.checkPassed"));
+            await RunPluginAction(site, status.action);
+            toast.success(t("download.checkPassed", { site: siteName(status) }));
         }
         catch (error) { toast.error(String(error)); }
         finally {
@@ -32,18 +33,21 @@ export function SourceStatus({ compact, withAction = true }: { compact?: boolean
             await load();
         }
     };
-    return (<ul className={compact ? "flex flex-wrap gap-x-4 gap-y-1 text-xs" : "space-y-1 text-xs"}>
-      {statuses.map((status) => (<li key={status.name} className="flex flex-wrap items-center gap-2">
+    const shown = onlyNeeding ? statuses.filter((status) => status.needs_action) : statuses;
+    if (onlyNeeding && !shown.length) return null;
+    const list = (<ul className={compact ? "flex flex-wrap gap-x-4 gap-y-1 text-xs" : "space-y-1 text-xs"}>
+      {shown.map((status) => (<li key={status.name} className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{siteName(status)}</span>
         {status.needs_action
             ? <span className="text-muted-foreground">{t("download.siteNeedsCheck")}</span>
             : status.available
                 ? <span className="text-muted-foreground">{t("download.siteAvailable")}</span>
                 : <span className="text-muted-foreground" title={status.reason}>{t("download.sitePaused")}</span>}
-        {withAction && status.needs_action && status.action && (<Button type="button" variant="outline" size="sm" disabled={!!checking} onClick={() => void passCheck(status.name, status.action)}>
+        {withAction && status.needs_action && status.action && (<Button type="button" variant="outline" size="sm" disabled={!!checking} onClick={() => void passCheck(status)}>
           {checking === status.name ? t("download.checkWaiting") : t("download.passCheck")}
         </Button>)}
         {withAction && checking === status.name && (<p className="basis-full text-muted-foreground">{t("download.checkHint")}</p>)}
       </li>))}
     </ul>);
+    return onlyNeeding ? <div className="rounded-md border p-4">{list}</div> : list;
 }

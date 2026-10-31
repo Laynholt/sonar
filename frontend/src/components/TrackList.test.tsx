@@ -207,7 +207,7 @@ describe("TrackList downloads", () => {
         const own = () => rowButtons(view.container).filter((b) => !b.getAttribute("aria-label")?.startsWith("Open"));
 
         expect(own()[0].disabled).toBe(true);
-        expect(own()[0].closest("span")!.getAttribute("aria-description")).toBe("Searching Amazon…");
+        expect(own()[0].closest("span")!.getAttribute("aria-description")).toBe("Looking for a match…");
         await view.render(<TrackList {...props} downloadItems={new Map([["track-1", item("review")]])}/>);
         expect(own()[0].closest("span")!.getAttribute("aria-description")).toBe("Needs a decision");
         own()[0].click();
