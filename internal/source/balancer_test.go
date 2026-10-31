@@ -243,6 +243,21 @@ func TestFetchNeedsActionKeepsAction(t *testing.T) {
 	}
 }
 
+// hintErr also carries what the plugin asks of the user: that, not the error text, is the site's reason.
+type hintErr struct{ actionErr }
+
+func (hintErr) NeedsMessage() string { return "pass the check in the window" }
+
+func TestFetchNeedsActionMessage(t *testing.T) {
+	bal, _ := newTest(&fake{name: "a", results: []error{hintErr{}}})
+	if _, err := fetch(bal, "a"); err == nil || err.Error() != "a: expired" {
+		t.Fatalf("err = %v", err)
+	}
+	if st := status(bal, "a"); !st.NeedsAction || st.Action != "check" || st.Reason != "a: pass the check in the window" {
+		t.Fatalf("status %+v", st)
+	}
+}
+
 // Usable is false only while a site waits for the user's browser check; a cooldown or the guard ends without them.
 func TestUsable(t *testing.T) {
 	bal, _ := newTest(&fake{name: "a", results: []error{fmt.Errorf("%w: down", ErrUnavailable)}}, &fake{name: "b"})

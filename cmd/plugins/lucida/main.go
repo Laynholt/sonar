@@ -18,7 +18,7 @@ func main() {
 	}
 	s := &sdk.Server{
 		Methods: map[string]sdk.Handler{
-			plugin.MDownload: dl.Handler(func() (dl.Downloader, error) { return c, nil }),
+			plugin.MDownload: dl.Handler(func() (dl.Downloader, error) { return c, nil }, nil),
 		},
 	}
 	s.FollowProxy("lucida")

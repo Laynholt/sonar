@@ -129,7 +129,7 @@ func TestDownloaderAdapterErrors(t *testing.T) {
 	if _, err := b.Fetch(ctx, "dl", source.Request{PathNoExt: "needs"}); err == nil || err.Error() != "dl: fake: log in" {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if st := b.Status(); len(st) != 1 || !st[0].NeedsAction || st[0].Action != "login" || st[0].Label != "Fake dl" || st[0].Accepts != "amazon" {
+	if st := b.Status(); len(st) != 1 || !st[0].NeedsAction || st[0].Action != "login" || st[0].Reason != "dl: Log in" || st[0].Label != "Fake dl" || st[0].Accepts != "amazon" {
 		t.Fatalf("Status = %+v", st)
 	}
 }

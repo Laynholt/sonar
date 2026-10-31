@@ -281,7 +281,7 @@ func (d *Downloader) Download(ctx context.Context, r source.Request) (string, er
 		case CodeNeedsAction:
 			var na NeedsAction
 			json.Unmarshal(pe.Data, &na) // no or bad data: no action button
-			return "", &siteError{pe: pe, is: source.ErrNeedsCheck, action: na.Action}
+			return "", &siteError{pe: pe, is: source.ErrNeedsCheck, action: na.Action, needs: na.Message}
 		}
 		return "", err // an ordinary track error
 	case errors.Is(err, ErrClosed):
@@ -292,13 +292,16 @@ func (d *Downloader) Download(ctx context.Context, r source.Request) (string, er
 }
 
 // siteError keeps a plugin's message while matching the source error its code stands for.
-// Action is the settings action a needs-action error names, read by source.Balancer.
+// Action is the settings action a needs-action error names and NeedsMessage what it asks of the user,
+// both read by source.Balancer.
 type siteError struct {
 	pe     *Error
 	is     error
 	action string
+	needs  string
 }
 
-func (e *siteError) Error() string   { return e.pe.Message }
-func (e *siteError) Unwrap() []error { return []error{e.is, e.pe} }
-func (e *siteError) Action() string  { return e.action }
+func (e *siteError) Error() string        { return e.pe.Message }
+func (e *siteError) Unwrap() []error      { return []error{e.is, e.pe} }
+func (e *siteError) Action() string       { return e.action }
+func (e *siteError) NeedsMessage() string { return e.needs }

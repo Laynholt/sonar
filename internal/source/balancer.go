@@ -245,11 +245,21 @@ func actionOf(err error) string {
 	return ""
 }
 
+// needsReason is what a needs-action error asks of the user: its NeedsMessage, such as a plugin's
+// instructions, prefixed with the site, else its text.
+func needsReason(name string, err error) string {
+	var m interface{ NeedsMessage() string }
+	if errors.As(err, &m) && m.NeedsMessage() != "" {
+		return name + ": " + m.NeedsMessage()
+	}
+	return err.Error()
+}
+
 func (b *Balancer) punish(name string, err error) {
 	var p pause
 	switch {
 	case errors.Is(err, ErrNeedsCheck):
-		p = pause{needsAction: true, reason: err.Error(), action: actionOf(err)}
+		p = pause{needsAction: true, reason: needsReason(name, err), action: actionOf(err)}
 	case errors.Is(err, ErrUnavailable) || errors.Is(err, download.ErrSiteOff): // off before SetEnabled: no instant retake
 		p = pause{until: b.now().Add(b.cooldown), reason: err.Error()}
 	default:

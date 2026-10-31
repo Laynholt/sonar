@@ -33,6 +33,8 @@ export function SourceStatus({ compact, withAction = true, onlyNeeding }: { comp
             await load();
         }
     };
+    // The balancer prefixes the reason with the site id, which this list already names.
+    const why = (status: source.Status) => (status.reason.startsWith(`${status.name}: `) ? status.reason.slice(status.name.length + 2) : status.reason);
     const shown = onlyNeeding ? statuses.filter((status) => status.needs_action) : statuses;
     if (onlyNeeding && !shown.length) return null;
     const list = (<ul className={compact ? "flex flex-wrap gap-x-4 gap-y-1 text-xs" : "space-y-1 text-xs"}>
@@ -42,11 +44,11 @@ export function SourceStatus({ compact, withAction = true, onlyNeeding }: { comp
             ? <span className="text-muted-foreground">{t("download.siteNeedsCheck")}</span>
             : status.available
                 ? <span className="text-muted-foreground">{t("download.siteAvailable")}</span>
-                : <span className="text-muted-foreground" title={status.reason}>{t("download.sitePaused")}</span>}
+                : <span className="text-muted-foreground" title={why(status)}>{t("download.sitePaused")}</span>}
         {withAction && status.needs_action && status.action && (<Button type="button" variant="outline" size="sm" disabled={!!checking} onClick={() => void passCheck(status)}>
           {checking === status.name ? t("download.checkWaiting") : t("download.passCheck")}
         </Button>)}
-        {withAction && checking === status.name && status.reason && (<p className="basis-full text-muted-foreground">{status.reason}</p>)}
+        {withAction && checking === status.name && status.reason && (<p className="basis-full text-muted-foreground">{why(status)}</p>)}
       </li>))}
     </ul>);
     return onlyNeeding ? <div className="rounded-md border p-4">{list}</div> : list;

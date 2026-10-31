@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -370,6 +371,24 @@ func TestDoubleDoubleNeedsAction(t *testing.T) {
 	defer mu.Unlock()
 	if len(statuses) != 1 || statuses[0].Available || statuses[0].NeedsAction == nil || statuses[0].NeedsAction.Action != "check" {
 		t.Fatalf("statuses %+v", statuses)
+	}
+	const hint = "In that window: untick “Upload to”"
+	if !strings.HasPrefix(statuses[0].NeedsAction.Message, hint) || !strings.HasPrefix(na.Message, hint) {
+		t.Errorf("status %q, error data %q", statuses[0].NeedsAction.Message, na.Message)
+	}
+}
+
+// The check's instructions follow the user's language.
+func TestDoubleDoubleHintInRussian(t *testing.T) {
+	h := plugin.NewHost(plugin.Found{M: manifest(t, "doubledouble"), Dir: built["doubledouble"]}, func() plugin.InitParams {
+		return plugin.InitParams{Contract: plugin.Contract, Lang: "ru", Settings: map[string]any{}, DataDir: t.TempDir()}
+	}, t.Logf)
+	t.Cleanup(h.Close)
+	_, err := download(h, filepath.Join(t.TempDir(), "x"), nil)
+	var pe *plugin.Error
+	var na plugin.NeedsAction
+	if !errors.As(err, &pe) || json.Unmarshal(pe.Data, &na) != nil || !strings.HasPrefix(na.Message, "В этом окне снимите галку") {
+		t.Fatalf("err %v, data %s", err, pe.Data)
 	}
 }
 

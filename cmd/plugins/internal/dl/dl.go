@@ -22,8 +22,14 @@ type Downloader interface {
 
 // Handler serves plugin.MDownload for a downloader that accepts "amazon". get runs per request,
 // so a plugin can build its client in Init. Byte progress reaches $/progress through download.WithProgress
-// on the ctx; the site's status texts go out as $/progress status. Site errors become the contract's codes.
-func Handler(get func() (Downloader, error)) sdk.Handler {
+// on the ctx; the site's status texts go out as $/progress status. Site errors become the contract's codes;
+// needs gives a needs-action error its data (nil: a plain browser check).
+func Handler(get func() (Downloader, error), needs func() plugin.NeedsAction) sdk.Handler {
+	if needs == nil {
+		needs = func() plugin.NeedsAction {
+			return plugin.NeedsAction{Message: "Needs the browser check", Action: "check"}
+		}
+	}
 	return func(ctx context.Context, raw json.RawMessage, c *sdk.Call) (any, error) {
 		var p plugin.DownloadParams
 		if err := json.Unmarshal(raw, &p); err != nil {
@@ -47,7 +53,7 @@ func Handler(get func() (Downloader, error)) sdk.Handler {
 		case errors.Is(err, source.ErrUnavailable):
 			return nil, sdk.Fail(plugin.CodeUnavailable, err.Error(), nil)
 		case errors.Is(err, source.ErrNeedsCheck):
-			return nil, sdk.Fail(plugin.CodeNeedsAction, err.Error(), plugin.NeedsAction{Message: "Needs the browser check", Action: "check"})
+			return nil, sdk.Fail(plugin.CodeNeedsAction, err.Error(), needs())
 		case err != nil:
 			return nil, err
 		}
