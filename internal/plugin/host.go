@@ -119,6 +119,12 @@ func (h *Host) LastCrash() string {
 	return h.lastCrash
 }
 
+// Start starts and initialises the process now rather than on the first call; a no-op when it already runs.
+func (h *Host) Start() error {
+	_, err := h.running()
+	return err
+}
+
 // running returns the live process, starting and initialising one when needed.
 func (h *Host) running() (*proc, error) {
 	h.startMu.Lock()

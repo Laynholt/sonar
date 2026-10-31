@@ -59,11 +59,11 @@ type PendingQueue struct {
 
 func (a *App) queuePath() string { return filepath.Join(a.dataDir, "queue.json") }
 
-// startQueue wires the download sites, the plugins and a new queue, restores queue.json and starts the saver;
-// a second instance does neither. The Balancer starts empty, so the queue starts no workers of its own:
-// syncDownloaders adds each site with its plugin's parallel count, before the hooks, so that adding them
-// asks for no save. Every hook is set before Restore, any Enqueue and the first plugin start: none of them
-// is read under a lock.
+// startQueue wires the download sites, the plugins and a new queue, restores queue.json, starts the
+// enabled downloaders and the saver; a second instance does none of that. The Balancer starts empty, so the queue
+// starts no workers of its own: syncDownloaders adds each site with its plugin's parallel count, before the
+// hooks, so that adding them asks for no save. Every hook is set before Restore, any Enqueue and the first
+// plugin start: none of them is read under a lock.
 func (a *App) startQueue(fetch download.Fetch) {
 	a.cache = resolve.OpenCache(filepath.Join(a.dataDir, "matches.json"))
 	a.sources = source.NewBalancer(sourceCooldown)
@@ -77,6 +77,7 @@ func (a *App) startQueue(fetch download.Fetch) {
 	if a.second {
 		return
 	}
+	a.startDownloaders()
 
 	// A corrupt file is left on disk until the next save replaces it.
 	st, err := download.LoadState(a.queuePath())
@@ -491,7 +492,9 @@ func (a *App) UseLink(id, link string) error {
 	if !ok || s.Service != it.ReviewService {
 		return bad
 	}
-	l, err := s.ParseLink(context.Background(), link)
+	ctx, cancel := context.WithTimeout(context.Background(), sourceTimeout)
+	defer cancel()
+	l, err := s.ParseLink(ctx, link)
 	switch {
 	case errors.Is(err, plugin.ErrCannot):
 		return bad

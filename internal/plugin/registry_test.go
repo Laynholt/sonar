@@ -438,3 +438,13 @@ func TestRegistryNotifySettings(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryHostAfterClose(t *testing.T) {
+	e := newEnv(t)
+	e.bless(t, "fake1", putFake(t, e.builtin, "fake1", "1.0.0"))
+	r := e.open(t)
+	r.Close()
+	if _, err := r.Host("fake1"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Host after Close: %v", err)
+	}
+}

@@ -76,6 +76,7 @@ type Registry struct {
 	st        State
 	found     []Found // Discover order, every Sum filled
 	hosts     map[string]hostRec
+	closed    bool               // set by Close: Host refuses to start anything after shutdown
 	links     map[string]linkRec // compiled source.links per id
 }
 
@@ -248,6 +249,9 @@ func (r *Registry) Enabled(kind Kind) []Entry {
 func (r *Registry) Host(id string) (*Host, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		return nil, ErrClosed
+	}
 	f, ok := r.find(id)
 	switch {
 	case !ok:
@@ -422,6 +426,7 @@ func (r *Registry) SetState(s State) error {
 // Close stops every running plugin.
 func (r *Registry) Close() {
 	r.mu.Lock()
+	r.closed = true
 	var stop []*Host
 	for id, rec := range r.hosts {
 		stop = append(stop, rec.h)

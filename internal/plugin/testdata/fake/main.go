@@ -41,6 +41,9 @@ func main() {
 		mu.Lock()
 		settings = p.Settings
 		mu.Unlock()
+		if m, _ := p.Settings["initNeeds"].(string); m != "" { // like doubledouble with no token
+			s.Status(plugin.PluginStatus{NeedsAction: &plugin.NeedsAction{Message: m, Action: "check"}})
+		}
 		fmt.Fprintln(os.Stderr, "fake started")
 		return nil
 	}
@@ -74,7 +77,7 @@ func main() {
 		},
 		// download picks its outcome by pathNoExt, or by the "fail" setting: "unavailable", "needs" or "boom" fail with that code,
 		// "crash" exits; anything else reports progress and saves to pathNoExt-<title>-<amazon id>.flac, or, with the
-		// "copyFrom" setting, copies that file to pathNoExt plus its extension. The "downloadSleep" setting delays it.
+		// "copyFrom" setting, copies that file to pathNoExt plus its extension. The "waitFor" setting holds it until that file exists, then "downloadSleep" delays it.
 		plugin.MDownload: func(ctx context.Context, raw json.RawMessage, c *sdk.Call) (any, error) {
 			var p plugin.DownloadParams
 			json.Unmarshal(raw, &p)
@@ -93,6 +96,9 @@ func main() {
 				os.Exit(3)
 			}
 			c.Progress(1, 3, "Ripping")
+			if err := waitFile(ctx, cfg()["waitFor"]); err != nil {
+				return nil, err
+			}
 			if d, err := time.ParseDuration(fmt.Sprint(cfg()["downloadSleep"])); err == nil {
 				select {
 				case <-time.After(d):
@@ -138,7 +144,15 @@ func main() {
 		plugin.MSourceMetadata: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
 			return p, nil
 		},
-		plugin.MSourceSearch: func(_ context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+		// search answers after the "searchSleep" setting's duration.
+		plugin.MSourceSearch: func(ctx context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
+			if d, err := time.ParseDuration(fmt.Sprint(cfg()["searchSleep"])); err == nil {
+				select {
+				case <-time.After(d):
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
 			var a struct {
 				Query string `json:"query"`
 				Limit int    `json:"limit"`
@@ -196,11 +210,17 @@ func main() {
 			return plugin.Link{Kind: "track", ID: a.URL}, nil
 		},
 		// tag echoes its params, or, with the "tagFields" setting, answers those fields plus id_<service> for each id
-		// it got, after the "tagSleep" setting's duration.
+		// it got, after touching the "touch" setting's file, waiting for the "waitFor" one and sleeping "tagSleep".
 		plugin.MTag: func(ctx context.Context, p json.RawMessage, _ *sdk.Call) (any, error) {
 			var a plugin.TagParams
 			json.Unmarshal(p, &a)
 			if fields, ok := cfg()["tagFields"].(map[string]any); ok {
+				if p, _ := cfg()["touch"].(string); p != "" {
+					os.WriteFile(p, nil, 0o644)
+				}
+				if err := waitFile(ctx, cfg()["waitFor"]); err != nil {
+					return nil, err
+				}
 				if d, err := time.ParseDuration(fmt.Sprint(cfg()["tagSleep"])); err == nil {
 					select {
 					case <-time.After(d):
@@ -229,6 +249,7 @@ func main() {
 			case "lock":
 				s.Status(plugin.PluginStatus{NeedsAction: &plugin.NeedsAction{Message: "Log in", Action: "check"}})
 			case "wait":
+				fmt.Fprintln(os.Stderr, "wait started")
 				<-ctx.Done()
 				return nil, ctx.Err()
 			default:
@@ -245,5 +266,27 @@ func main() {
 	if err := sdk.Serve(s); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+// waitFile blocks until the file named by the "waitFor" setting exists: the App tests' handshake between plugins.
+// A missing setting returns at once; a file that never appears fails after 20 s.
+func waitFile(ctx context.Context, path any) error {
+	p, _ := path.(string)
+	if p == "" {
+		return nil
+	}
+	deadline := time.After(20 * time.Second)
+	for {
+		if _, err := os.Stat(p); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return sdk.Fail(plugin.CodeOther, "fake: "+p+" never appeared", nil)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }

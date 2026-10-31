@@ -30,6 +30,7 @@ import (
 	"sonar/internal/download"
 	"sonar/internal/httpx"
 	"sonar/internal/plugin"
+	"sonar/internal/source"
 	"sonar/internal/tags"
 )
 
@@ -237,10 +238,21 @@ func TestListSourcesAndSearch(t *testing.T) {
 
 func TestFetchPipeline(t *testing.T) {
 	file := testFLAC(t, tags.Tags{"title": "Own title"}, nil)
+	// t2 answers only once the App says it is waiting for tags: the handshake makes that status certain.
+	waiting := filepath.Join(t.TempDir(), "waiting")
 	a := newPluginApp(t, t.TempDir(), nil, append(stdPlugs(file),
 		tagPlug("t1", "", map[string]any{"tagFields": map[string]any{"genre": "Pop", "comment": "c1"}}),
-		tagPlug("t2", "", map[string]any{"tagFields": map[string]any{"genre": "Rock"}, "tagSleep": "300ms"}))...)
-	p, st, err := fetchTrack(t, a, amazonTrack, download.Options{Format: "original"})
+		tagPlug("t2", "", map[string]any{"tagFields": map[string]any{"genre": "Rock"}, "waitFor": waiting}))...)
+	var mu sync.Mutex
+	var st []string
+	p, err := a.fetch(context.Background(), "lucida", amazonTrack, nil, download.Options{Format: "original"}, filepath.Join(t.TempDir(), "x"), func(m string) {
+		mu.Lock()
+		defer mu.Unlock()
+		st = append(st, m)
+		if m == "Looking up tags…" {
+			os.WriteFile(waiting, nil, 0o644)
+		}
+	})
 	if err != nil || !strings.HasSuffix(p, ".flac") {
 		t.Fatalf("path %q, err %v", p, err)
 	}
@@ -251,32 +263,37 @@ func TestFetchPipeline(t *testing.T) {
 			t.Errorf("%s = %q, want %q (all: %v)", k, got[k], v, got)
 		}
 	}
+	mu.Lock()
 	if !slices.Contains(st, "Looking up tags…") {
 		t.Errorf("statuses %q", st)
 	}
+	mu.Unlock()
 
-	// Taggers done before the download: nothing to wait for, so no status.
+	// Taggers done before the download: nothing to wait for, so no status. The download waits for the tagger
+	// to be called, then a second for its answer to arrive.
+	tagged := filepath.Join(t.TempDir(), "tagged")
 	a = newPluginApp(t, t.TempDir(), nil,
 		srcPlug("amazon", "Amazon Music", nil, amazonCan...),
-		dlPlug("lucida", "Lucida", map[string]any{"copyFrom": file, "downloadSleep": "1s"}),
-		tagPlug("t1", "", map[string]any{"tagFields": map[string]any{"genre": "Pop"}}))
-	p, st, err = fetchTrack(t, a, amazonTrack, download.Options{Format: "original"})
-	if err != nil || readFile(t, p)["genre"] != "Pop" || slices.Contains(st, "Looking up tags…") {
-		t.Errorf("err %v, statuses %q", err, st)
+		dlPlug("lucida", "Lucida", map[string]any{"copyFrom": file, "waitFor": tagged, "downloadSleep": "1s"}),
+		tagPlug("t1", "", map[string]any{"tagFields": map[string]any{"genre": "Pop"}, "touch": tagged}))
+	p, st2, err := fetchTrack(t, a, amazonTrack, download.Options{Format: "original"})
+	if err != nil || readFile(t, p)["genre"] != "Pop" || slices.Contains(st2, "Looking up tags…") {
+		t.Errorf("err %v, statuses %q", err, st2)
 	}
 }
 
+// A tagger slower than the budget is dropped and the track keeps its own tags. TestFetchPipeline covers the status.
 func TestFetchTaggerBudget(t *testing.T) {
-	swap(t, &tagBudget, 300*time.Millisecond)
+	swap(t, &tagBudget, 2*time.Second)
 	a := newPluginApp(t, t.TempDir(), nil, append(stdPlugs(testFLAC(t, nil, nil)),
-		tagPlug("slow", "", map[string]any{"tagFields": map[string]any{"genre": "Rock"}, "tagSleep": "10s"}))...)
+		tagPlug("slow", "", map[string]any{"tagFields": map[string]any{"genre": "Rock"}, "tagSleep": "30s"}))...)
 	start := time.Now()
-	p, st, err := fetchTrack(t, a, amazonTrack, download.Options{Format: "original"})
-	if err != nil || time.Since(start) > 5*time.Second {
+	p, _, err := fetchTrack(t, a, amazonTrack, download.Options{Format: "original"})
+	if err != nil || time.Since(start) > 20*time.Second {
 		t.Fatalf("err %v after %v", err, time.Since(start))
 	}
-	if got := readFile(t, p); got["genre"] != "" || got["title"] != "T" || !slices.Contains(st, "Looking up tags…") {
-		t.Errorf("tags %v, statuses %q", got, st)
+	if got := readFile(t, p); got["genre"] != "" || got["title"] != "T" {
+		t.Errorf("tags %v", got)
 	}
 }
 
@@ -404,13 +421,13 @@ func TestPluginActionTimeout(t *testing.T) {
 
 // Quitting ends a running action, such as a browser check, and with it the plugin.
 func TestShutdownEndsRunningAction(t *testing.T) {
+	var out syncWriter
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	a := newPluginApp(t, t.TempDir(), nil, stdPlugs("")...)
-	if err := a.RunPluginAction("doubledouble", "check"); err != nil { // started
-		t.Fatal(err)
-	}
 	errc := make(chan error, 1)
 	go func() { errc <- a.RunPluginAction("doubledouble", "wait") }()
-	time.Sleep(100 * time.Millisecond)
+	waitFor(t, func() bool { return strings.Contains(out.String(), "doubledouble: wait started") })
 	a.shutdown(nil)
 	select {
 	case err := <-errc:
@@ -510,23 +527,21 @@ func TestSaveSettingsProxyNotifiesPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { return strings.Contains(out.String(), "lucida: got settings") })
-	if n := strings.Count(out.String(), "got settings"); n != 1 {
+	if n := strings.Count(out.String(), "lucida: got settings"); n != 1 { // doubledouble starts by itself, so count lucida only
 		t.Fatalf("%d settings notes, want 1 (the theme is not the plugins' business)", n)
 	}
 }
 
+// The download finishes only once the tagger was called, so one after the other would fail with "never appeared".
 func TestFetchTaggersOverlapDownload(t *testing.T) {
+	called := filepath.Join(t.TempDir(), "called")
 	a := newPluginApp(t, t.TempDir(), nil,
 		srcPlug("amazon", "Amazon Music", nil, amazonCan...),
-		dlPlug("lucida", "Lucida", map[string]any{"copyFrom": testFLAC(t, nil, nil), "downloadSleep": "1500ms"}),
-		tagPlug("t1", "", map[string]any{"tagFields": map[string]any{"genre": "Pop"}, "tagSleep": "1500ms"}))
-	start := time.Now()
+		dlPlug("lucida", "Lucida", map[string]any{"copyFrom": testFLAC(t, nil, nil), "waitFor": called}),
+		tagPlug("t1", "", map[string]any{"tagFields": map[string]any{"genre": "Pop"}, "touch": called, "tagSleep": "500ms"}))
 	p, _, err := fetchTrack(t, a, amazonTrack, download.Options{Format: "original"})
 	if err != nil || readFile(t, p)["genre"] != "Pop" {
 		t.Fatalf("err %v", err)
-	}
-	if d := time.Since(start); d > 2700*time.Millisecond { // one after the other would take 3 s
-		t.Errorf("took %v: the lookup did not run while the site worked", d)
 	}
 }
 
@@ -534,12 +549,12 @@ func TestFetchCancelsTaggersOnReturn(t *testing.T) {
 	a := newPluginApp(t, t.TempDir(), nil,
 		srcPlug("amazon", "Amazon Music", nil, amazonCan...),
 		dlPlug("lucida", "Lucida", map[string]any{"fail": "boom"}),
-		tagPlug("slow", "", map[string]any{"tagFields": map[string]any{"genre": "Pop"}, "tagSleep": "10s"}))
+		tagPlug("slow", "", map[string]any{"tagFields": map[string]any{"genre": "Pop"}, "tagSleep": "30s"}))
 	start := time.Now()
 	if _, _, err := fetchTrack(t, a, amazonTrack, download.Options{Format: "original"}); err == nil || !strings.Contains(err.Error(), "fake: boom") {
 		t.Fatalf("err = %v", err)
 	}
-	if d := time.Since(start); d > 5*time.Second {
+	if d := time.Since(start); d > 20*time.Second {
 		t.Fatalf("fetch waited %v for the tagger", d)
 	}
 }
@@ -613,5 +628,40 @@ func TestInstallAndImportAnswers(t *testing.T) {
 	}
 	if need, err := a.importFrom(exp, "skip"); err != nil || need == nil || a.importZip != "" {
 		t.Fatalf("skip: %v, %v, kept %q", need, err, a.importZip)
+	}
+}
+
+// With no token doubledouble says from Init that it needs its check. The App starts the enabled downloaders at
+// startup, so the Settings line shows, and a download fixed to it is refused, before any track reaches it.
+func TestFirstRunCheckShowsAtStartup(t *testing.T) {
+	a := newPluginApp(t, t.TempDir(), nil, srcPlug("amazon", "Amazon Music", nil, amazonCan...),
+		dlPlug("doubledouble", "DoubleDouble", map[string]any{"initNeeds": "Needs the browser check"}))
+	dd := func() source.Status {
+		for _, s := range a.GetSourceStatus() {
+			if s.Name == "doubledouble" {
+				return s
+			}
+		}
+		return source.Status{}
+	}
+	waitFor(t, func() bool { return dd().NeedsAction })
+	if s := dd(); s.Action != "check" || s.Reason != "doubledouble: Needs the browser check" {
+		t.Fatalf("status %+v", s)
+	}
+	if err := a.DownloadTracks(req(t, "", "doubledouble", "B00A3SGXAA")); err == nil || err.Error() != "doubledouble: Needs the browser check" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A hung source plugin cannot hang the search box: the call gives up after sourceTimeout.
+func TestSearchTimesOut(t *testing.T) {
+	swap(t, &sourceTimeout, 500*time.Millisecond)
+	a := newPluginApp(t, t.TempDir(), nil, srcPlug("spotify", "Spotify", map[string]any{"searchSleep": "30s"}, spotifyCan...))
+	start := time.Now()
+	if _, err := a.Search("spotify", "q", 0); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("Search took %v", d)
 	}
 }

@@ -25,6 +25,12 @@ import (
 // actionTimeout bounds a plugin's settings action, e.g. a browser check the user has to pass. A var for tests.
 var actionTimeout = 10 * time.Minute
 
+// sourceTimeout bounds a source plugin's search, preview or link lookup, metadataTimeout its metadata fetch. Vars for tests.
+var (
+	sourceTimeout   = 30 * time.Second
+	metadataTimeout = 120 * time.Second
+)
+
 // The guard fields a downloader with a guard gets on top of its own settings, stored with them.
 const (
 	guardLimitKey = "$guardLimit"
@@ -172,6 +178,22 @@ func (a *App) syncDownloaders() {
 	}
 }
 
+// startDownloaders starts every enabled downloader in the background, so a status it reports from Init, such as
+// doubledouble needing its check, shows before the first track reaches it. Startup never waits for them.
+func (a *App) startDownloaders() {
+	for _, e := range a.reg.Enabled(plugin.KindDownloader) {
+		go func(id string) {
+			h, err := a.reg.Host(id)
+			if err == nil {
+				err = h.Start()
+			}
+			if err != nil && !errors.Is(err, plugin.ErrClosed) {
+				log.Printf("plugin %s: start: %v", id, err)
+			}
+		}(e.M.ID)
+	}
+}
+
 // sourceLabel is how the UI names a source plugin's service.
 func sourceLabel(e plugin.Entry) string {
 	if e.M.Source == nil {
@@ -210,7 +232,9 @@ func (a *App) Search(service, query string, limit int) (*model.SearchResponse, e
 	if err != nil {
 		return nil, err
 	}
-	return s.Search(context.Background(), query, limit)
+	ctx, cancel := context.WithTimeout(context.Background(), sourceTimeout)
+	defer cancel()
+	return s.Search(ctx, query, limit)
 }
 
 func (a *App) SearchByType(service, query, typ string, limit, offset int) ([]model.SearchResult, error) {
@@ -227,7 +251,9 @@ func (a *App) SearchByType(service, query, typ string, limit, offset int) ([]mod
 	if err != nil {
 		return nil, err
 	}
-	return s.SearchByType(context.Background(), query, typ, limit, offset)
+	ctx, cancel := context.WithTimeout(context.Background(), sourceTimeout)
+	defer cancel()
+	return s.SearchByType(ctx, query, typ, limit, offset)
 }
 
 // GetPreviewURL is "" when no source of service is on or it has no previews.
@@ -236,7 +262,9 @@ func (a *App) GetPreviewURL(service, id string) (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	u, err := s.Preview(context.Background(), id)
+	ctx, cancel := context.WithTimeout(context.Background(), sourceTimeout)
+	defer cancel()
+	u, err := s.Preview(ctx, id)
 	if errors.Is(err, plugin.ErrCannot) {
 		return "", nil
 	}
@@ -258,7 +286,9 @@ func (a *App) GetMetadata(url string) (string, error) {
 		}
 		return "", fmt.Errorf("Unsupported link. Paste a link from %s.", orList(labels))
 	}
-	raw, err := s.Metadata(context.Background(), url)
+	ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+	defer cancel()
+	raw, err := s.Metadata(ctx, url)
 	if err != nil {
 		return "", err
 	}
