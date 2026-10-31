@@ -110,6 +110,22 @@ func TestConvertSameFormat(t *testing.T) {
 	}
 }
 
+// An uppercase extension is the same format: no FFmpeg run, and the input is never removed (on NTFS
+// X.MP3 and X.mp3 are one file, so a remux would rename over it and then delete the result).
+func TestConvertSameFormatUppercaseExt(t *testing.T) {
+	in := filepath.Join(t.TempDir(), "X.MP3")
+	if err := os.WriteFile(in, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Convert(context.Background(), "no-such-ffmpeg", in, "mp3-320")
+	if err != nil || got != in {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if b, _ := os.ReadFile(in); string(b) != "data" {
+		t.Error("input touched")
+	}
+}
+
 // tools returns ffmpeg and ffprobe, skipping the test when either is missing.
 func tools(t *testing.T) (ffmpeg, ffprobe string) {
 	t.Helper()

@@ -85,10 +85,11 @@ func Convert(ctx context.Context, ffmpeg, in, format string) (string, error) {
 	if ext == "" {
 		return "", fmt.Errorf("convert to %s: unknown format", format)
 	}
-	out := strings.TrimSuffix(in, filepath.Ext(in)) + ext
-	if out == in {
+	// EqualFold: on Windows X.MP3 and X.mp3 name one file, and the remux below would replace and then remove it.
+	if strings.EqualFold(filepath.Ext(in), ext) {
 		return in, nil
 	}
+	out := strings.TrimSuffix(in, filepath.Ext(in)) + ext
 	part := out + ".part"
 
 	cmd := exec.CommandContext(ctx, ffmpeg, Args(in, part, format)...)
