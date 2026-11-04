@@ -197,6 +197,80 @@ func (r *Registry) install(p pkg, replace bool, budget *int64) error {
 	return nil
 }
 
+// RestoreBuiltin puts back, from a zip of <id>/... folders, every built-in plugin whose builtinDir/<id> is missing
+// or no longer matches its baked sum. A folder is swapped in only once its unpacked files match that sum, so a
+// tampered zip installs nothing. It returns the ids it restored; the error names the ids it could not.
+func (r *Registry) RestoreBuiltin(zipPath string) (restored []string, err error) {
+	if r.builtinDir == "" {
+		return nil, errors.New("the folder of sonar.exe is unknown")
+	}
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	if err := checkZip(zr); err != nil {
+		return nil, err
+	}
+	budget := maxInstallSize
+	var errs []error
+	r.installMu.Lock()
+	for _, id := range slices.Sorted(maps.Keys(r.sums)) {
+		dest := filepath.Join(r.builtinDir, id)
+		if sum, err := Checksum(dest); err == nil && sum == r.sums[id] {
+			continue
+		}
+		if err := r.restoreOne(id, dest, members(zr, id+"/"), &budget); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", id, err))
+			continue
+		}
+		restored = append(restored, id)
+	}
+	r.installMu.Unlock()
+	r.Refresh()
+	return restored, errors.Join(errs...)
+}
+
+// restoreOne unpacks files next to dest, checks the sum, then swaps the copy in. Call with installMu held.
+func (r *Registry) restoreOne(id, dest string, files []member, budget *int64) error {
+	if len(files) == 0 {
+		return errors.New("not in the archive")
+	}
+	if err := os.MkdirAll(r.builtinDir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp(r.builtinDir, ".install-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp) // nothing is left of it after the rename
+	for _, m := range files {
+		if err := extract(m.f, filepath.Join(tmp, filepath.FromSlash(m.rel)), budget); err != nil {
+			return err
+		}
+	}
+	if sum, err := Checksum(tmp); err != nil {
+		return err
+	} else if sum != r.sums[id] {
+		return errors.New("the download does not match this version of sonar")
+	}
+	if _, err := os.Lstat(dest); err != nil {
+		return os.Rename(tmp, dest)
+	}
+	old, err := r.moveAside(dest)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Rename(old, dest)
+		return err
+	}
+	if err := os.RemoveAll(old); err != nil {
+		r.logf("%s: %v", old, err)
+	}
+	return nil
+}
+
 // userCopies lists the userDir folders whose manifest id is id; folder names don't matter (Discover goes by id).
 func (r *Registry) userCopies(id string) (dirs []string) {
 	entries, _ := os.ReadDir(r.userDir)

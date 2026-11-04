@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,12 +69,115 @@ type PluginView struct {
 	Blocked    string         `json:"blocked"`    // the label of a source it needs that is off or missing, e.g. "Amazon Music"
 }
 
-// userPluginsDir is where the user's plugins go: %LOCALAPPDATA%\Sonar\plugins, else <dataDir>/plugins.
-func userPluginsDir(dataDir string) string {
-	if d := os.Getenv("LOCALAPPDATA"); d != "" {
-		return filepath.Join(d, "Sonar", "plugins")
+// appVersion is this build's version, as in wails.json; SyncPlugins downloads the release of the same version.
+const appVersion = "0.1.0"
+
+// pluginsZipURL is the release asset that holds the official plugins, <id>/... per plugin. A var for tests.
+var pluginsZipURL = "https://github.com/Laynholt/sonar/releases/download/v" + appVersion + "/plugins.zip"
+
+// pluginDirs is where plugins live: <exe>/plugins/official for the ones shipped with sonar, <exe>/plugins/custom
+// for the user's. Without the exe's folder there are no official ones and custom is <dataDir>/plugins/custom.
+func pluginDirs(exeDir, dataDir string) (official, custom string) {
+	if exeDir == "" {
+		return "", filepath.Join(dataDir, "plugins", "custom")
 	}
-	return filepath.Join(dataDir, "plugins")
+	root := filepath.Join(exeDir, "plugins")
+	return filepath.Join(root, "official"), filepath.Join(root, "custom")
+}
+
+// moveOldPlugins carries plugins from the old layout into official and custom: a built-in id's folder that sat
+// right in <exe>/plugins goes to official (a stale one is dropped when official already has it), any other plugin
+// there or in oldUser (%LOCALAPPDATA%\Sonar\plugins) goes to custom. A folder that cannot move stays and is logged.
+func moveOldPlugins(official, custom, oldUser string, sums map[string]string) {
+	move := func(from, to string) {
+		if _, err := os.Lstat(to); err == nil {
+			return
+		}
+		if err := moveTree(from, to); err != nil {
+			log.Printf("plugins: moving %s to %s: %v", from, to, err)
+		}
+	}
+	if official != "" {
+		root := filepath.Dir(official)
+		entries, _ := os.ReadDir(root)
+		for _, e := range entries {
+			from := filepath.Join(root, e.Name())
+			if _, err := os.Stat(filepath.Join(from, "plugin.json")); !e.IsDir() || err != nil {
+				continue // official, custom and templates hold no plugin.json of their own
+			}
+			if _, builtin := sums[e.Name()]; !builtin {
+				move(from, filepath.Join(custom, e.Name()))
+			} else if _, err := os.Lstat(filepath.Join(official, e.Name())); err == nil {
+				if err := os.RemoveAll(from); err != nil {
+					log.Printf("plugins: removing the old copy %s: %v", from, err)
+				}
+			} else {
+				move(from, filepath.Join(official, e.Name()))
+			}
+		}
+	}
+	if oldUser == "" || filepath.Clean(oldUser) == filepath.Clean(custom) {
+		return
+	}
+	entries, _ := os.ReadDir(oldUser)
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			move(filepath.Join(oldUser, e.Name()), filepath.Join(custom, e.Name()))
+		}
+	}
+	os.Remove(oldUser) // only once it is empty
+}
+
+// moveTree renames from to to, or copies and deletes it when they are on different drives.
+func moveTree(from, to string) error {
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	if os.Rename(from, to) == nil {
+		return nil
+	}
+	if err := os.CopyFS(to, os.DirFS(from)); err != nil {
+		os.RemoveAll(to) // a half copy must not stand in for the plugin
+		return err
+	}
+	return os.RemoveAll(from)
+}
+
+// SyncPlugins downloads this version's official plugins from GitHub and puts back the ones that are missing or
+// damaged. It returns the ids it restored, [] when all were in place.
+func (a *App) SyncPlugins() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pluginsZipURL, nil)
+	if err != nil {
+		return []string{}, err
+	}
+	resp, err := httpx.StreamClient().Do(req)
+	if err != nil {
+		return []string{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return []string{}, fmt.Errorf("download %s: %s", pluginsZipURL, resp.Status)
+	}
+	f, err := os.CreateTemp("", "sonar-plugins-*.zip")
+	if err != nil {
+		return []string{}, err
+	}
+	defer os.Remove(f.Name())
+	const limit = 300 << 20
+	n, err := io.Copy(f, io.LimitReader(resp.Body, limit+1))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && n > limit {
+		err = errors.New("plugins.zip is over 300 MB")
+	}
+	if err != nil {
+		return []string{}, err
+	}
+	ids, err := a.reg.RestoreBuiltin(f.Name())
+	return append([]string{}, ids...), err
 }
 
 // builtinMissing answers "no_builtin_plugins:<dir>", which the UI explains, when the plugins folder next to
@@ -90,7 +195,7 @@ var builtinOrder = []string{"lucida", "doubledouble"}
 func (a *App) openPlugins(builtinDir, userDir string, sums map[string]string) {
 	a.pluginsDir, a.builtinDir = userDir, builtinDir
 	if err := a.builtinMissing(); err != nil {
-		log.Printf("plugins: the built-in plugins folder %s is missing; reinstall sonar", builtinDir)
+		log.Printf("plugins: the official plugins folder %s is missing; press Sync on the Plugins page", builtinDir)
 	}
 	a.reg = plugin.OpenRegistry(a.dataDir, builtinDir, userDir, sums, a.pluginInit, log.Printf)
 	a.reg.DefaultOrder = builtinOrder

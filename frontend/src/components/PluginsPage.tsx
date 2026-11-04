@@ -11,7 +11,7 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { errorMessage } from "@/lib/utils";
 import {
     ExportPlugins, ImportPlugins, InstallPlugin, ListPlugins, OpenPluginsFolder, RefreshPlugins, RemovePlugin,
-    RunPluginAction, SetPluginEnabled, SetPluginOrder, SetPluginSettings,
+    RunPluginAction, SetPluginEnabled, SetPluginOrder, SetPluginSettings, SyncPlugins,
 } from "../../wailsjs/go/main/App";
 import type { main } from "../../wailsjs/go/models";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
@@ -147,6 +147,16 @@ export function PluginsPage() {
             setAsk({ title: t("plugins.replaceTitle"), body: t("plugins.replaceBody"), actions: [{ label: t("plugins.replace"), run: () => install(true) }] });
         }
     };
+    // Sync downloads this version's official plugins and puts back the missing or damaged ones.
+    const [syncing, setSyncing] = useState(false);
+    const sync = async () => {
+        setSyncing(true);
+        try {
+            const ids = (await SyncPlugins()) ?? [];
+            toast.success(ids.length ? t("plugins.synced", { names: names(ids, await load()) }) : t("plugins.syncNothing"));
+        }
+        finally { setSyncing(false); }
+    };
     const exportAll = async () => {
         const path = await ExportPlugins();
         if (path) toast.success(t("plugins.exported", { path }));
@@ -175,6 +185,7 @@ export function PluginsPage() {
     return (<div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={() => void run(RefreshPlugins)}>{t("plugins.refresh")}</Button>
+        <Button variant="outline" size="sm" disabled={syncing} onClick={() => void run(sync)}>{t(syncing ? "plugins.syncing" : "plugins.sync")}</Button>
         <Button variant="outline" size="sm" onClick={() => void run(() => install(false))}>{t("plugins.install")}</Button>
         <Button variant="outline" size="sm" onClick={() => void run(exportAll)}>{t("plugins.export")}</Button>
         <Button variant="outline" size="sm" onClick={() => void run(() => importAll(""))}>{t("plugins.import")}</Button>

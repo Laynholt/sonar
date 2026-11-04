@@ -32,8 +32,8 @@ type App struct {
 	second  bool // another instance holds history.db, and owns queue.json: this one neither restores nor saves it
 
 	reg        *plugin.Registry
-	pluginsDir string     // the user's plugins folder
-	builtinDir string     // the plugins folder next to sonar.exe, "" when the exe's folder is unknown
+	pluginsDir string     // the user's plugins folder, <exe>/plugins/custom
+	builtinDir string     // the official plugins folder, <exe>/plugins/official; "" when the exe's folder is unknown
 	syncMu     sync.Mutex // serialises syncDownloaders
 	sources    *source.Balancer
 	dl         *download.Queue
@@ -91,11 +91,16 @@ func (a *App) init() {
 	}
 	a.findFFmpeg = convert.FindFFmpeg
 	a.ffLatest, a.ffInstall = ffinstall.Latest, ffinstall.Install
-	builtin := ""
-	if exe := convert.ExeDir(); exe != "" {
-		builtin = filepath.Join(exe, "plugins")
+	sums := plugin.ParseSums(plugin.BuiltinSums)
+	official, custom := pluginDirs(convert.ExeDir(), a.dataDir)
+	if !a.second && !generatingBindings { // a second instance runs these plugins, and their exes are locked
+		oldUser := ""
+		if d := os.Getenv("LOCALAPPDATA"); d != "" {
+			oldUser = filepath.Join(d, "Sonar", "plugins")
+		}
+		moveOldPlugins(official, custom, oldUser, sums)
 	}
-	a.openPlugins(builtin, userPluginsDir(a.dataDir), plugin.ParseSums(plugin.BuiltinSums))
+	a.openPlugins(official, custom, sums)
 	a.migrateAtStartup()
 	a.startQueue(a.fetch)
 }

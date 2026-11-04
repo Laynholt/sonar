@@ -568,3 +568,47 @@ func TestImportStateGrantsNothing(t *testing.T) {
 		t.Fatalf("mine: %+v", m)
 	}
 }
+
+func TestRestoreBuiltin(t *testing.T) {
+	e := newEnv(t)
+	good := putFake(t, e.builtin, "good", "1.0.0") // intact: left alone
+	e.bless(t, "good", good)
+	gone := putFake(t, e.builtin, "gone", "1.0.0")
+	e.bless(t, "gone", gone)
+	want := map[string]string{}
+	filepath.WalkDir(gone, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(gone, p)
+			want["gone/"+filepath.ToSlash(rel)] = readFile(t, p)
+		}
+		return nil
+	})
+	os.RemoveAll(gone)
+	broken := putFake(t, e.builtin, "broken", "1.0.0")
+	e.bless(t, "broken", broken)
+	os.WriteFile(filepath.Join(broken, "plugin.json"), []byte("{}"), 0o644)
+	e.sums["absent"] = "00" // the zip lacks it
+	r := e.open(t)
+
+	var pairs []string
+	for name, body := range want {
+		pairs = append(pairs, name, body)
+	}
+	pairs = append(pairs, "broken/plugin.json", "tampered") // a wrong sum must not be swapped in
+	restored, err := r.RestoreBuiltin(mkZip(t, pairs...))
+	if !slices.Equal(restored, []string{"gone"}) {
+		t.Fatalf("restored %v", restored)
+	}
+	if err == nil || !strings.Contains(err.Error(), "absent: not in the archive") || !strings.Contains(err.Error(), "broken: the download does not match") {
+		t.Fatalf("err: %v", err)
+	}
+	if g, ok := r.Get("gone"); !ok || !g.Builtin {
+		t.Fatalf("gone after restore: %+v", g)
+	}
+	if got := readFile(t, filepath.Join(broken, "plugin.json")); got != "{}" {
+		t.Fatalf("broken was replaced by a tampered copy: %q", got)
+	}
+	if left, _ := filepath.Glob(filepath.Join(e.builtin, ".*")); len(left) != 0 {
+		t.Fatalf("temps left: %v", left)
+	}
+}

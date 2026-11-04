@@ -47,7 +47,7 @@ Limits:
 
 ## Plugins
 
-Everything that talks to a site is a plugin, a folder with a `plugin.json` and a program: Spotify and Amazon Music are sources, lucida and doubledouble are downloaders, chosic is a genre tagger. They ship with sonar and can be turned off. Settings > Plugins lists them, turns them on and off, orders them, edits their settings, installs a plugin from a zip, and exports or imports all your plugins with their settings.
+Everything that talks to a site is a plugin, a folder with a `plugin.json` and a program: Spotify and Amazon Music are sources, lucida and doubledouble are downloaders, chosic is a genre tagger. They ship with sonar in `plugins/official` next to `sonar.exe` and can be turned off; your own plugins go to `plugins/custom`. If an official plugin is deleted or damaged, **Sync official** downloads `plugins.zip` from the GitHub release of the same version and puts it back, checking it against the checksum built into `sonar.exe`. Settings > Plugins lists them, turns them on and off, orders them, edits their settings, installs a plugin from a zip, and exports or imports all your plugins with their settings.
 
 Third-party plugins run with your rights, so sonar asks for confirmation before turning one on. Anyone can write one, in any language, by following [docs/plugins.md](docs/plugins.md) (in Russian); `plugins/templates/` has a Python (standard library only) and a Go template for a source, a downloader and a tagger.
 
@@ -78,7 +78,7 @@ The three planned stages and the plugin core are done. Next: a platform for util
 ## Run and build
 
 ```powershell
-go run ./cmd/build        # builds the plugins, then sonar; output: build/bin/sonar.exe and build/bin/plugins/
+go run ./cmd/build        # builds the plugins, then sonar; output: build/bin/sonar.exe, build/bin/plugins/official/ and build/bin/plugins.zip (the release asset)
 go run ./cmd/build -dev   # the same with hot reload (wails dev)
 ```
 

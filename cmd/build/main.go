@@ -1,10 +1,12 @@
-// Command build builds the built-in plugins into build/bin/plugins and then sonar itself,
-// with the plugin checksums baked in. Run it from the repo root:
+// Command build builds the official plugins into build/bin/plugins/official, zips them into
+// build/bin/plugins.zip (the release asset Sync downloads), then builds sonar with their checksums baked in.
+// build/bin/plugins/custom is left alone. Run it from the repo root:
 //
 //	go run ./cmd/build [-plugins-only] [-dev]
 package main
 
 import (
+	"archive/zip"
 	"flag"
 	"fmt"
 	"os"
@@ -34,7 +36,7 @@ func run(pluginsOnly, dev bool) error {
 	if err != nil {
 		return err
 	}
-	out := filepath.Join("build", "bin", "plugins")
+	out := filepath.Join("build", "bin", "plugins", "official")
 	if err := os.RemoveAll(out); err != nil { // no stale plugin outlives its source
 		return err
 	}
@@ -46,6 +48,9 @@ func run(pluginsOnly, dev bool) error {
 		}
 		fmt.Printf("plugin %s  %s\n", id, sum)
 		sums = append(sums, id+"="+sum)
+	}
+	if err := zipDir(out, filepath.Join("build", "bin", "plugins.zip")); err != nil {
+		return err
 	}
 	if pluginsOnly {
 		return nil
@@ -92,6 +97,24 @@ func buildPlugin(id, dir string) (string, error) {
 		return "", err
 	}
 	return plugin.Checksum(dir)
+}
+
+// zipDir writes every file under dir to zipPath, named relative to dir with forward slashes.
+func zipDir(dir, zipPath string) error {
+	f, err := os.Create(zipPath)
+	if err != nil {
+		return err
+	}
+	zw := zip.NewWriter(f)
+	if err := zw.AddFS(os.DirFS(dir)); err != nil {
+		f.Close()
+		return err
+	}
+	if err := zw.Close(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func sh(name string, args ...string) error {

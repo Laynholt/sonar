@@ -14,7 +14,7 @@ describe("textIn", () => {
 describe("binding answers", () => {
     it("explains a missing built-in plugins folder and passes any other error on", () => {
         expect(explainMissingPlugins(new Error("no_builtin_plugins:C:\\sonar\\plugins")))
-            .toBe("The plugins folder next to sonar.exe is missing (C:\\sonar\\plugins). Reinstall sonar.");
+            .toBe("The official plugins folder is missing (C:\\sonar\\plugins). Press Sync official on the Plugins page.");
         const other = new Error("boom");
         expect(explainMissingPlugins(other)).toBe(other);
     });

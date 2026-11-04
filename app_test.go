@@ -2,9 +2,9 @@ package main
 
 import (
 	"os"
-	"strings"
 	"testing"
 
+	"sonar/internal/convert"
 	"sonar/internal/history"
 	"sonar/internal/httpx"
 )
@@ -100,7 +100,7 @@ func TestInitOpensHistoryAndAppliesSavedProxy(t *testing.T) {
 	if got := httpx.ManualProxy(); got != "http://saved:9" {
 		t.Fatalf("manual proxy = %q", got)
 	}
-	if a.pluginsDir != user+`\Sonar\plugins` && a.pluginsDir != user+"/Sonar/plugins" {
+	if _, want := pluginDirs(convert.ExeDir(), dir); a.pluginsDir != want {
 		t.Fatalf("plugins dir = %q", a.pluginsDir)
 	}
 	if p := a.pluginInit("x"); p.Lang != "ru" || p.Proxy != "http://saved:9" || p.EffectiveProxy != "http://saved:9" {
@@ -120,9 +120,3 @@ func TestInitOpensHistoryAndAppliesSavedProxy(t *testing.T) {
 	}
 }
 
-func TestUserPluginsDir(t *testing.T) {
-	t.Setenv("LOCALAPPDATA", "")
-	if got := userPluginsDir("D"); !strings.HasSuffix(got, "plugins") || !strings.HasPrefix(got, "D") {
-		t.Fatalf("got %q", got)
-	}
-}

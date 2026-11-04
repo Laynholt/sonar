@@ -6,7 +6,7 @@ import { toastWithSound } from "@/lib/toast-with-sound";
 import type { main, plugin } from "../../wailsjs/go/models";
 import {
     ExportPlugins, ImportPlugins, InstallPlugin, ListPlugins, OpenPluginsFolder, RefreshPlugins, RemovePlugin,
-    RunPluginAction, SetPluginEnabled, SetPluginOrder, SetPluginSettings,
+    RunPluginAction, SetPluginEnabled, SetPluginOrder, SetPluginSettings, SyncPlugins,
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { PluginsPage, SAVE_DELAY } from "./PluginsPage";
@@ -16,6 +16,7 @@ vi.mock("@/components/ui/select", () => import("../test/nativeSelect"));
 vi.mock("../../wailsjs/go/main/App", () => ({
     ListPlugins: vi.fn(), RefreshPlugins: vi.fn(), SetPluginEnabled: vi.fn(), SetPluginOrder: vi.fn(), SetPluginSettings: vi.fn(),
     RunPluginAction: vi.fn(), InstallPlugin: vi.fn(), RemovePlugin: vi.fn(), ExportPlugins: vi.fn(), ImportPlugins: vi.fn(), OpenPluginsFolder: vi.fn(),
+    SyncPlugins: vi.fn(),
 }));
 vi.mock("../../wailsjs/runtime/runtime", () => ({ EventsOn: vi.fn() }));
 vi.mock("@/lib/toast-with-sound", () => ({ toastWithSound: { success: vi.fn(), error: vi.fn() } }));
@@ -67,6 +68,19 @@ describe("PluginsPage list", () => {
         expect(rowSwitch("lucida").getAttribute("aria-checked")).toBe("true");
         expect(row("extra").textContent).toContain("Third-party");
         expect(row("extra").textContent).toContain("Ann");
+    });
+
+    it("syncs the official plugins and names the restored ones", async () => {
+        await open();
+        const sync = deferred<string[]>();
+        vi.mocked(SyncPlugins).mockReturnValue(sync.promise);
+        await act(async () => { button(view.container, "Sync official").click(); });
+        expect(button(view.container, "Syncing…").disabled).toBe(true);
+        await act(async () => { sync.resolve(["lucida"]); });
+        expect(toastWithSound.success).toHaveBeenCalledWith("Restored: Lucida");
+        vi.mocked(SyncPlugins).mockResolvedValue([]);
+        await act(async () => { button(view.container, "Sync official").click(); });
+        expect(toastWithSound.success).toHaveBeenLastCalledWith("All official plugins are in place");
     });
 
     it("offers Remove on third-party rows only", async () => {
