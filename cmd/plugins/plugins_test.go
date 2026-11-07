@@ -350,6 +350,7 @@ func TestDownloaderUnavailable(t *testing.T) {
 }
 
 func TestDoubleDoubleNeedsAction(t *testing.T) {
+	t.Setenv("SONAR_DD_BASE", "http://127.0.0.1:1") // no token and no auto-solver: the check must be asked for at once
 	h := start(t, "doubledouble")
 	var mu sync.Mutex
 	var statuses []plugin.PluginStatus
@@ -372,7 +373,7 @@ func TestDoubleDoubleNeedsAction(t *testing.T) {
 	if len(statuses) != 1 || statuses[0].Available || statuses[0].NeedsAction == nil || statuses[0].NeedsAction.Action != "check" {
 		t.Fatalf("statuses %+v", statuses)
 	}
-	const hint = "In that window: untick “Upload to”"
+	const hint = "doubledouble needs a CAPTCHA token"
 	if !strings.HasPrefix(statuses[0].NeedsAction.Message, hint) || !strings.HasPrefix(na.Message, hint) {
 		t.Errorf("status %q, error data %q", statuses[0].NeedsAction.Message, na.Message)
 	}
@@ -380,6 +381,7 @@ func TestDoubleDoubleNeedsAction(t *testing.T) {
 
 // The check's instructions follow the user's language.
 func TestDoubleDoubleHintInRussian(t *testing.T) {
+	t.Setenv("SONAR_DD_BASE", "http://127.0.0.1:1")
 	h := plugin.NewHost(plugin.Found{M: manifest(t, "doubledouble"), Dir: built["doubledouble"]}, func() plugin.InitParams {
 		return plugin.InitParams{Contract: plugin.Contract, Lang: "ru", Settings: map[string]any{}, DataDir: t.TempDir()}
 	}, t.Logf)
@@ -387,7 +389,7 @@ func TestDoubleDoubleHintInRussian(t *testing.T) {
 	_, err := download(h, filepath.Join(t.TempDir(), "x"), nil)
 	var pe *plugin.Error
 	var na plugin.NeedsAction
-	if !errors.As(err, &pe) || json.Unmarshal(pe.Data, &na) != nil || !strings.HasPrefix(na.Message, "В этом окне снимите галку") {
+	if !errors.As(err, &pe) || json.Unmarshal(pe.Data, &na) != nil || !strings.HasPrefix(na.Message, "doubledouble нужен CAPTCHA-токен") {
 		t.Fatalf("err %v, data %s", err, pe.Data)
 	}
 }

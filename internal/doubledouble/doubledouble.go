@@ -2,15 +2,18 @@
 package doubledouble
 
 import (
+	"archive/zip"
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +30,7 @@ type Client struct {
 	Base      string
 	PollEvery time.Duration
 	TokenPath string
+	Solver    Solver // starts a job when the stored token is missing; nil keeps the old needs-check behavior
 
 	mu       sync.Mutex  // guards the token file
 	startMu  sync.Mutex  // serializes start so a rotated token is never sent twice
@@ -153,9 +157,28 @@ func (c *Client) start(ctx context.Context, pageURL string) (string, error) {
 	defer c.startMu.Unlock()
 	token := c.Token()
 	if token == "" {
-		return "", fmt.Errorf("doubledouble: %w", source.ErrNeedsCheck)
+		if c.Solver == nil {
+			return "", fmt.Errorf("doubledouble: %w", source.ErrNeedsCheck)
+		}
+		// The exchange in the browser starts the job itself: the token it
+		// returns is stored for the following downloads, which use it directly.
+		id, fresh, err := c.Solver.StartWithCaptcha(ctx, pageURL)
+		if err != nil {
+			switch {
+			case errors.Is(err, source.ErrNeedsCheck): // a stuck CAPTCHA keeps the check button
+				return "", err
+			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+				return "", err // the user's cancel must not pause the site
+			}
+			return "", fmt.Errorf("doubledouble: %w: %v", source.ErrUnavailable, err)
+		}
+		if err := c.SetToken(fresh); err != nil {
+			return "", fmt.Errorf("doubledouble: %w", err)
+		}
+		return id, nil
 	}
-	q := url.Values{"url": {pageURL}, "addmetadata": {"true"}, "donotshare": {"true"}, "token": {token}}
+	// addmetadata=false: with it the site packs a ZIP, and sonar writes the tags itself
+	q := url.Values{"url": {pageURL}, "addmetadata": {"false"}, "donotshare": {"true"}, "token": {token}}
 	var a startAnswer
 	if err := c.fetchJSON(ctx, c.Base+"/dl?"+q.Encode(), &a); err != nil {
 		return "", err
@@ -259,6 +282,18 @@ func (c *Client) Download(ctx context.Context, trackURL, pathNoExt string, onSta
 		return "", err
 	}
 	defer resp.Body.Close()
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/zip") {
+		// the site packs the track even with addmetadata=false; sonar tags the
+		// file itself, so only the audio inside is needed
+		path, zerr := saveZipAudio(resp, pathNoExt)
+		if zerr != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				return "", cerr
+			}
+			return "", fmt.Errorf("doubledouble: %w", zerr)
+		}
+		return path, nil
+	}
 	path, err := source.Save(resp, pathNoExt)
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
@@ -267,4 +302,66 @@ func (c *Client) Download(ctx context.Context, trackURL, pathNoExt string, onSta
 		return "", fmt.Errorf("doubledouble: %w", err)
 	}
 	return path, nil
+}
+
+// saveZipAudio unpacks the archive the site sends and moves the largest audio
+// entry next to pathNoExt under its extension.
+func saveZipAudio(resp *http.Response, pathNoExt string) (string, error) {
+	zipFile, err := os.CreateTemp("", "doubledouble-*.zip")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(zipFile.Name())
+	if _, err := io.Copy(zipFile, resp.Body); err != nil {
+		zipFile.Close()
+		return "", err
+	}
+	if err := zipFile.Close(); err != nil {
+		return "", err
+	}
+	r, err := zip.OpenReader(zipFile.Name())
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	var best *zip.File
+	for i := range r.File {
+		f := r.File[i]
+		switch strings.ToLower(filepath.Ext(f.Name)) {
+		case ".flac", ".mp3", ".m4a":
+			if best == nil || f.UncompressedSize64 > best.UncompressedSize64 {
+				best = f
+			}
+		}
+	}
+	if best == nil {
+		return "", errors.New("the archive has no audio track")
+	}
+	ext := strings.ToLower(filepath.Ext(best.Name))
+	final := pathNoExt + ext
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return "", err
+	}
+	in, err := best.Open()
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	part := final + ".part"
+	out, err := os.Create(part)
+	if err != nil {
+		return "", err
+	}
+	_, err = io.Copy(out, in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(part, final)
+	}
+	if err != nil {
+		os.Remove(part)
+		return "", err
+	}
+	return final, nil
 }
