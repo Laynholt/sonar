@@ -1,23 +1,37 @@
 {
   "id": "doubledouble",
   "name": "DoubleDouble",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "sonar",
-  "description": "Downloads Amazon Music tracks through doubledouble.top. Needs a one-time browser check.",
+  "description": "Downloads Amazon Music tracks through doubledouble.top. The CAPTCHA check passes by itself in an invisible browser; a manual window is the fallback.",
   "kind": "downloader",
-  "run": ["doubledouble"],
+  "run": [
+    "doubledouble"
+  ],
   "contract": 1,
   "settings": [
     {
       "key": "check",
       "type": "button",
       "action": "check",
-      "label": { "en": "Pass check", "ru": "Пройти проверку" }
+      "label": {
+        "en": "Pass check",
+        "ru": "Пройти проверку"
+      }
     }
   ],
   "downloader": {
     "accepts": "amazon",
     "parallel": 1,
-    "guard": { "limit": 50, "waits": [15, 30, 60, 120], "wait": 30 }
+    "guard": {
+      "limit": 50,
+      "waits": [
+        15,
+        30,
+        60,
+        120
+      ],
+      "wait": 30
+    }
   }
 }

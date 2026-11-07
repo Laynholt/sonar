@@ -11,18 +11,16 @@ import (
 	"sync/atomic"
 
 	"sonar/cmd/plugins/internal/dl"
+	"sonar/internal/browser"
 	"sonar/internal/doubledouble"
 	"sonar/internal/plugin"
 	"sonar/internal/plugin/sdk"
 )
 
-// checkTrackURL is the page the browser check opens, the same one the in-process check used.
-const checkTrackURL = "https://music.amazon.com/tracks/B00A3SGXAA"
-
-// checkHints tell the user what to do in the check's browser window, by language.
+// checkHints tell the user what to do when the automatic pass failed, by language.
 var checkHints = map[string]string{
-	"en": "In that window: untick “Upload to”, tick “Hide my download”, press Download and pass the Cloudflare check. The window closes by itself. Sonar's own downloads always skip both.",
-	"ru": "В этом окне снимите галку «Upload to», поставьте «Hide my download», нажмите Download и пройдите проверку Cloudflare. Окно закроется само. Загрузки самого Sonar всегда идут без заливки и без показа в недавних.",
+	"en": "doubledouble needs a CAPTCHA token. Press “Pass check”: it usually passes by itself in an invisible browser; if a window opens, pass the Cloudflare check in it. The window closes by itself. Sonar's own downloads always skip uploading and stay out of “recently downloaded”.",
+	"ru": "doubledouble нужен CAPTCHA-токен. Нажмите «Пройти проверку»: обычно проверка проходится сама в невидимом браузере; если откроется окно, пройдите проверку Cloudflare в нём. Окно закроется само. Загрузки Sonar всегда идут без заливки и без показа в недавних.",
 }
 
 // checkHint is the hint in lang, English for any language it has none in.
@@ -35,7 +33,7 @@ func checkHint(lang string) string {
 
 func main() {
 	var dd *doubledouble.Client // built in Init: the data dir is known only then
-	var profile string
+	var bc *browser.Client
 	client := func() (*doubledouble.Client, error) {
 		if dd == nil {
 			return nil, errors.New("doubledouble: not initialized")
@@ -61,8 +59,22 @@ func main() {
 		if err := os.MkdirAll(p.DataDir, 0o700); err != nil {
 			return err
 		}
-		dd = doubledouble.New(filepath.Join(p.DataDir, "token"))
-		profile = filepath.Join(p.DataDir, "profile")
+		if dd == nil {
+			dd = doubledouble.New(filepath.Join(p.DataDir, "token"))
+			// Test-only: SONAR_DD_BASE points the plugin at a fake site over plain
+			// HTTP, with no browser and no auto-solving.
+			if fakeBase := os.Getenv("SONAR_DD_BASE"); fakeBase != "" {
+				dd.Base = fakeBase
+			} else {
+				if bc == nil {
+					bc = browser.New(p.DataDir) // lazy: no browser runs until a download or a check
+				}
+				bc.SetProxy(p.EffectiveProxy)
+				dd.Solver = doubledouble.BrowserSolver{C: dd, BC: bc}
+			}
+		} else if bc != nil {
+			bc.SetProxy(p.EffectiveProxy)
+		}
 		if dd.Token() == "" {
 			na := needs()
 			s.Status(plugin.PluginStatus{NeedsAction: &na})
@@ -90,11 +102,10 @@ func main() {
 			if err != nil {
 				return nil, err
 			}
-			browser := doubledouble.FindBrowser()
-			if browser == "" {
-				return nil, errors.New("no Chromium-based browser (Chrome or Edge) was found")
+			if bc == nil { // the fake-site test hook runs without a browser
+				return nil, sdk.Fail(plugin.CodeUnavailable, "no browser for the check", nil)
 			}
-			if err := c.Check(ctx, browser, profile, checkTrackURL); err != nil {
+			if err := c.CheckVisibleToken(ctx, bc); err != nil {
 				return nil, err
 			}
 			needing.Store(false)

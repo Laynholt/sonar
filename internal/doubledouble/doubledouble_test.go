@@ -1,6 +1,8 @@
 package doubledouble
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -39,7 +41,8 @@ func TestDownloadFlow(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("url") != trackURL+"?musicTerritory=US" || q.Get("addmetadata") != "true" ||
+		// addmetadata=false: the site packs a ZIP when it adds metadata itself
+		if q.Get("url") != trackURL+"?musicTerritory=US" || q.Get("addmetadata") != "false" ||
 			q.Get("donotshare") != "true" || q.Get("token") != "t1" {
 			t.Errorf("bad query %v", q)
 		}
@@ -318,5 +321,97 @@ func TestWaitResolvesFileURL(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("%s: got %q, %v; want %q", tc.in, got, err, want)
 		}
+	}
+}
+
+// fakeSolver stands in for the browser: it counts calls and hands out tokens.
+type fakeSolver struct {
+	calls    atomic.Int32
+	job, tok string
+	err      error
+}
+
+func (s *fakeSolver) StartWithCaptcha(ctx context.Context, pageURL string) (string, string, error) {
+	if s.err != nil {
+		return "", "", s.err
+	}
+	s.calls.Add(1)
+	return s.job, s.tok, nil
+}
+
+func TestDownloadWithoutTokenUsesSolver(t *testing.T) {
+	var starts atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) { // the stored-token path is never taken
+		t.Error("unexpected /dl call")
+	})
+	mux.HandleFunc("/dl/solved", func(w http.ResponseWriter, r *http.Request) {
+		starts.Add(1)
+		w.Write([]byte(`{"status":"done","url":"./f.flac"}`))
+	})
+	mux.HandleFunc("/f.flac", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/flac")
+		w.Write([]byte("fLaC"))
+	})
+	c, base := newClient(t, mux, "")
+	solver := &fakeSolver{job: "solved", tok: "fresh"}
+	c.Solver = solver
+
+	path, err := c.Download(context.Background(), trackURL, base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(path) != filepath.Base(base)+".flac" {
+		t.Errorf("path %q", path)
+	}
+	if solver.calls.Load() != 1 || starts.Load() != 1 {
+		t.Errorf("solver %d calls, %d polls of the solved job", solver.calls.Load(), starts.Load())
+	}
+	if c.Token() != "fresh" {
+		t.Errorf("token %q, want fresh", c.Token())
+	}
+}
+
+func TestSolverErrorIsWrapped(t *testing.T) {
+	c, base := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "")
+	c.Solver = &fakeSolver{err: errors.New("boom")}
+	_, err := c.Download(context.Background(), trackURL, base, nil)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("err %v", err)
+	}
+	if !errors.Is(err, source.ErrUnavailable) {
+		t.Fatalf("solver errors must be unavailable so sonar pauses the site: %v", err)
+	}
+}
+
+// The site packs the track into a zip even with addmetadata=false.
+func TestDownloadZipUnpacksAudio(t *testing.T) {
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	for name, body := range map[string]string{"cover.jpg": "jpeg", "song.flac": "fLaC-data", "other.mp3": "smaller"} {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(body))
+	}
+	zw.Close()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dl", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"success":true,"id":"z"}`)) })
+	mux.HandleFunc("/dl/z", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"status":"done","url":"./z.zip"}`)) })
+	mux.HandleFunc("/z.zip", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write(zipBuf.Bytes())
+	})
+	c, base := newClient(t, mux, "t1")
+	path, err := c.Download(context.Background(), trackURL, base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(path) != ".flac" {
+		t.Fatalf("path %q", path)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "fLaC-data" {
+		t.Fatalf("content %q", b)
 	}
 }
